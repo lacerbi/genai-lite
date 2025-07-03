@@ -142,17 +142,17 @@ const service = new LLMService(customProvider);
 - 100% test coverage for core functionality
 
 **GitHub Automation & CI/CD:**
-- **Issue Templates**: Structured YAML templates for bug reports and feature requests
-- **Pull Request Template**: Includes self-review checklist and security considerations
-- **CI Workflow** (`.github/workflows/ci.yml`):
-  - Tests on multiple OS: Ubuntu, Windows, macOS
-  - Tests on Node.js versions: 18.x, 20.x, 22.x
-  - Runs security audit (`npm audit --audit-level=high`)
-  - Validates package build (`npm pack --dry-run`)
-- **Dependabot**: Configured for weekly npm and GitHub Actions updates
-- **Dependency Versioning**:
-  - Production dependencies use `^` (caret) for stability
-  - Dev dependencies use `>=` for more flexibility
+- **CI runs automatically** on push/PR to main branch
+- **When CI fails**, check GitHub Actions tab for specific errors:
+  - Missing `package-lock.json` - run `npm install` locally
+  - Test failures - fix tests before pushing
+  - Audit issues - may need to update dependencies
+- **Before pushing changes**, run locally:
+  - `npm test` - ensure all tests pass
+  - `npm audit --audit-level=high` - check for vulnerabilities
+  - `npm run build && npm pack --dry-run` - validate package
+- **Dependency updates**: Dependabot will create PRs weekly
+- **Note on versioning**: Production deps use `^`, dev deps use `>=`
 
 **Still Missing:**
 - Linting configuration (ESLint/Prettier)
@@ -248,17 +248,6 @@ All adapters should use `adapterErrorUtils.ts` patterns:
 3. Test exports with the verification command
 4. Ensure CI passes on GitHub
 5. Publish to npm (when configured)
-
-## Contributing
-
-**Reporting Issues:**
-- Use the GitHub issue templates for bug reports or feature requests
-- Templates ensure all necessary information is provided
-
-**Submitting Pull Requests:**
-- Follow the PR template checklist
-- Ensure all CI checks pass
-- Consider security implications of changes
 
 ## Commit Guidelines
 
