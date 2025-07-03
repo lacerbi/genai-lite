@@ -28,7 +28,7 @@ const llmService = new LLMService(fromEnvironment);
 // Send a message to OpenAI
 const response = await llmService.sendMessage({
   providerId: 'openai',
-  modelId: 'gpt-4',
+  modelId: 'gpt-4.1-mini',
   messages: [
     { role: 'system', content: 'You are a helpful assistant.' },
     { role: 'user', content: 'Hello, how are you?' }
@@ -76,19 +76,36 @@ const llmService = new LLMService(myKeyProvider);
 
 ## Supported Providers & Models
 
-### OpenAI
-- GPT-4 models: `gpt-4`, `gpt-4-turbo-preview`, `gpt-4o`, `gpt-4o-mini`
-- GPT-3.5 models: `gpt-3.5-turbo`
+**Note:** Model IDs include version dates for precise model selection. Always use the exact model ID as shown below.
 
 ### Anthropic (Claude)
-- Claude 3 models: `claude-3-opus`, `claude-3-sonnet`, `claude-3-haiku`
-- Claude 3.5 models: `claude-3.5-sonnet`, `claude-3.5-haiku`
+- **Claude 4** (Latest generation):
+  - `claude-sonnet-4-20250514` - Balanced performance model
+  - `claude-opus-4-20250514` - Most powerful for complex tasks
+- **Claude 3.7**: `claude-3-7-sonnet-20250219` - Advanced reasoning
+- **Claude 3.5**:
+  - `claude-3-5-sonnet-20241022` - Best balance of speed and intelligence
+  - `claude-3-5-haiku-20241022` - Fast and cost-effective
 
 ### Google Gemini
-- Gemini models: `gemini-1.5-pro`, `gemini-1.5-flash`, `gemini-2.0-flash`
+- **Gemini 2.5** (Latest generation):
+  - `gemini-2.5-pro` - Most advanced multimodal capabilities
+  - `gemini-2.5-flash` - Fast with large context window
+  - `gemini-2.5-flash-lite-preview-06-17` - Most cost-effective
+- **Gemini 2.0**:
+  - `gemini-2.0-flash` - High performance multimodal
+  - `gemini-2.0-flash-lite` - Lightweight version
+
+### OpenAI
+- **o4 series**: `o4-mini` - Advanced reasoning model
+- **GPT-4.1 series**:
+  - `gpt-4.1` - Latest GPT-4 with enhanced capabilities
+  - `gpt-4.1-mini` - Cost-effective for most tasks
+  - `gpt-4.1-nano` - Ultra-efficient version
 
 ### Mistral
-- Mistral models: `mistral-tiny`, `mistral-small`, `mistral-medium`
+- `codestral-2501` - Specialized for code generation
+- `devstral-small-2505` - Compact development-focused model
 
 ## Advanced Usage
 
@@ -96,8 +113,8 @@ const llmService = new LLMService(myKeyProvider);
 
 ```typescript
 const response = await llmService.sendMessage({
-  providerId: 'openai',
-  modelId: 'gpt-4',
+  providerId: 'anthropic',
+  modelId: 'claude-3-5-haiku-20241022',
   messages: [{ role: 'user', content: 'Write a haiku' }],
   settings: {
     temperature: 0.7,
@@ -123,7 +140,7 @@ const models = await llmService.getModels('anthropic');
 ```typescript
 const response = await llmService.sendMessage({
   providerId: 'openai',
-  modelId: 'gpt-4',
+  modelId: 'gpt-4.1-mini',
   messages: [{ role: 'user', content: 'Hello' }]
 });
 
