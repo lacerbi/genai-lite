@@ -1,0 +1,27 @@
+# Test files
+**/*.test.ts
+**/*.test.js
+**/*.test.d.ts
+jest.config.js
+coverage/
+
+# Source files (we only want dist)
+src/
+
+# Development files
+.claude/
+CLAUDE.md
+PORTING.md
+.athignore
+.ath_materials/
+
+# GitHub files
+.github/
+
+# Config files
+tsconfig.json
+.npmrc
+
+# Other
+temp-folder/
+website/
