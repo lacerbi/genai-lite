@@ -42,4 +42,7 @@ codebase.md
 /.ath_materials/**/*
 !/.ath_materials/prompts/
 !/.ath_materials/prompts/**/*
-!/.ath_materials/project_settings.jsoncoverage/
+!/.ath_materials/project_settings.json
+
+# Test coverage
+coverage/
