@@ -17,7 +17,8 @@ The genai-lite library has been successfully migrated from an Electron-dependent
 **Build & Development:**
 - `npm install` - Install dependencies
 - `npm run build` - Compile TypeScript to JavaScript (outputs to `dist/`)
-- `npm test` - Run tests (when available)
+- `npm test` - Run tests with coverage
+- `npm run test:watch` - Run tests in watch mode for development
 
 **Testing the Library:**
 ```bash
@@ -134,8 +135,12 @@ const service = new LLMService(customProvider);
 - `src/llm/config.ts` - Provider and model configurations
 - `src/llm/clients/` - Provider-specific adapters
 
+**Testing:**
+- Jest with ts-jest for TypeScript support
+- All tests co-located with source files (e.g., `LLMService.test.ts`)
+- 100% test coverage for core functionality
+
 **Still Missing:**
-- Testing framework and tests
 - Linting configuration (ESLint/Prettier)
 
 ### Provider-Specific Considerations

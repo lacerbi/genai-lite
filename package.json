@@ -19,7 +19,9 @@
   },
   "homepage": "https://github.com/lacerbi/genai-lite#readme",
   "scripts": {
-    "build": "tsc"
+    "build": "tsc",
+    "test": "jest --coverage",
+    "test:watch": "jest --watch"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.52.0",
@@ -27,7 +29,10 @@
     "openai": "^4.103.0"
   },
   "devDependencies": {
+    "@types/jest": "^30.0.0",
     "@types/node": "^20.11.24",
+    "jest": "^30.0.4",
+    "ts-jest": "^29.4.0",
     "typescript": "^5.3.3"
   }
 }
