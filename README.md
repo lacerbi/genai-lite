@@ -161,22 +161,42 @@ if (response.object === 'error') {
 }
 ```
 
-## Migration from Electron
+## Using with Electron
 
-If you're migrating from an Electron app using the previous version:
+`genai-lite` is designed to work seamlessly within an Electron application's main process, especially when paired with a secure storage solution like `genai-key-storage-lite`.
+
+This is the recommended pattern for both new Electron apps and for migrating from older, integrated versions.
+
+### Example with `genai-key-storage-lite`
+
+Here’s how to create a custom `ApiKeyProvider` that uses `genai-key-storage-lite` to securely retrieve API keys.
 
 ```typescript
-// Before (Electron-specific)
+// In your Electron app's main process (e.g., main.ts)
+import { app } from 'electron';
 import { ApiKeyServiceMain } from 'genai-key-storage-lite';
-const llmService = new LLMServiceMain(apiKeyService);
+import { LLMService, type ApiKeyProvider } from 'genai-lite';
 
-// After (Portable)
-import { LLMService, ApiKeyProvider } from 'genai-lite';
-const keyProvider: ApiKeyProvider = async (providerId) => {
-  // Your Electron-specific key retrieval logic
-  return await myElectronKeyStore.getKey(providerId);
+// 1. Initialize Electron's secure key storage service
+const apiKeyService = new ApiKeyServiceMain(app.getPath("userData"));
+
+// 2. Create a custom ApiKeyProvider that uses the secure storage
+const electronKeyProvider: ApiKeyProvider = async (providerId) => {
+  try {
+    // Use withDecryptedKey to securely access the key only when needed.
+    // The key is passed to the callback and its result is returned.
+    return await apiKeyService.withDecryptedKey(providerId, async (key) => key);
+  } catch {
+    // If key is not found or decryption fails, return null.
+    // LLMService will handle this as an authentication error.
+    return null;
+  }
 };
-const llmService = new LLMService(keyProvider);
+
+// 3. Initialize the genai-lite service with our custom provider
+const llmService = new LLMService(electronKeyProvider);
+
+// Now you can use llmService anywhere in your main process.
 ```
 
 ## TypeScript Support
