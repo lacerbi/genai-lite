@@ -6,7 +6,7 @@ import type {
   LLMResponse,
   LLMFailureResponse,
   LLMSettings,
-} from "../../types";
+} from "../types";
 
 /**
  * Internal request structure used by client adapters with applied defaults

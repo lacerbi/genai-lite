@@ -6,7 +6,7 @@ import type {
   LLMFailureResponse,
   ApiProviderId,
   LLMSettings,
-} from "../../types";
+} from "../types";
 import type {
   ILLMClientAdapter,
   InternalLLMChatRequest,
@@ -223,7 +223,7 @@ export class MockClientAdapter implements ILLMClientAdapter {
 
     const mockTokenCount = Math.floor(responseContent.length / 4); // Rough token estimation
     const promptTokenCount = Math.floor(
-      request.messages.reduce((acc, msg) => acc + msg.content.length, 0) / 4
+      request.messages.reduce((acc: number, msg: any) => acc + msg.content.length, 0) / 4
     );
 
     // Determine finish reason
@@ -235,7 +235,7 @@ export class MockClientAdapter implements ILLMClientAdapter {
     ) {
       finishReason = "length";
     } else if (
-      request.settings.stopSequences.some((seq) =>
+      request.settings.stopSequences.some((seq: string) =>
         responseContent.includes(seq)
       )
     ) {

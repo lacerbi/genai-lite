@@ -1,0 +1,1 @@
+export type ApiKeyProvider = (providerId: string) => Promise<string | null>;

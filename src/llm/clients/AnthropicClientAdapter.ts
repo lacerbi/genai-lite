@@ -2,7 +2,7 @@
 // Handles Claude-specific request formatting, response parsing, and error mapping to standardized format.
 
 import Anthropic from "@anthropic-ai/sdk";
-import type { LLMResponse, LLMFailureResponse, LLMMessage } from "../../types";
+import type { LLMResponse, LLMFailureResponse, LLMMessage } from "../types";
 import type {
   ILLMClientAdapter,
   InternalLLMChatRequest,

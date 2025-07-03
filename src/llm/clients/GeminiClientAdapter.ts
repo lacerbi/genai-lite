@@ -6,7 +6,7 @@ import type {
   LLMResponse,
   LLMFailureResponse,
   GeminiSafetySetting,
-} from "../../types";
+} from "../types";
 import type {
   ILLMClientAdapter,
   InternalLLMChatRequest,
@@ -165,7 +165,7 @@ export class GeminiClientAdapter implements ILLMClientAdapter {
 
     // Map safety settings from Athanor format to Gemini SDK format
     const safetySettings = request.settings.geminiSafetySettings?.map(
-      (setting) => ({
+      (setting: GeminiSafetySetting) => ({
         category: setting.category,
         threshold: setting.threshold,
       })

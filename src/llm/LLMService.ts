@@ -1,7 +1,7 @@
-// AI Summary: Main process service for LLM operations, integrating with ApiKeyServiceMain for secure key access.
+// AI Summary: Main process service for LLM operations, integrating with ApiKeyProvider for secure key access.
 // Orchestrates LLM requests through provider-specific client adapters with proper error handling.
 
-import type { ApiKeyServiceMain } from "genai-key-storage-lite";
+import type { ApiKeyProvider } from '../types';
 import type {
   LLMChatRequest,
   LLMResponse,
@@ -10,7 +10,7 @@ import type {
   ModelInfo,
   ApiProviderId,
   LLMSettings,
-} from "../types";
+} from "./types";
 import type {
   ILLMClientAdapter,
   InternalLLMChatRequest,
@@ -43,13 +43,13 @@ import {
  * - Routes requests to appropriate provider adapters
  * - Handles errors and provides standardized responses
  */
-export class LLMServiceMain {
-  private apiKeyService: ApiKeyServiceMain;
+export class LLMService {
+  private getApiKey: ApiKeyProvider;
   private clientAdapters: Map<ApiProviderId, ILLMClientAdapter>;
   private mockClientAdapter: MockClientAdapter;
 
-  constructor(apiKeyService: ApiKeyServiceMain) {
-    this.apiKeyService = apiKeyService;
+  constructor(getApiKey: ApiKeyProvider) {
+    this.getApiKey = getApiKey;
     this.clientAdapters = new Map();
     this.mockClientAdapter = new MockClientAdapter();
 
@@ -68,26 +68,26 @@ export class LLMServiceMain {
           successfullyRegisteredProviders.push(provider.id);
         } catch (error) {
           console.error(
-            `LLMServiceMain: Failed to instantiate adapter for provider '${provider.id}'. This provider will use the mock adapter. Error:`,
+            `LLMService: Failed to instantiate adapter for provider '${provider.id}'. This provider will use the mock adapter. Error:`,
             error
           );
         }
       } else {
         console.warn(
-          `LLMServiceMain: No adapter constructor found for supported provider '${provider.id}'. This provider will use the mock adapter as a fallback.`
+          `LLMService: No adapter constructor found for supported provider '${provider.id}'. This provider will use the mock adapter as a fallback.`
         );
       }
     }
 
     if (registeredCount > 0) {
       console.log(
-        `LLMServiceMain: Initialized with ${registeredCount} dynamically registered adapter(s) for: ${successfullyRegisteredProviders.join(
+        `LLMService: Initialized with ${registeredCount} dynamically registered adapter(s) for: ${successfullyRegisteredProviders.join(
           ", "
         )}.`
       );
     } else {
       console.log(
-        `LLMServiceMain: No real adapters were dynamically registered. All providers will use the mock adapter.`
+        `LLMService: No real adapters were dynamically registered. All providers will use the mock adapter.`
       );
     }
   }
@@ -98,7 +98,7 @@ export class LLMServiceMain {
    * @returns Promise resolving to array of provider information
    */
   async getProviders(): Promise<ProviderInfo[]> {
-    console.log("LLMServiceMain.getProviders called");
+    console.log("LLMService.getProviders called");
     return [...SUPPORTED_PROVIDERS]; // Return a copy to prevent external modification
   }
 
@@ -109,7 +109,7 @@ export class LLMServiceMain {
    * @returns Promise resolving to array of model information
    */
   async getModels(providerId: ApiProviderId): Promise<ModelInfo[]> {
-    console.log(`LLMServiceMain.getModels called for provider: ${providerId}`);
+    console.log(`LLMService.getModels called for provider: ${providerId}`);
 
     // Validate provider exists
     if (!isProviderSupported(providerId)) {
@@ -133,7 +133,7 @@ export class LLMServiceMain {
     request: LLMChatRequest
   ): Promise<LLMResponse | LLMFailureResponse> {
     console.log(
-      `LLMServiceMain.sendMessage called for provider: ${request.providerId}, model: ${request.modelId}`
+      `LLMService.sendMessage called for provider: ${request.providerId}, model: ${request.modelId}`
     );
 
     try {
@@ -243,20 +243,20 @@ export class LLMServiceMain {
 
       // Add provider-level exclusions
       if (providerInfo?.unsupportedParameters) {
-        providerInfo.unsupportedParameters.forEach((param) =>
+        providerInfo.unsupportedParameters.forEach((param: keyof LLMSettings) =>
           paramsToExclude.add(param)
         );
       }
       // Add model-level exclusions (these will be added to any provider-level ones)
       if (modelInfo?.unsupportedParameters) {
-        modelInfo.unsupportedParameters.forEach((param) =>
+        modelInfo.unsupportedParameters.forEach((param: keyof LLMSettings) =>
           paramsToExclude.add(param)
         );
       }
 
       if (paramsToExclude.size > 0) {
         console.log(
-          `LLMServiceMain: Potential parameters to exclude for provider '${request.providerId}', model '${request.modelId}':`,
+          `LLMService: Potential parameters to exclude for provider '${request.providerId}', model '${request.modelId}':`,
           Array.from(paramsToExclude)
         );
       }
@@ -269,7 +269,7 @@ export class LLMServiceMain {
         // Given finalSettings is Required<LLMSettings>, all keys should be present, potentially as undefined.
         if (param in filteredSettings) {
           console.log(
-            `LLMServiceMain: Removing excluded parameter '${String(
+            `LLMService: Removing excluded parameter '${String(
               param
             )}' for provider '${request.providerId}', model '${
               request.modelId
@@ -281,7 +281,7 @@ export class LLMServiceMain {
           // This case should ideally not happen if finalSettings truly is Required<LLMSettings>
           // and mergeSettingsForModel ensures all keys are present (even if undefined).
           console.log(
-            `LLMServiceMain: Parameter '${String(
+            `LLMService: Parameter '${String(
               param
             )}' marked for exclusion was not found in settings for provider '${
               request.providerId
@@ -309,61 +309,53 @@ export class LLMServiceMain {
         `Processing LLM request: ${request.messages.length} messages, model: ${request.modelId}`
       );
 
-      // Get client adapter - use mock for now, real adapters will be added later
+      // Get client adapter
       const clientAdapter = this.getClientAdapter(request.providerId);
 
-      // Use ApiKeyServiceMain to securely access the API key and make the request
+      // Use ApiKeyProvider to get the API key and make the request
       try {
-        // First, try to get the key from secure storage.
+        const apiKey = await this.getApiKey(request.providerId);
+        if (!apiKey) {
+          return {
+            provider: request.providerId,
+            model: request.modelId,
+            error: {
+              message: `API key for provider '${request.providerId}' could not be retrieved. Ensure your ApiKeyProvider is configured correctly.`,
+              code: "API_KEY_ERROR",
+              type: "authentication_error",
+            },
+            object: "error",
+          };
+        }
+
         console.log(
-          `Attempting to use key from secure storage for ${request.providerId}...`
+          `Making LLM request with ${clientAdapter.constructor.name} for provider: ${request.providerId}`
         );
-        const result = await this.apiKeyService.withDecryptedKey(
-          request.providerId,
-          (apiKey: string) => {
-            console.log(
-              `Making LLM request with ${clientAdapter.constructor.name} for provider: ${request.providerId}`
-            );
-            return clientAdapter.sendMessage(internalRequest, apiKey);
-          }
-        );
+        const result = await clientAdapter.sendMessage(internalRequest, apiKey);
 
         console.log(
           `LLM request completed successfully for model: ${request.modelId}`
         );
         return result;
-      } catch (storageError) {
-        console.warn(
-          `Secure storage failed for ${request.providerId}: ${
-            storageError instanceof Error
-              ? storageError.message
-              : String(storageError)
-          }. Attempting ENV fallback.`
-        );
-
-        // If secure storage fails, try the environment variable.
-        const envVarName = `ATHANOR_${request.providerId.toUpperCase()}_API_KEY`;
-        const apiKeyFromEnv = process.env[envVarName];
-
-        if (apiKeyFromEnv) {
-          console.log(
-            `Found key for ${request.providerId} in environment variable.`
-          );
-          // The sendMessage call to the adapter can also throw, which will be caught by the outer catch block.
-          return await clientAdapter.sendMessage(
-            internalRequest,
-            apiKeyFromEnv
-          );
-        }
-
-        // If we are here, both methods failed. Re-throw the original error to be handled by the outer catch.
-        console.error(
-          `API key for ${request.providerId} not found in secure storage or environment variables.`
-        );
-        throw storageError;
+      } catch (error) {
+        console.error("Error in LLMService.sendMessage:", error);
+        return {
+          provider: request.providerId,
+          model: request.modelId,
+          error: {
+            message:
+              error instanceof Error
+                ? error.message
+                : "An unknown error occurred during message sending.",
+            code: "PROVIDER_ERROR",
+            type: "server_error",
+            providerError: error,
+          },
+          object: "error",
+        };
       }
     } catch (error) {
-      console.error("Error in LLMServiceMain.sendMessage:", error);
+      console.error("Error in LLMService.sendMessage (outer):", error);
 
       return {
         provider: request.providerId,
@@ -371,12 +363,10 @@ export class LLMServiceMain {
         error: {
           message:
             error instanceof Error
-              ? `API key error for ${request.providerId}: ${
-                  error.message
-                }. Check secure storage or the ATHANOR_${request.providerId.toUpperCase()}_API_KEY environment variable.`
-              : "Unknown error occurred during API key retrieval or message sending.",
-          code: "API_KEY_ERROR",
-          type: "authentication_error",
+              ? error.message
+              : "An unknown error occurred.",
+          code: "UNEXPECTED_ERROR",
+          type: "server_error",
           providerError: error,
         },
         object: "error",
@@ -526,30 +516,6 @@ export class LLMServiceMain {
   ): void {
     this.clientAdapters.set(providerId, adapter);
     console.log(`Registered client adapter for provider: ${providerId}`);
-  }
-
-  /**
-   * Checks if an API key is available from any source (secure storage or ENV).
-   * @param providerId The provider ID to check for
-   * @returns Promise resolving to true if a key is available, false otherwise.
-   */
-  async isKeyAvailable(providerId: ApiProviderId): Promise<boolean> {
-    if (!providerId) {
-      return false;
-    }
-
-    // First, check if the key is in the secure OS storage.
-    const isStored = await this.apiKeyService.isKeyStored(providerId);
-    if (isStored) {
-      return true; // Found it in secure storage
-    }
-
-    // If not found, check for an environment variable as a fallback.
-    const envVarName = `ATHANOR_${providerId.toUpperCase()}_API_KEY`;
-    const apiKeyFromEnv = process.env[envVarName];
-
-    // Return true only if the environment variable is set to a non-empty string.
-    return !!apiKeyFromEnv;
   }
 
   /**

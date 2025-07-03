@@ -9,7 +9,7 @@ import type {
   GeminiSafetySetting,
   GeminiHarmCategory,
   GeminiHarmBlockThreshold,
-} from "../types";
+} from "./types";
 import type { ILLMClientAdapter } from "./clients/types";
 import { OpenAIClientAdapter } from "./clients/OpenAIClientAdapter";
 import { AnthropicClientAdapter } from "./clients/AnthropicClientAdapter";
@@ -539,7 +539,7 @@ export function validateLLMSettings(settings: Partial<LLMSettings>): string[] {
       errors.push("stopSequences can contain at most 4 sequences");
     } else if (
       settings.stopSequences.some(
-        (seq) => typeof seq !== "string" || seq.length === 0
+        (seq: any) => typeof seq !== "string" || seq.length === 0
       )
     ) {
       errors.push("stopSequences must contain only non-empty strings");

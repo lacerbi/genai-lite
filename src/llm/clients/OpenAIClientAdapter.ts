@@ -2,7 +2,7 @@
 // Handles request formatting, response parsing, and error mapping to standardized format.
 
 import OpenAI from "openai";
-import type { LLMResponse, LLMFailureResponse } from "../../types";
+import type { LLMResponse, LLMFailureResponse } from "../types";
 import type {
   ILLMClientAdapter,
   InternalLLMChatRequest,
@@ -92,10 +92,14 @@ export class OpenAIClientAdapter implements ILLMClientAdapter {
       // Make the API call
       const completion = await openai.chat.completions.create(completionParams);
 
-      console.log(`OpenAI API call successful, response ID: ${completion.id}`);
-
-      // Convert to standardized response format
-      return this.createSuccessResponse(completion, request);
+      // Type guard to ensure we have a non-streaming response
+      if ('id' in completion && 'choices' in completion) {
+        console.log(`OpenAI API call successful, response ID: ${completion.id}`);
+        // Convert to standardized response format
+        return this.createSuccessResponse(completion as OpenAI.Chat.Completions.ChatCompletion, request);
+      } else {
+        throw new Error('Unexpected streaming response from OpenAI API');
+      }
     } catch (error) {
       console.error("OpenAI API error:", error);
       return this.createErrorResponse(error, request);

@@ -5,3 +5,21 @@
 !/.ath_materials/prompts/
 !/.ath_materials/prompts/**/*
 !/.ath_materials/project_settings.json
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Logs
+*.log
+
+# Environment variables
+.env
+
+# OS files
+.DS_Store
+
+# Package lock files
+package-lock.json
