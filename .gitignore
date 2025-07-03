@@ -27,7 +27,7 @@ Thumbs.db
 /website/out
 
 # Package lock files
-package-lock.json
+# package-lock.json (commented out - needed for CI)
 
 # AI files
 codebase.md
