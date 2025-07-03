@@ -30,6 +30,7 @@ node -e "const lib = require('./dist'); console.log('Exports:', Object.keys(lib)
 - No watch mode currently configured
 - Manual rebuild required after changes
 - The `dist/` folder is gitignored
+- `package-lock.json` is committed for reproducible CI builds
 
 ## Architecture Overview
 
@@ -140,8 +141,22 @@ const service = new LLMService(customProvider);
 - All tests co-located with source files (e.g., `LLMService.test.ts`)
 - 100% test coverage for core functionality
 
+**GitHub Automation & CI/CD:**
+- **Issue Templates**: Structured YAML templates for bug reports and feature requests
+- **Pull Request Template**: Includes self-review checklist and security considerations
+- **CI Workflow** (`.github/workflows/ci.yml`):
+  - Tests on multiple OS: Ubuntu, Windows, macOS
+  - Tests on Node.js versions: 18.x, 20.x, 22.x
+  - Runs security audit (`npm audit --audit-level=high`)
+  - Validates package build (`npm pack --dry-run`)
+- **Dependabot**: Configured for weekly npm and GitHub Actions updates
+- **Dependency Versioning**:
+  - Production dependencies use `^` (caret) for stability
+  - Dev dependencies use `>=` for more flexibility
+
 **Still Missing:**
 - Linting configuration (ESLint/Prettier)
+- Release automation workflow
 
 ### Provider-Specific Considerations
 
@@ -222,11 +237,28 @@ All adapters should use `adapterErrorUtils.ts` patterns:
 2. Verify API key is being retrieved correctly
 3. Check provider-specific error messages in adapter's error handling
 
+**Running CI locally before pushing:**
+1. Run tests: `npm test`
+2. Check for vulnerabilities: `npm audit --audit-level=high`
+3. Validate package: `npm run build && npm pack --dry-run`
+
 **Publishing updates:**
 1. Update version in `package.json`
 2. Build with `npm run build`
 3. Test exports with the verification command
-4. Publish to npm (when configured)
+4. Ensure CI passes on GitHub
+5. Publish to npm (when configured)
+
+## Contributing
+
+**Reporting Issues:**
+- Use the GitHub issue templates for bug reports or feature requests
+- Templates ensure all necessary information is provided
+
+**Submitting Pull Requests:**
+- Follow the PR template checklist
+- Ensure all CI checks pass
+- Consider security implications of changes
 
 ## Commit Guidelines
 
