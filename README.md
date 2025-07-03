@@ -35,8 +35,8 @@ const response = await llmService.sendMessage({
   ]
 });
 
-if (response.object === 'text_completion') {
-  console.log(response.content);
+if (response.object === 'chat.completion') {
+  console.log(response.choices[0].message.content);
 } else {
   console.error('Error:', response.error.message);
 }
@@ -104,6 +104,8 @@ const llmService = new LLMService(myKeyProvider);
   - `gpt-4.1-nano` - Ultra-efficient version
 
 ### Mistral
+> **Note:** The official Mistral adapter is under development. Requests made to Mistral models will currently be handled by a mock adapter for API compatibility testing.
+
 - `codestral-2501` - Specialized for code generation
 - `devstral-small-2505` - Compact development-focused model
 
