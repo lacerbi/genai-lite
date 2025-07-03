@@ -1,0 +1,33 @@
+{
+  "name": "genai-lite",
+  "version": "0.1.0",
+  "description": "A lightweight, portable toolkit for interacting with various Generative AI APIs.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "author": "Luigi Acerbi <luigi.acerbi@gmail.com>",
+  "license": "MIT",
+  "funding": {
+    "type": "github",
+    "url": "https://github.com/sponsors/lacerbi"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lacerbi/genai-lite.git"
+  },
+  "bugs": {
+    "url": "https://github.com/lacerbi/genai-lite/issues"
+  },
+  "homepage": "https://github.com/lacerbi/genai-lite#readme",
+  "scripts": {
+    "build": "tsc"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.52.0",
+    "@google/genai": "^1.0.1",
+    "openai": "^4.103.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.24",
+    "typescript": "^5.3.3"
+  }
+}
