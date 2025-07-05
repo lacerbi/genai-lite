@@ -15,6 +15,10 @@ PORTING.md
 .athignore
 .ath_materials/
 
+# AI summaries (not for npm package)
+**/.summary_short.md
+**/.summary_long.md
+
 # GitHub files
 .github/
 
