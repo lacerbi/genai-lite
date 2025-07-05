@@ -10,6 +10,7 @@ A lightweight, portable Node.js/TypeScript library providing a unified interface
 - 🎯 **TypeScript First** - Full type safety and IntelliSense support
 - ⚡ **Lightweight** - Minimal dependencies, focused functionality
 - 🛡️ **Provider Normalization** - Consistent responses across different AI APIs
+- 🎨 **Configurable Model Presets** - Built-in presets with full customization options
 
 ## Installation
 
@@ -135,6 +136,80 @@ const providers = await llmService.getProviders();
 
 // Get models for a specific provider
 const models = await llmService.getModels('anthropic');
+
+// Get configured model presets
+const presets = llmService.getPresets();
+```
+
+### Model Presets
+
+genai-lite includes a built-in set of model presets for common use cases. You can use these defaults, extend them with your own, or replace them entirely.
+
+#### Using Default Presets
+
+```typescript
+const llmService = new LLMService(fromEnvironment);
+
+// Get all default presets
+const presets = llmService.getPresets();
+// Returns presets like:
+// - anthropic-claude-3-5-sonnet-20241022-default
+// - openai-gpt-4.1-default
+// - google-gemini-2.5-pro
+// ... and more
+```
+
+#### Extending Default Presets
+
+```typescript
+import { LLMService, fromEnvironment, ModelPreset } from 'genai-lite';
+
+const customPresets: ModelPreset[] = [
+  {
+    id: 'my-creative-preset',
+    displayName: 'Creative Writing Assistant',
+    providerId: 'openai',
+    modelId: 'gpt-4.1',
+    settings: {
+      temperature: 0.9,
+      maxTokens: 2000,
+      topP: 0.95
+    }
+  }
+];
+
+const llmService = new LLMService(fromEnvironment, {
+  presets: customPresets,
+  presetMode: 'extend' // Default behavior - adds to existing presets
+});
+```
+
+#### Replacing Default Presets
+
+For applications that need full control over available presets:
+
+```typescript
+const applicationPresets: ModelPreset[] = [
+  {
+    id: 'app-gpt4-default',
+    displayName: 'GPT-4 Standard',
+    providerId: 'openai',
+    modelId: 'gpt-4.1',
+    settings: { temperature: 0.7 }
+  },
+  {
+    id: 'app-claude-creative',
+    displayName: 'Claude Creative',
+    providerId: 'anthropic',
+    modelId: 'claude-3-5-sonnet-20241022',
+    settings: { temperature: 0.8, maxTokens: 4000 }
+  }
+];
+
+const llmService = new LLMService(fromEnvironment, {
+  presets: applicationPresets,
+  presetMode: 'replace' // Use ONLY these presets, ignore defaults
+});
 ```
 
 ### Error Handling
@@ -211,7 +286,10 @@ import type {
   LLMResponse,
   LLMFailureResponse,
   LLMSettings,
-  ApiKeyProvider
+  ApiKeyProvider,
+  ModelPreset,
+  LLMServiceOptions,
+  PresetMode
 } from 'genai-lite';
 ```
 

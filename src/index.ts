@@ -3,6 +3,10 @@ export type { ApiKeyProvider } from "./types";
 
 // --- LLM Service ---
 export { LLMService } from "./llm/LLMService";
+export type { LLMServiceOptions, PresetMode } from "./llm/LLMService";
+
+// --- Model Presets ---
+export type { ModelPreset } from "./types/presets";
 
 // Export all core request/response/config types from the LLM module
 export * from "./llm/types";

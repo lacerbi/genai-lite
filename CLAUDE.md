@@ -249,6 +249,28 @@ All adapters should use `adapterErrorUtils.ts` patterns:
 4. Ensure CI passes on GitHub
 5. Publish to npm (when configured)
 
+## **IMPORTANT: Project Structure Context**
+
+In each directory, you'll find:
+
+- `.summary_short.md`: One-line descriptions of the directory and its files
+- `.summary_long.md`: Detailed analysis of components, dependencies, and architecture
+
+**ALWAYS START ANY TASK BY READING THE SUMMARY FILES.**
+Start with `.summary_short.md` broadly, then consult `.summary_long.md` for relevant folders.
+
+These summary files provide hierarchical context throughout the project:
+- **Root level**: Overall project structure and configuration
+- **src/**: Main source code organization and public API
+- **src/llm/**: Core LLM service implementation and configuration
+- **src/llm/clients/**: Provider-specific adapter implementations
+- **src/providers/**: API key provider implementations
+- **src/utils/**: Utility functions for token counting and text preview
+
+The summaries enable efficient navigation and understanding of the codebase without processing every file. They include cross-references, usage examples, and architectural decisions at each level.
+
+Last Context Build: 2025-07-05
+
 ## Commit Guidelines
 
 **Conventional Commits:** Use format like `feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`
