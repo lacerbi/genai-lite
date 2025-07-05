@@ -140,6 +140,11 @@ const service = new LLMService(customProvider);
 - Jest with ts-jest for TypeScript support
 - All tests co-located with source files (e.g., `LLMService.test.ts`)
 - 100% test coverage for core functionality
+- **E2E Tests:** Separate suite in `e2e-tests/` that makes real API calls
+  - Run with `npm run test:e2e` (requires `E2E_*_API_KEY` environment variables)
+  - **Use sparingly** - only when modifying provider adapters or LLMService
+  - Costs real money - uses cheapest models but still incurs API charges
+  - Not run in CI by default to avoid costs
 
 **GitHub Automation & CI/CD:**
 - **CI runs automatically** on push/PR to main branch
