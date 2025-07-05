@@ -296,14 +296,14 @@ import type {
 
 ## Utilities
 
-genai-lite includes useful utilities for working with LLMs, available through the `genai-lite/utils` subpath:
+genai-lite includes useful utilities for working with LLMs, available through the `genai-lite/prompting` subpath:
 
 ### Token Counting
 
 Count the number of tokens in a string using OpenAI's tiktoken library:
 
 ```typescript
-import { countTokens } from 'genai-lite/utils';
+import { countTokens } from 'genai-lite/prompting';
 
 const text = 'Hello, this is a sample text for token counting.';
 const tokenCount = countTokens(text); // Uses gpt-4 tokenizer by default
@@ -320,7 +320,7 @@ const gpt35Tokens = countTokens(text, 'gpt-3.5-turbo');
 Generate intelligent previews of large text blocks that preserve context:
 
 ```typescript
-import { getSmartPreview } from 'genai-lite/utils';
+import { getSmartPreview } from 'genai-lite/prompting';
 
 const largeCodeFile = `
 function calculateTotal(items) {
@@ -359,7 +359,7 @@ Combine these utilities to build prompts that fit within model context windows:
 
 ```typescript
 import { LLMService, fromEnvironment } from 'genai-lite';
-import { countTokens, getSmartPreview } from 'genai-lite/utils';
+import { countTokens, getSmartPreview } from 'genai-lite/prompting';
 
 const llm = new LLMService(fromEnvironment);
 
@@ -394,7 +394,7 @@ const response = await llm.sendMessage({
 Generate dynamic prompts and content using the built-in template engine that supports variable substitution and conditional logic:
 
 ```typescript
-import { renderTemplate } from 'genai-lite/utils';
+import { renderTemplate } from 'genai-lite/prompting';
 
 // Simple variable substitution
 const greeting = renderTemplate('Hello, {{ name }}!', { name: 'World' });
@@ -432,7 +432,7 @@ const result = renderTemplate(complexTemplate, {
   expertise: 'TypeScript, React, Node.js',
   task: 'Review the code for best practices',
   hasFiles: true,
-  fileList: '- src/index.ts\n- src/utils.ts',
+  fileList: '- src/index.ts\n- src/prompting/template.ts',
   requiresOutput: false
 });
 ```
@@ -450,7 +450,7 @@ Combine the template engine with other utilities for powerful prompt generation:
 
 ```typescript
 import { LLMService, fromEnvironment } from 'genai-lite';
-import { renderTemplate, countTokens } from 'genai-lite/utils';
+import { renderTemplate, countTokens } from 'genai-lite/prompting';
 
 const llm = new LLMService(fromEnvironment);
 
@@ -490,6 +490,138 @@ const response = await llm.sendMessage({
   messages: [{ role: 'user', content: prompt }]
 });
 ```
+
+### Prompt Builder Utilities
+
+genai-lite provides powerful utilities for building and parsing structured prompts:
+
+#### Parsing Messages from Templates
+
+Convert template strings with role tags into LLM message arrays:
+
+```typescript
+import { buildMessagesFromTemplate } from 'genai-lite/prompting';
+
+const template = `
+<SYSTEM>You are a helpful assistant specialized in {{expertise}}.</SYSTEM>
+<USER>Help me with {{task}}</USER>
+<ASSISTANT>I'll help you with {{task}}. Let me analyze the requirements...</ASSISTANT>
+<USER>Can you provide more details?</USER>
+`;
+
+const messages = buildMessagesFromTemplate(template, {
+  expertise: 'TypeScript and React',
+  task: 'building a custom hook'
+});
+
+// Result: Array of LLMMessage objects ready for the API
+// [
+//   { role: 'system', content: 'You are a helpful assistant specialized in TypeScript and React.' },
+//   { role: 'user', content: 'Help me with building a custom hook' },
+//   { role: 'assistant', content: "I'll help you with building a custom hook. Let me analyze..." },
+//   { role: 'user', content: 'Can you provide more details?' }
+// ]
+```
+
+#### Extracting Random Variables for Few-Shot Learning
+
+Implement few-shot prompting by extracting and shuffling examples:
+
+```typescript
+import { extractRandomVariables, renderTemplate } from 'genai-lite/prompting';
+
+// Define examples in your template
+const examplesTemplate = `
+<RANDOM_INPUT>User: Translate "hello" to Spanish</RANDOM_INPUT>
+<RANDOM_OUTPUT>Assistant: The translation of "hello" to Spanish is "hola".</RANDOM_OUTPUT>
+
+<RANDOM_INPUT>User: Translate "goodbye" to French</RANDOM_INPUT>
+<RANDOM_OUTPUT>Assistant: The translation of "goodbye" to French is "au revoir".</RANDOM_OUTPUT>
+
+<RANDOM_INPUT>User: Translate "thank you" to German</RANDOM_INPUT>
+<RANDOM_OUTPUT>Assistant: The translation of "thank you" to German is "danke".</RANDOM_OUTPUT>
+`;
+
+// Extract random variables (shuffled each time)
+const variables = extractRandomVariables(examplesTemplate, { maxPerTag: 2 });
+
+// Use in a prompt template
+const promptTemplate = `
+You are a translation assistant. Here are some examples:
+
+{{ random_input_1 }}
+{{ random_output_1 }}
+
+{{ random_input_2 }}
+{{ random_output_2 }}
+
+Now translate: "{{word}}" to {{language}}
+`;
+
+const prompt = renderTemplate(promptTemplate, {
+  ...variables,
+  word: 'please',
+  language: 'Italian'
+});
+```
+
+#### Parsing Structured LLM Responses
+
+Extract structured data from LLM responses using custom tags:
+
+```typescript
+import { parseStructuredContent } from 'genai-lite/prompting';
+
+// Example LLM response with structured output
+const llmResponse = `
+Let me analyze this code for you.
+
+<ANALYSIS>
+The code has good structure but could benefit from:
+1. Better error handling in the API calls
+2. Memoization for expensive computations
+3. More descriptive variable names
+</ANALYSIS>
+
+<SUGGESTIONS>
+- Add try-catch blocks around async operations
+- Use React.memo() for the expensive component
+- Rename 'data' to 'userData' for clarity
+</SUGGESTIONS>
+
+<REFACTORED_CODE>
+const UserProfile = React.memo(({ userId }) => {
+  const [userData, setUserData] = useState(null);
+  
+  useEffect(() => {
+    fetchUserData(userId)
+      .then(setUserData)
+      .catch(error => console.error('Failed to load user:', error));
+  }, [userId]);
+  
+  return userData ? <Profile data={userData} /> : <Loading />;
+});
+</REFACTORED_CODE>
+`;
+
+// Parse the structured content
+const parsed = parseStructuredContent(llmResponse, [
+  'ANALYSIS',
+  'SUGGESTIONS',
+  'REFACTORED_CODE'
+]);
+
+console.log(parsed.ANALYSIS);     // The analysis text
+console.log(parsed.SUGGESTIONS);  // The suggestions text
+console.log(parsed.REFACTORED_CODE); // The refactored code
+```
+
+These prompt builder utilities enable:
+- **Structured Conversations**: Build multi-turn conversations from templates
+- **Few-Shot Learning**: Randomly sample examples to improve AI responses
+- **Reliable Output Parsing**: Extract specific sections from AI responses
+- **Template Reusability**: Define templates once, use with different variables
+- **Type Safety**: Full TypeScript support with LLMMessage types
 
 ## Contributing
 

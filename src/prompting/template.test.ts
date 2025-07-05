@@ -1,4 +1,4 @@
-import { renderTemplate } from './templateEngine';
+import { renderTemplate } from './template';
 
 describe('renderTemplate', () => {
   it('should handle simple variable substitution', () => {

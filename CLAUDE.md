@@ -126,8 +126,10 @@ const service = new LLMService(customProvider);
 - `src/providers/fromEnvironment.ts` - Environment variable provider
 - `src/llm/config.ts` - Provider and model configurations
 - `src/llm/clients/` - Provider-specific adapters
-- `src/utils/templateEngine.ts` - Template rendering utility
-- `src/utils/prompt.ts` - Token counting and text preview utilities
+- `src/prompting/template.ts` - Template rendering utility
+- `src/prompting/content.ts` - Token counting, text preview, and content preparation utilities
+- `src/prompting/builder.ts` - Message building from templates
+- `src/prompting/parser.ts` - Structured content parsing from LLM responses
 
 **Testing:**
 - Jest with ts-jest for TypeScript support
@@ -263,7 +265,7 @@ These summary files provide hierarchical context throughout the project:
 - **src/llm/**: Core LLM service implementation and configuration
 - **src/llm/clients/**: Provider-specific adapter implementations
 - **src/providers/**: API key provider implementations
-- **src/utils/**: Utility functions for token counting and text preview
+- **src/prompting/**: Sophisticated utilities for prompt engineering (template rendering, content preparation, message building, response parsing)
 
 The summaries enable efficient navigation and understanding of the codebase without processing every file. They include cross-references, usage examples, and architectural decisions at each level.
 
