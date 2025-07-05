@@ -18,10 +18,7 @@ export * from "./llm/clients/types";
 export { fromEnvironment } from "./providers/fromEnvironment";
 
 // --- Utilities ---
-export { renderTemplate } from "./utils/templateEngine";
-export { countTokens, getSmartPreview } from "./utils/prompt";
-export { 
-  parseMessagesFromTemplate,
-  extractRandomVariables,
-  parseStructuredContent
-} from "./utils/promptBuilder";
+export { renderTemplate } from "./prompting/template";
+export { countTokens, getSmartPreview, extractRandomVariables } from "./prompting/content";
+export { buildMessagesFromTemplate } from "./prompting/builder";
+export { parseStructuredContent } from "./prompting/parser";

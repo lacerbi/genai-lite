@@ -1,4 +1,12 @@
 /**
+ * Template rendering engine for dynamic text generation
+ * 
+ * This module provides the core template rendering functionality that other
+ * prompt-related modules depend on. It's a foundational utility for text
+ * templating with variable substitution and conditional logic.
+ */
+
+/**
  * Renders a template string by substituting variables and evaluating conditional expressions.
  * 
  * Supports:
