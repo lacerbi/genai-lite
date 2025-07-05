@@ -15,6 +15,7 @@ import type {
   ILLMClientAdapter,
   InternalLLMChatRequest,
 } from "./clients/types";
+import type { ModelPreset } from "../types/presets";
 import { MockClientAdapter } from "./clients/MockClientAdapter";
 import { OpenAIClientAdapter } from "./clients/OpenAIClientAdapter";
 import { AnthropicClientAdapter } from "./clients/AnthropicClientAdapter";
@@ -32,6 +33,24 @@ import {
   getDefaultSettingsForModel,
   validateLLMSettings,
 } from "./config";
+import defaultPresets from "../config/presets.json";
+
+/**
+ * Defines how custom presets interact with the default presets.
+ * 'replace': Use only the custom presets provided. The default set is ignored.
+ * 'extend': Use the default presets, and add/override them with the custom presets. This is the default behavior.
+ */
+export type PresetMode = 'replace' | 'extend';
+
+/**
+ * Options for configuring the LLMService
+ */
+export interface LLMServiceOptions {
+  /** An array of custom presets to integrate. */
+  presets?: ModelPreset[];
+  /** The strategy for integrating custom presets. Defaults to 'extend'. */
+  presetMode?: PresetMode;
+}
 
 /**
  * Main process service for LLM operations
@@ -42,16 +61,40 @@ import {
  * - Validates requests and applies default settings
  * - Routes requests to appropriate provider adapters
  * - Handles errors and provides standardized responses
+ * - Provides configurable model presets for common use cases
  */
 export class LLMService {
   private getApiKey: ApiKeyProvider;
   private clientAdapters: Map<ApiProviderId, ILLMClientAdapter>;
   private mockClientAdapter: MockClientAdapter;
+  private presets: ModelPreset[];
 
-  constructor(getApiKey: ApiKeyProvider) {
+  constructor(getApiKey: ApiKeyProvider, options: LLMServiceOptions = {}) {
     this.getApiKey = getApiKey;
     this.clientAdapters = new Map();
     this.mockClientAdapter = new MockClientAdapter();
+
+    // Initialize presets based on mode
+    const finalPresets = new Map<string, ModelPreset>();
+    const customPresets = options.presets || [];
+    const mode = options.presetMode || 'extend';
+
+    if (mode === 'replace') {
+      // Replace Mode: Only use custom presets.
+      for (const preset of customPresets) {
+        finalPresets.set(preset.id, preset);
+      }
+    } else {
+      // Extend Mode: Load defaults first, then add/override.
+      for (const preset of defaultPresets) {
+        finalPresets.set(preset.id, preset as ModelPreset);
+      }
+      for (const preset of customPresets) {
+        finalPresets.set(preset.id, preset);
+      }
+    }
+    
+    this.presets = Array.from(finalPresets.values());
 
     // Dynamically register client adapters based on configuration
     let registeredCount = 0;
@@ -565,5 +608,14 @@ export class LLMService {
       availableProviders,
       unavailableProviders,
     };
+  }
+
+  /**
+   * Gets all configured model presets
+   * 
+   * @returns Array of model presets
+   */
+  getPresets(): ModelPreset[] {
+    return [...this.presets]; // Return a copy to prevent external modification
   }
 }
