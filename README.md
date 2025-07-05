@@ -405,6 +405,26 @@ npm run build
 npm test
 ```
 
+### End-to-End Testing
+
+The project includes an end-to-end test suite that makes real API calls to providers. These tests are separate from the main unit test suite and are not run in CI by default.
+
+To run these tests locally, you must first provide API keys as environment variables with the `E2E_` prefix:
+
+```bash
+export E2E_OPENAI_API_KEY="sk-..."
+export E2E_ANTHROPIC_API_KEY="sk-ant-..."
+export E2E_GEMINI_API_KEY="AIza..."
+```
+
+Then, run the E2E test script:
+
+```bash
+npm run test:e2e
+```
+
+The tests will automatically skip any provider for which an API key is not found.
+
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
