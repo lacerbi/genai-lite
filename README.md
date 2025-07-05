@@ -215,6 +215,101 @@ import type {
 } from 'genai-lite';
 ```
 
+## Utilities
+
+genai-lite includes useful utilities for working with LLMs, available through the `genai-lite/utils` subpath:
+
+### Token Counting
+
+Count the number of tokens in a string using OpenAI's tiktoken library:
+
+```typescript
+import { countTokens } from 'genai-lite/utils';
+
+const text = 'Hello, this is a sample text for token counting.';
+const tokenCount = countTokens(text); // Uses gpt-4 tokenizer by default
+console.log(`Token count: ${tokenCount}`);
+
+// Specify a different model's tokenizer
+const gpt35Tokens = countTokens(text, 'gpt-3.5-turbo');
+```
+
+**Note:** The `countTokens` function uses the `js-tiktoken` library and supports all models that have tiktoken encodings.
+
+### Smart Text Preview
+
+Generate intelligent previews of large text blocks that preserve context:
+
+```typescript
+import { getSmartPreview } from 'genai-lite/utils';
+
+const largeCodeFile = `
+function calculateTotal(items) {
+  let total = 0;
+  
+  for (const item of items) {
+    total += item.price * item.quantity;
+  }
+  
+  return total;
+}
+
+function applyDiscount(total, discountPercent) {
+  return total * (1 - discountPercent / 100);
+}
+
+// ... many more lines of code ...
+`;
+
+// Get a preview that shows at least 5 lines but extends to a logical break point
+const preview = getSmartPreview(largeCodeFile, { 
+  minLines: 5, 
+  maxLines: 10 
+});
+```
+
+The `getSmartPreview` function intelligently truncates text:
+- Returns the full content if it's shorter than `maxLines`
+- Shows at least `minLines` of content
+- Extends to the next blank line (up to `maxLines`) to avoid cutting off in the middle of a code block or paragraph
+- Adds `... (content truncated)` when content is truncated
+
+### Example: Building Token-Aware Prompts
+
+Combine these utilities to build prompts that fit within model context windows:
+
+```typescript
+import { LLMService, fromEnvironment } from 'genai-lite';
+import { countTokens, getSmartPreview } from 'genai-lite/utils';
+
+const llm = new LLMService(fromEnvironment);
+
+// Large source file
+const sourceCode = await fs.readFile('large-file.js', 'utf-8');
+
+// Get a smart preview that fits within token budget
+let preview = getSmartPreview(sourceCode, { minLines: 20, maxLines: 50 });
+let tokenCount = countTokens(preview, 'gpt-4.1-mini');
+
+// Adjust preview if needed to fit token budget
+const maxTokens = 4000;
+if (tokenCount > maxTokens) {
+  preview = getSmartPreview(sourceCode, { minLines: 10, maxLines: 30 });
+}
+
+// Send to LLM
+const response = await llm.sendMessage({
+  providerId: 'openai',
+  modelId: 'gpt-4.1-mini',
+  messages: [
+    { 
+      role: 'user', 
+      content: `Analyze this code:\n\n${preview}` 
+    }
+  ]
+});
+```
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request. For major changes, please open an issue first to discuss what you would like to change.
