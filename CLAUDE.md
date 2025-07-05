@@ -2,16 +2,6 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Migration Status: ✅ COMPLETE
-
-The genai-lite library has been successfully migrated from an Electron-dependent module to a standalone Node.js library. The migration involved:
-- ✅ Removing `genai-key-storage-lite` dependency
-- ✅ Implementing flexible `ApiKeyProvider` pattern
-- ✅ Renaming `LLMServiceMain` to `LLMService`
-- ✅ Creating `src/index.ts` entry point
-- ✅ Adding `fromEnvironment` provider
-- ✅ Full TypeScript compilation without errors
-
 ## Essential Commands
 
 **Build & Development:**
@@ -126,6 +116,7 @@ const service = new LLMService(customProvider);
 - `src/index.ts` - Exports public API including:
   - `LLMService` - Main service class
   - `fromEnvironment` - Built-in environment variable provider
+  - `renderTemplate` - Template engine for dynamic prompt generation
   - All types from `src/llm/types.ts` and `src/llm/clients/types.ts`
   - `ApiKeyProvider` type from `src/types.ts`
 
@@ -135,6 +126,8 @@ const service = new LLMService(customProvider);
 - `src/providers/fromEnvironment.ts` - Environment variable provider
 - `src/llm/config.ts` - Provider and model configurations
 - `src/llm/clients/` - Provider-specific adapters
+- `src/utils/templateEngine.ts` - Template rendering utility
+- `src/utils/prompt.ts` - Token counting and text preview utilities
 
 **Testing:**
 - Jest with ts-jest for TypeScript support

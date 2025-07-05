@@ -11,6 +11,7 @@ A lightweight, portable Node.js/TypeScript library providing a unified interface
 - ⚡ **Lightweight** - Minimal dependencies, focused functionality
 - 🛡️ **Provider Normalization** - Consistent responses across different AI APIs
 - 🎨 **Configurable Model Presets** - Built-in presets with full customization options
+- 🎭 **Template Engine** - Sophisticated templating with conditionals and variable substitution
 
 ## Installation
 
@@ -385,6 +386,108 @@ const response = await llm.sendMessage({
       content: `Analyze this code:\n\n${preview}` 
     }
   ]
+});
+```
+
+### Template Engine
+
+Generate dynamic prompts and content using the built-in template engine that supports variable substitution and conditional logic:
+
+```typescript
+import { renderTemplate } from 'genai-lite/utils';
+
+// Simple variable substitution
+const greeting = renderTemplate('Hello, {{ name }}!', { name: 'World' });
+// Result: "Hello, World!"
+
+// Conditional rendering with ternary syntax
+const prompt = renderTemplate(
+  'Analyze this {{ language }} code:\n{{ hasContext ? `Context: {{context}}\n` : `` }}```\n{{ code }}\n```',
+  {
+    language: 'TypeScript',
+    hasContext: true,
+    context: 'React component for user authentication',
+    code: 'export const Login = () => { ... }'
+  }
+);
+// Result includes the context line when hasContext is true
+
+// Complex template with multiple conditionals
+const complexTemplate = `
+System: You are a {{ role }} assistant.
+{{ hasExpertise ? `Expertise: {{expertise}}` : `General knowledge assistant` }}
+
+Task: {{ task }}
+{{ hasFiles ? `
+Files to analyze:
+{{ fileList }}` : `` }}
+{{ requiresOutput ? `
+Expected output format:
+{{ outputFormat }}` : `` }}
+`;
+
+const result = renderTemplate(complexTemplate, {
+  role: 'coding',
+  hasExpertise: true,
+  expertise: 'TypeScript, React, Node.js',
+  task: 'Review the code for best practices',
+  hasFiles: true,
+  fileList: '- src/index.ts\n- src/utils.ts',
+  requiresOutput: false
+});
+```
+
+Template syntax supports:
+- **Simple substitution**: `{{ variableName }}`
+- **Ternary conditionals**: `{{ condition ? `true result` : `false result` }}`
+- **Nested variables**: `{{ show ? `Name: {{name}}` : `Anonymous` }}`
+- **Multi-line strings**: Use backticks to preserve formatting
+- **Intelligent newline handling**: Empty results remove trailing newlines
+
+### Example: Building Dynamic LLM Prompts
+
+Combine the template engine with other utilities for powerful prompt generation:
+
+```typescript
+import { LLMService, fromEnvironment } from 'genai-lite';
+import { renderTemplate, countTokens } from 'genai-lite/utils';
+
+const llm = new LLMService(fromEnvironment);
+
+// Define a reusable prompt template
+const codeReviewTemplate = `
+You are an expert {{ language }} developer.
+
+{{ hasGuidelines ? `Follow these coding guidelines:
+{{ guidelines }}
+
+` : `` }}Review the following code:
+\`\`\`{{ language }}
+{{ code }}
+\`\`\`
+
+{{ hasFocus ? `Focus on: {{ focusAreas }}` : `Provide a comprehensive review covering all aspects.` }}
+`;
+
+// Render the prompt with specific values
+const prompt = renderTemplate(codeReviewTemplate, {
+  language: 'TypeScript',
+  hasGuidelines: true,
+  guidelines: '- Use functional components\n- Prefer composition over inheritance',
+  code: sourceCode,
+  hasFocus: true,
+  focusAreas: 'performance optimizations and error handling'
+});
+
+// Check token count before sending
+const tokenCount = countTokens(prompt, 'gpt-4.1-mini');
+console.log(`Prompt uses ${tokenCount} tokens`);
+
+// Send to LLM
+const response = await llm.sendMessage({
+  providerId: 'openai',
+  modelId: 'gpt-4.1-mini',
+  messages: [{ role: 'user', content: prompt }]
 });
 ```
 
