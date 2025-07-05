@@ -19,3 +19,9 @@ export { fromEnvironment } from "./providers/fromEnvironment";
 
 // --- Utilities ---
 export { renderTemplate } from "./utils/templateEngine";
+export { countTokens, getSmartPreview } from "./utils/prompt";
+export { 
+  parseMessagesFromTemplate,
+  extractRandomVariables,
+  parseStructuredContent
+} from "./utils/promptBuilder";

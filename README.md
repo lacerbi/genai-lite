@@ -491,6 +491,269 @@ const response = await llm.sendMessage({
 });
 ```
 
+### Prompt Engineering Utilities
+
+genai-lite includes advanced prompt engineering utilities to help you optimize AI interactions:
+
+#### Chunking Long Documents
+
+Split large documents into manageable chunks that fit within token limits:
+
+```typescript
+import { chunkPrompt } from 'genai-lite';
+
+const longDocument = // ... your long document text
+const chunks = chunkPrompt(longDocument, {
+  maxTokens: 4000,
+  model: 'gpt-4',
+  overlap: 200, // Keep 200 tokens of context between chunks
+  separator: '\n\n--- Continued ---\n\n'
+});
+
+// Process each chunk separately
+for (const chunk of chunks) {
+  const response = await llm.sendMessage({
+    providerId: 'openai',
+    modelId: 'gpt-4.1',
+    messages: [{ role: 'user', content: `Analyze this section:\n\n${chunk}` }]
+  });
+}
+```
+
+#### Optimizing Prompts with Sections
+
+Structure and optimize prompts to fit within token limits while preserving important information:
+
+```typescript
+import { optimizePrompt, PromptSection } from 'genai-lite';
+
+const sections: PromptSection[] = [
+  {
+    name: 'system',
+    content: 'You are a helpful AI assistant.',
+    priority: 1,
+    required: true
+  },
+  {
+    name: 'context',
+    content: 'The user is working on a TypeScript React project...',
+    priority: 2
+  },
+  {
+    name: 'code',
+    content: '// ... code to analyze ...',
+    priority: 3,
+    required: true
+  },
+  {
+    name: 'history',
+    content: 'Previous conversation context...',
+    priority: 5
+  }
+];
+
+const optimizedPrompt = optimizePrompt(sections, {
+  maxTokens: 3000,
+  model: 'gpt-4',
+  compression: 'light', // 'none' | 'light' | 'aggressive'
+  preservePriority: ['code'] // Don't compress these sections
+});
+```
+
+#### Validating Prompts
+
+Check prompts against best practices and token limits:
+
+```typescript
+import { validatePrompt } from 'genai-lite';
+
+const validation = validatePrompt(myPrompt, 4000, 'gpt-4');
+
+if (!validation.isValid) {
+  console.error('Prompt issues:', validation.issues);
+}
+
+if (validation.suggestions) {
+  console.log('Suggestions:', validation.suggestions);
+  // e.g., "Consider using markdown formatting for better structure"
+  // e.g., "Consider reducing repetition of: function, code, review"
+}
+
+console.log(`Token count: ${validation.tokenCount}`);
+```
+
+#### Building Structured Prompts
+
+Create well-structured prompts from templates and sections:
+
+```typescript
+import { buildStructuredPrompt } from 'genai-lite';
+
+const template = `
+You are analyzing a {{ language }} project.
+{{ hasTests ? \`The project includes unit tests.\` : \`Testing is needed.\` }}
+
+Project Type: {{ projectType }}
+`;
+
+const prompt = buildStructuredPrompt(template, {
+  language: 'TypeScript',
+  hasTests: true,
+  projectType: 'React Application'
+}, {
+  sections: [
+    {
+      name: 'Focus Areas',
+      content: 'Pay attention to performance and security.',
+      priority: 2
+    }
+  ],
+  maxTokens: 2000,
+  model: 'gpt-4'
+});
+```
+
+These utilities help you:
+- Handle documents that exceed model context windows
+- Prioritize important information when space is limited
+- Validate prompts before sending to avoid errors
+- Build consistent, well-structured prompts
+- Apply compression strategies to fit more content
+
+For more examples, see the [examples/prompt-engineering.ts](examples/prompt-engineering.ts) file.
+
+### Prompt Builder Utilities
+
+genai-lite provides powerful utilities for building and parsing structured prompts:
+
+#### Parsing Messages from Templates
+
+Convert template strings with role tags into LLM message arrays:
+
+```typescript
+import { parseMessagesFromTemplate } from 'genai-lite/utils';
+
+const template = `
+<SYSTEM>You are a helpful assistant specialized in {{expertise}}.</SYSTEM>
+<USER>Help me with {{task}}</USER>
+<ASSISTANT>I'll help you with {{task}}. Let me analyze the requirements...</ASSISTANT>
+<USER>Can you provide more details?</USER>
+`;
+
+const messages = parseMessagesFromTemplate(template, {
+  expertise: 'TypeScript and React',
+  task: 'building a custom hook'
+});
+
+// Result: Array of LLMMessage objects ready for the API
+// [
+//   { role: 'system', content: 'You are a helpful assistant specialized in TypeScript and React.' },
+//   { role: 'user', content: 'Help me with building a custom hook' },
+//   { role: 'assistant', content: "I'll help you with building a custom hook. Let me analyze..." },
+//   { role: 'user', content: 'Can you provide more details?' }
+// ]
+```
+
+#### Extracting Random Variables for Few-Shot Learning
+
+Implement few-shot prompting by extracting and shuffling examples:
+
+```typescript
+import { extractRandomVariables, renderTemplate } from 'genai-lite/utils';
+
+// Define examples in your template
+const examplesTemplate = `
+<RANDOM_INPUT>User: Translate "hello" to Spanish</RANDOM_INPUT>
+<RANDOM_OUTPUT>Assistant: The translation of "hello" to Spanish is "hola".</RANDOM_OUTPUT>
+
+<RANDOM_INPUT>User: Translate "goodbye" to French</RANDOM_INPUT>
+<RANDOM_OUTPUT>Assistant: The translation of "goodbye" to French is "au revoir".</RANDOM_OUTPUT>
+
+<RANDOM_INPUT>User: Translate "thank you" to German</RANDOM_INPUT>
+<RANDOM_OUTPUT>Assistant: The translation of "thank you" to German is "danke".</RANDOM_OUTPUT>
+`;
+
+// Extract random variables (shuffled each time)
+const variables = extractRandomVariables(examplesTemplate, { maxPerTag: 2 });
+
+// Use in a prompt template
+const promptTemplate = `
+You are a translation assistant. Here are some examples:
+
+{{ random_input_1 }}
+{{ random_output_1 }}
+
+{{ random_input_2 }}
+{{ random_output_2 }}
+
+Now translate: "{{word}}" to {{language}}
+`;
+
+const prompt = renderTemplate(promptTemplate, {
+  ...variables,
+  word: 'please',
+  language: 'Italian'
+});
+```
+
+#### Parsing Structured LLM Responses
+
+Extract structured data from LLM responses using custom tags:
+
+```typescript
+import { parseStructuredContent } from 'genai-lite/utils';
+
+// Example LLM response with structured output
+const llmResponse = `
+Let me analyze this code for you.
+
+<ANALYSIS>
+The code has good structure but could benefit from:
+1. Better error handling in the API calls
+2. Memoization for expensive computations
+3. More descriptive variable names
+</ANALYSIS>
+
+<SUGGESTIONS>
+- Add try-catch blocks around async operations
+- Use React.memo() for the expensive component
+- Rename 'data' to 'userData' for clarity
+</SUGGESTIONS>
+
+<REFACTORED_CODE>
+const UserProfile = React.memo(({ userId }) => {
+  const [userData, setUserData] = useState(null);
+  
+  useEffect(() => {
+    fetchUserData(userId)
+      .then(setUserData)
+      .catch(error => console.error('Failed to load user:', error));
+  }, [userId]);
+  
+  return userData ? <Profile data={userData} /> : <Loading />;
+});
+</REFACTORED_CODE>
+`;
+
+// Parse the structured content
+const parsed = parseStructuredContent(llmResponse, [
+  'ANALYSIS',
+  'SUGGESTIONS',
+  'REFACTORED_CODE'
+]);
+
+console.log(parsed.ANALYSIS);     // The analysis text
+console.log(parsed.SUGGESTIONS);  // The suggestions text
+console.log(parsed.REFACTORED_CODE); // The refactored code
+```
+
+These prompt builder utilities enable:
+- **Structured Conversations**: Build multi-turn conversations from templates
+- **Few-Shot Learning**: Randomly sample examples to improve AI responses
+- **Reliable Output Parsing**: Extract specific sections from AI responses
+- **Template Reusability**: Define templates once, use with different variables
+- **Type Safety**: Full TypeScript support with LLMMessage types
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request. For major changes, please open an issue first to discuss what you would like to change.
