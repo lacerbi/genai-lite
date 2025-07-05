@@ -16,3 +16,6 @@ export * from "./llm/clients/types";
 
 // --- API Key Providers ---
 export { fromEnvironment } from "./providers/fromEnvironment";
+
+// --- Utilities ---
+export { renderTemplate } from "./utils/templateEngine";
