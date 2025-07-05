@@ -36,7 +36,7 @@
     "test:watch": "jest --watch"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.52.0",
+    "@anthropic-ai/sdk": "^0.56.0",
     "@google/genai": "^1.0.1",
     "js-tiktoken": "^1.0.20",
     "openai": "^4.103.0"
