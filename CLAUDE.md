@@ -160,6 +160,17 @@ const service = new LLMService(customProvider);
 
 ### Provider-Specific Considerations
 
+**IMPORTANT: LLM Knowledge and API Interfaces**
+- Claude Code's knowledge of LLMs, models, and provider APIs may be outdated
+- **DO NOT make assumptions** about models, capabilities, endpoints, or parameters
+- **Always verify** by:
+  - Reading `src/llm/config.ts` for current model definitions
+  - Checking adapter implementations in `src/llm/clients/`
+  - Reviewing tests and error handling for actual behavior
+  - Searching online documentation if needed
+  - Asking the user for clarification
+- APIs and models change frequently with new features, pricing, and parameters
+
 **Anthropic/Claude:**
 - Uses system messages differently than OpenAI
 - Requires explicit max_tokens parameter
