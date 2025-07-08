@@ -216,9 +216,11 @@ const presets = llmService.getPresets();
 
 ### Model Presets
 
-genai-lite includes a built-in set of model presets for common use cases. You can use these defaults, extend them with your own, or replace them entirely.
+genai-lite includes a comprehensive set of model presets for common use cases. You can use these defaults, extend them with your own, or replace them entirely.
 
 #### Using Default Presets
+
+The library ships with over 20 pre-configured presets (defined in `src/config/presets.json`), including specialized "thinking" presets for models with reasoning capabilities:
 
 ```typescript
 const llmService = new LLMService(fromEnvironment);
@@ -226,11 +228,14 @@ const llmService = new LLMService(fromEnvironment);
 // Get all default presets
 const presets = llmService.getPresets();
 // Returns presets like:
-// - anthropic-claude-3-5-sonnet-20241022-default
+// - anthropic-claude-sonnet-4-20250514-default
+// - anthropic-claude-sonnet-4-20250514-thinking (reasoning enabled)
 // - openai-gpt-4.1-default
-// - google-gemini-2.5-pro
-// ... and more
+// - google-gemini-2.5-flash-thinking (reasoning enabled)
+// ... and many more
 ```
+
+The thinking presets automatically enable reasoning mode for supported models, making it easy to leverage advanced problem-solving capabilities without manual configuration.
 
 #### Extending Default Presets
 
