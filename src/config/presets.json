@@ -6,7 +6,21 @@
     "providerId": "anthropic",
     "modelId": "claude-sonnet-4-20250514",
     "settings": {
-      "temperature": 0.3
+      "temperature": 0.7
+    }
+  },
+  {
+    "id": "anthropic-claude-sonnet-4-20250514-thinking",
+    "displayName": "Anthropic - Claude Sonnet 4 (Thinking)",
+    "description": "Claude Sonnet 4 with reasoning enabled for step-by-step thinking.",
+    "providerId": "anthropic",
+    "modelId": "claude-sonnet-4-20250514",
+    "settings": {
+      "temperature": 0.7,
+      "reasoning": {
+        "enabled": true,
+        "maxTokens": 10000
+      }
     }
   },
   {
@@ -16,7 +30,21 @@
     "providerId": "anthropic",
     "modelId": "claude-opus-4-20250514",
     "settings": {
-      "temperature": 0.3
+      "temperature": 0.7
+    }
+  },
+  {
+    "id": "anthropic-claude-opus-4-20250514-thinking",
+    "displayName": "Anthropic - Claude Opus 4 (Thinking)",
+    "description": "Claude Opus 4 with reasoning enabled for complex problem solving.",
+    "providerId": "anthropic",
+    "modelId": "claude-opus-4-20250514",
+    "settings": {
+      "temperature": 0.7,
+      "reasoning": {
+        "enabled": true,
+        "maxTokens": 10000
+      }
     }
   },
   {
@@ -26,7 +54,21 @@
     "providerId": "anthropic",
     "modelId": "claude-3-7-sonnet-20250219",
     "settings": {
-      "temperature": 0.3
+      "temperature": 0.7
+    }
+  },
+  {
+    "id": "anthropic-claude-3-7-sonnet-20250219-thinking",
+    "displayName": "Anthropic - Claude 3.7 Sonnet (Thinking)",
+    "description": "Claude 3.7 Sonnet with full reasoning output for detailed analysis.",
+    "providerId": "anthropic",
+    "modelId": "claude-3-7-sonnet-20250219",
+    "settings": {
+      "temperature": 0.7,
+      "reasoning": {
+        "enabled": true,
+        "maxTokens": 10000
+      }
     }
   },
   {
@@ -36,7 +78,7 @@
     "providerId": "anthropic",
     "modelId": "claude-3-5-sonnet-20241022",
     "settings": {
-      "temperature": 0.3
+      "temperature": 0.7
     }
   },
   {
@@ -46,7 +88,7 @@
     "providerId": "anthropic",
     "modelId": "claude-3-5-haiku-20241022",
     "settings": {
-      "temperature": 0.3
+      "temperature": 0.7
     }
   },
   {
@@ -56,7 +98,7 @@
     "providerId": "gemini",
     "modelId": "gemini-2.5-pro",
     "settings": {
-      "temperature": 0.3,
+      "temperature": 0.7,
       "geminiSafetySettings": [
         { "category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE" },
         {
@@ -78,7 +120,7 @@
     "providerId": "gemini",
     "modelId": "gemini-2.5-flash",
     "settings": {
-      "temperature": 0.3,
+      "temperature": 0.7,
       "geminiSafetySettings": [
         { "category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE" },
         {
@@ -91,6 +133,31 @@
         },
         { "category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE" }
       ]
+    }
+  },
+  {
+    "id": "google-gemini-2.5-flash-thinking",
+    "displayName": "Google - Gemini 2.5 Flash (Thinking)",
+    "description": "Gemini 2.5 Flash with dynamic reasoning for adaptive problem solving.",
+    "providerId": "gemini",
+    "modelId": "gemini-2.5-flash",
+    "settings": {
+      "temperature": 0.7,
+      "geminiSafetySettings": [
+        { "category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE" },
+        {
+          "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+          "threshold": "BLOCK_NONE"
+        },
+        {
+          "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+          "threshold": "BLOCK_NONE"
+        },
+        { "category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE" }
+      ],
+      "reasoning": {
+        "enabled": true
+      }
     }
   },
   {
@@ -100,7 +167,7 @@
     "providerId": "gemini",
     "modelId": "gemini-2.5-flash-lite-preview-06-17",
     "settings": {
-      "temperature": 0.3,
+      "temperature": 0.7,
       "geminiSafetySettings": [
         { "category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE" },
         {
@@ -116,13 +183,38 @@
     }
   },
   {
+    "id": "google-gemini-2.5-flash-lite-preview-thinking",
+    "displayName": "Google - Gemini 2.5 Flash-Lite Preview (Thinking)",
+    "description": "Gemini 2.5 Flash-Lite with dynamic reasoning for efficient thinking.",
+    "providerId": "gemini",
+    "modelId": "gemini-2.5-flash-lite-preview-06-17",
+    "settings": {
+      "temperature": 0.7,
+      "geminiSafetySettings": [
+        { "category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE" },
+        {
+          "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+          "threshold": "BLOCK_NONE"
+        },
+        {
+          "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+          "threshold": "BLOCK_NONE"
+        },
+        { "category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE" }
+      ],
+      "reasoning": {
+        "enabled": true
+      }
+    }
+  },
+  {
     "id": "google-gemini-2.0-flash-default",
     "displayName": "Google - Gemini 2.0 Flash",
     "description": "Default preset for Gemini 2.0 Flash.",
     "providerId": "gemini",
     "modelId": "gemini-2.0-flash",
     "settings": {
-      "temperature": 0.3,
+      "temperature": 0.7,
       "geminiSafetySettings": [
         { "category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE" },
         {
@@ -144,7 +236,7 @@
     "providerId": "gemini",
     "modelId": "gemini-2.0-flash-lite",
     "settings": {
-      "temperature": 0.3,
+      "temperature": 0.7,
       "geminiSafetySettings": [
         { "category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE" },
         {
@@ -176,7 +268,7 @@
     "providerId": "openai",
     "modelId": "gpt-4.1",
     "settings": {
-      "temperature": 0.3
+      "temperature": 0.7
     }
   },
   {
@@ -186,7 +278,7 @@
     "providerId": "openai",
     "modelId": "gpt-4.1-mini",
     "settings": {
-      "temperature": 0.3
+      "temperature": 0.7
     }
   },
   {
@@ -196,7 +288,7 @@
     "providerId": "openai",
     "modelId": "gpt-4.1-nano",
     "settings": {
-      "temperature": 0.3
+      "temperature": 0.7
     }
   },
   {
@@ -206,7 +298,7 @@
     "providerId": "mistral",
     "modelId": "codestral-2501",
     "settings": {
-      "temperature": 0.3
+      "temperature": 0.7
     }
   },
   {
@@ -216,7 +308,7 @@
     "providerId": "mistral",
     "modelId": "devstral-small-2505",
     "settings": {
-      "temperature": 0.3
+      "temperature": 0.7
     }
   }
 ]
