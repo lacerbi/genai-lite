@@ -153,7 +153,7 @@ export class GeminiClientAdapter implements ILLMClientAdapter {
     }
 
     // Build generation config
-    const generationConfig = {
+    const generationConfig: any = {
       maxOutputTokens: request.settings.maxTokens,
       temperature: request.settings.temperature,
       ...(request.settings.topP && { topP: request.settings.topP }),
@@ -162,6 +162,43 @@ export class GeminiClientAdapter implements ILLMClientAdapter {
           stopSequences: request.settings.stopSequences,
         }),
     };
+
+    // Handle reasoning/thinking configuration
+    if (request.settings.reasoning && !request.settings.reasoning.exclude) {
+      const reasoning = request.settings.reasoning;
+      let thinkingBudget: number | undefined;
+
+      // Convert reasoning settings to Gemini's thinkingConfig
+      if (reasoning.maxTokens !== undefined) {
+        thinkingBudget = reasoning.maxTokens;
+      } else if (reasoning.effort) {
+        // Convert effort levels to token budgets
+        // Get model info to determine max budget
+        const modelId = request.modelId;
+        const maxBudget = modelId.includes('flash') ? 24576 : 65536; // Default max budgets
+        
+        switch (reasoning.effort) {
+          case 'high':
+            thinkingBudget = Math.floor(maxBudget * 0.8);
+            break;
+          case 'medium':
+            thinkingBudget = Math.floor(maxBudget * 0.5);
+            break;
+          case 'low':
+            thinkingBudget = Math.floor(maxBudget * 0.2);
+            break;
+        }
+      } else if (reasoning.enabled !== false) {
+        // Use model default or dynamic budget (-1)
+        thinkingBudget = -1; // Let model decide
+      }
+
+      if (thinkingBudget !== undefined) {
+        generationConfig.thinkingConfig = {
+          thinkingBudget: thinkingBudget
+        };
+      }
+    }
 
     // Map safety settings from Athanor format to Gemini SDK format
     const safetySettings = request.settings.geminiSafetySettings?.map(
@@ -193,6 +230,23 @@ export class GeminiClientAdapter implements ILLMClientAdapter {
     // Extract content from the response object
     const candidate = response.candidates?.[0];
     const content = candidate?.content?.parts?.[0]?.text || "";
+    
+    // Extract thinking/reasoning content if available
+    let reasoning: string | undefined;
+    
+    // Check if thinking content is available (Gemini format)
+    // Gemini might include thinking in a separate part or field
+    if (candidate?.thinkingContent) {
+      reasoning = candidate.thinkingContent;
+    } else if (candidate?.content?.parts) {
+      // Sometimes thinking might be in additional parts
+      for (const part of candidate.content.parts) {
+        if (part.thinkingText) {
+          reasoning = part.thinkingText;
+          break;
+        }
+      }
+    }
 
     // Extract usage data if available
     const usageMetadata = response.usageMetadata || {};
@@ -201,21 +255,26 @@ export class GeminiClientAdapter implements ILLMClientAdapter {
       candidate?.finishReason || null
     );
 
+    const choice: any = {
+      message: {
+        role: "assistant",
+        content: content,
+      },
+      finish_reason: finishReason,
+      index: 0,
+    };
+
+    // Include reasoning if available and not excluded
+    if (reasoning && request.settings.reasoning && !request.settings.reasoning.exclude) {
+      choice.reasoning = reasoning;
+    }
+
     return {
       id: this.generateResponseId(),
       provider: request.providerId,
       model: response.modelUsed || request.modelId,
       created: Math.floor(Date.now() / 1000),
-      choices: [
-        {
-          message: {
-            role: "assistant",
-            content: content,
-          },
-          finish_reason: finishReason,
-          index: 0,
-        },
-      ],
+      choices: [choice],
       usage: usageMetadata
         ? {
             prompt_tokens: usageMetadata.promptTokenCount || 0,

@@ -276,6 +276,16 @@ export class LLMService {
         request.settings
       );
 
+      // Validate reasoning settings for model capabilities
+      const reasoningValidation = this.validateReasoningSettings(
+        modelInfo,
+        finalSettings.reasoning,
+        request
+      );
+      if (reasoningValidation) {
+        return reasoningValidation;
+      }
+
       // Filter out unsupported parameters based on model and provider configuration
       let filteredSettings = { ...finalSettings }; // Create a mutable copy
 
@@ -332,6 +342,15 @@ export class LLMService {
           );
         }
       });
+
+      // Handle reasoning settings for models that don't support it
+      // This happens after validateReasoningSettings so we know it's safe to strip
+      if (!modelInfo.reasoning?.supported && filteredSettings.reasoning) {
+        console.log(
+          `LLMService: Removing reasoning settings for non-reasoning model ${request.modelId}`
+        );
+        delete (filteredSettings as Partial<LLMSettings>).reasoning;
+      }
 
       const internalRequest: InternalLLMChatRequest = {
         ...request,
@@ -478,6 +497,51 @@ export class LLMService {
   }
 
   /**
+   * Validates reasoning settings against model capabilities
+   *
+   * @param modelInfo - The model information
+   * @param reasoning - The reasoning settings to validate
+   * @param request - The original request for error context
+   * @returns LLMFailureResponse if validation fails, null if valid
+   */
+  private validateReasoningSettings(
+    modelInfo: ModelInfo,
+    reasoning: LLMSettings['reasoning'],
+    request: LLMChatRequest
+  ): LLMFailureResponse | null {
+    // If no reasoning settings provided, nothing to validate
+    if (!reasoning) {
+      return null;
+    }
+
+    // If model doesn't support reasoning
+    if (!modelInfo.reasoning?.supported) {
+      // Check if user is trying to enable reasoning
+      const tryingToEnableReasoning = 
+        reasoning.enabled === true ||
+        reasoning.effort !== undefined ||
+        (reasoning.maxTokens !== undefined && reasoning.maxTokens > 0);
+      
+      if (tryingToEnableReasoning) {
+        return {
+          provider: request.providerId,
+          model: request.modelId,
+          error: {
+            message: `Model ${request.modelId} does not support reasoning/thinking`,
+            type: 'validation_error',
+            code: 'reasoning_not_supported'
+          },
+          object: 'error'
+        };
+      }
+      // Otherwise, user is explicitly disabling reasoning - this is fine
+      // The reasoning settings will be stripped later
+    }
+
+    return null;
+  }
+
+  /**
    * Merges request settings with model-specific and global defaults
    *
    * @param modelId - The model ID to get defaults for
@@ -511,6 +575,7 @@ export class LLMService {
       geminiSafetySettings:
         requestSettings?.geminiSafetySettings ??
         modelDefaults.geminiSafetySettings,
+      reasoning: requestSettings?.reasoning ?? modelDefaults.reasoning,
     };
 
     // Log the final settings for debugging
@@ -523,6 +588,7 @@ export class LLMService {
       presencePenalty: mergedSettings.presencePenalty,
       hasUser: !!mergedSettings.user,
       geminiSafetySettingsCount: mergedSettings.geminiSafetySettings.length,
+      reasoning: mergedSettings.reasoning,
     });
 
     return mergedSettings;

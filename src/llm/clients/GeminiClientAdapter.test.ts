@@ -43,7 +43,13 @@ describe('GeminiClientAdapter', () => {
         stopSequences: [],
         user: 'test-user',
         geminiSafetySettings: [],
-        supportsSystemMessage: true
+        supportsSystemMessage: true,
+        reasoning: {
+          enabled: false,
+          effort: undefined as any,
+          maxTokens: undefined as any,
+          exclude: false
+        }
       }
     };
   });
@@ -228,6 +234,135 @@ describe('GeminiClientAdapter', () => {
         const successResponse = response as LLMResponse;
         expect(successResponse.choices[0].finish_reason).toBe(expected);
       }
+    });
+
+    describe('reasoning/thinking configuration', () => {
+      it('should add thinking config when reasoning is enabled with maxTokens', async () => {
+        const requestWithReasoning = {
+          ...basicRequest,
+          settings: {
+            ...basicRequest.settings,
+            reasoning: {
+              enabled: true,
+              maxTokens: 5000,
+              effort: undefined as any,
+              exclude: false
+            }
+          }
+        };
+
+        mockGenerateContent.mockResolvedValueOnce({
+          text: () => 'Response with thinking',
+          candidates: [{
+            finishReason: 'STOP',
+            content: {
+              parts: [{ text: 'Response with thinking' }]
+            }
+          }],
+          usageMetadata: {}
+        });
+
+        await adapter.sendMessage(requestWithReasoning, 'test-api-key');
+
+        const callArgs = mockGenerateContent.mock.calls[0][0];
+        expect(callArgs.config.thinkingConfig).toEqual({
+          thinkingBudget: 5000
+        });
+      });
+
+      it('should convert effort levels to thinking budget', async () => {
+        const requestWithEffort = {
+          ...basicRequest,
+          settings: {
+            ...basicRequest.settings,
+            reasoning: {
+              enabled: true,
+              effort: 'high' as const,
+              maxTokens: undefined as any,
+              exclude: false
+            }
+          }
+        };
+
+        mockGenerateContent.mockResolvedValueOnce({
+          text: () => 'Response',
+          candidates: [{
+            finishReason: 'STOP',
+            content: {
+              parts: [{ text: 'Response' }]
+            }
+          }],
+          usageMetadata: {}
+        });
+
+        await adapter.sendMessage(requestWithEffort, 'test-api-key');
+
+        const callArgs = mockGenerateContent.mock.calls[0][0];
+        // For gemini-2.5-pro (not flash), max budget is 65536, high effort = 80%
+        expect(callArgs.config.thinkingConfig?.thinkingBudget).toBe(Math.floor(65536 * 0.8));
+      });
+
+      it('should use dynamic budget (-1) when reasoning enabled without specific settings', async () => {
+        const requestWithBasicReasoning = {
+          ...basicRequest,
+          settings: {
+            ...basicRequest.settings,
+            reasoning: {
+              enabled: true,
+              effort: undefined as any,
+              maxTokens: undefined as any,
+              exclude: false
+            }
+          }
+        };
+
+        mockGenerateContent.mockResolvedValueOnce({
+          text: () => 'Response',
+          candidates: [{
+            finishReason: 'STOP',
+            content: {
+              parts: [{ text: 'Response' }]
+            }
+          }],
+          usageMetadata: {}
+        });
+
+        await adapter.sendMessage(requestWithBasicReasoning, 'test-api-key');
+
+        const callArgs = mockGenerateContent.mock.calls[0][0];
+        expect(callArgs.config.thinkingConfig?.thinkingBudget).toBe(-1);
+      });
+
+      it('should exclude thinking config when reasoning.exclude is true', async () => {
+        const requestWithExclude = {
+          ...basicRequest,
+          settings: {
+            ...basicRequest.settings,
+            reasoning: {
+              enabled: true,
+              maxTokens: 5000,
+              effort: undefined as any,
+              exclude: true
+            }
+          }
+        };
+
+        mockGenerateContent.mockResolvedValueOnce({
+          text: () => 'Response',
+          candidates: [{
+            finishReason: 'STOP',
+            content: {
+              parts: [{ text: 'Response' }]
+            }
+          }],
+          usageMetadata: {}
+        });
+
+        await adapter.sendMessage(requestWithExclude, 'test-api-key');
+
+        const callArgs = mockGenerateContent.mock.calls[0][0];
+        expect(callArgs.config.thinkingConfig).toBeUndefined();
+      });
     });
 
     describe('error handling', () => {

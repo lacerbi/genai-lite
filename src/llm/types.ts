@@ -50,6 +50,20 @@ export interface GeminiSafetySetting {
 }
 
 /**
+ * Reasoning/thinking configuration for LLM requests
+ */
+export interface LLMReasoningSettings {
+  /** Enable reasoning/thinking mode */
+  enabled?: boolean;
+  /** Effort-based control (OpenAI style) */
+  effort?: 'high' | 'medium' | 'low';
+  /** Token-based control (Anthropic/Gemini style) */
+  maxTokens?: number;
+  /** Exclude reasoning from response (keep internal only) */
+  exclude?: boolean;
+}
+
+/**
  * Configurable settings for LLM requests
  */
 export interface LLMSettings {
@@ -71,6 +85,8 @@ export interface LLMSettings {
   supportsSystemMessage?: boolean;
   /** Gemini-specific safety settings for content filtering */
   geminiSafetySettings?: GeminiSafetySetting[];
+  /** Universal reasoning/thinking configuration */
+  reasoning?: LLMReasoningSettings;
 }
 
 /**
@@ -91,6 +107,10 @@ export interface LLMChoice {
   message: LLMMessage;
   finish_reason: string | null;
   index?: number;
+  /** Reasoning/thinking content (if available and not excluded) */
+  reasoning?: string;
+  /** Provider-specific reasoning details that need to be preserved */
+  reasoning_details?: any;
 }
 
 /**
@@ -146,6 +166,35 @@ export interface ProviderInfo {
 }
 
 /**
+ * Reasoning/thinking capabilities for a model
+ */
+export interface ModelReasoningCapabilities {
+  /** Does this model support reasoning/thinking? */
+  supported: boolean;
+  /** Is reasoning enabled by default? */
+  enabledByDefault?: boolean;
+  /** Can reasoning be disabled? (e.g., Gemini Pro can't) */
+  canDisable?: boolean;
+  /** Minimum token budget for reasoning */
+  minBudget?: number;
+  /** Maximum token budget for reasoning */
+  maxBudget?: number;
+  /** Default token budget if not specified */
+  defaultBudget?: number;
+  /** Special budget values (e.g., -1 for Gemini's dynamic) */
+  dynamicBudget?: {
+    value: number;
+    description: string;
+  };
+  /** Price per 1M reasoning tokens (optional - if not set, uses regular outputPrice) */
+  outputPrice?: number;
+  /** What type of reasoning output is returned */
+  outputType?: 'full' | 'summary' | 'none';
+  /** Token count above which streaming is required */
+  requiresStreamingAbove?: number;
+}
+
+/**
  * Information about a supported LLM model
  */
 export interface ModelInfo {
@@ -160,10 +209,13 @@ export interface ModelInfo {
   maxTokens?: number;
   supportsImages?: boolean;
   supportsPromptCache: boolean;
+  /** @deprecated Use reasoning instead */
   thinkingConfig?: {
     maxBudget?: number;
     outputPrice?: number;
   };
+  /** Reasoning/thinking capabilities */
+  reasoning?: ModelReasoningCapabilities;
   cacheWritesPrice?: number;
   cacheReadsPrice?: number;
   unsupportedParameters?: (keyof LLMSettings)[];

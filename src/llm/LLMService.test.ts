@@ -299,6 +299,105 @@ describe('LLMService', () => {
         expect(errorResponse.error.code).toBe('INVALID_SETTINGS');
         expect(errorResponse.error.message).toContain('topP must be a number between 0 and 1');
       });
+
+      it('should reject reasoning settings for non-reasoning models', async () => {
+        const request: LLMChatRequest = {
+          providerId: 'openai',
+          modelId: 'gpt-4.1', // This model doesn't support reasoning
+          messages: [{ role: 'user', content: 'Hello' }],
+          settings: {
+            reasoning: {
+              enabled: true
+            }
+          }
+        };
+
+        const response = await service.sendMessage(request);
+
+        expect(response.object).toBe('error');
+        const errorResponse = response as LLMFailureResponse;
+        expect(errorResponse.error.code).toBe('reasoning_not_supported');
+        expect(errorResponse.error.message).toContain('does not support reasoning/thinking');
+      });
+
+      it('should reject reasoning with effort for non-reasoning models', async () => {
+        const request: LLMChatRequest = {
+          providerId: 'openai',
+          modelId: 'gpt-4.1',
+          messages: [{ role: 'user', content: 'Hello' }],
+          settings: {
+            reasoning: {
+              effort: 'high'
+            }
+          }
+        };
+
+        const response = await service.sendMessage(request);
+
+        expect(response.object).toBe('error');
+        const errorResponse = response as LLMFailureResponse;
+        expect(errorResponse.error.code).toBe('reasoning_not_supported');
+      });
+
+      it('should reject reasoning with maxTokens for non-reasoning models', async () => {
+        const request: LLMChatRequest = {
+          providerId: 'openai',
+          modelId: 'gpt-4.1',
+          messages: [{ role: 'user', content: 'Hello' }],
+          settings: {
+            reasoning: {
+              maxTokens: 5000
+            }
+          }
+        };
+
+        const response = await service.sendMessage(request);
+
+        expect(response.object).toBe('error');
+        const errorResponse = response as LLMFailureResponse;
+        expect(errorResponse.error.code).toBe('reasoning_not_supported');
+      });
+
+      it('should allow disabled reasoning for non-reasoning models', async () => {
+        const request: LLMChatRequest = {
+          providerId: 'openai',
+          modelId: 'gpt-4.1',
+          messages: [{ role: 'user', content: 'Hello' }],
+          settings: {
+            reasoning: {
+              enabled: false
+            }
+          }
+        };
+
+        // This should pass validation but will fail at the adapter level since we don't have a real API key
+        const response = await service.sendMessage(request);
+        
+        // Should not be a reasoning validation error
+        const errorResponse = response as LLMFailureResponse;
+        expect(errorResponse.error.code).not.toBe('reasoning_not_supported');
+      });
+
+      it('should allow reasoning with exclude=true for non-reasoning models', async () => {
+        const request: LLMChatRequest = {
+          providerId: 'openai',
+          modelId: 'gpt-4.1',
+          messages: [{ role: 'user', content: 'Hello' }],
+          settings: {
+            reasoning: {
+              exclude: true
+            }
+          }
+        };
+
+        // This should pass validation
+        const response = await service.sendMessage(request);
+        
+        // Should not be a reasoning validation error
+        const errorResponse = response as LLMFailureResponse;
+        expect(errorResponse.error.code).not.toBe('reasoning_not_supported');
+      });
+
     });
 
 
