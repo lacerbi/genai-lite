@@ -195,7 +195,8 @@ export class GeminiClientAdapter implements ILLMClientAdapter {
 
       if (thinkingBudget !== undefined) {
         generationConfig.thinkingConfig = {
-          thinkingBudget: thinkingBudget
+          thinkingBudget: thinkingBudget,
+          includeThoughts: true  // Request thought summaries in response
         };
       }
     }
@@ -229,22 +230,27 @@ export class GeminiClientAdapter implements ILLMClientAdapter {
   ): LLMResponse {
     // Extract content from the response object
     const candidate = response.candidates?.[0];
-    const content = candidate?.content?.parts?.[0]?.text || "";
-    
-    // Extract thinking/reasoning content if available
+    let content = "";
     let reasoning: string | undefined;
     
-    // Check if thinking content is available (Gemini format)
-    // Gemini might include thinking in a separate part or field
-    if (candidate?.thinkingContent) {
-      reasoning = candidate.thinkingContent;
-    } else if (candidate?.content?.parts) {
-      // Sometimes thinking might be in additional parts
+    // Process all parts to extract content and thought summaries
+    if (candidate?.content?.parts) {
+      const thoughtParts: string[] = [];
+      const contentParts: string[] = [];
+      
       for (const part of candidate.content.parts) {
-        if (part.thinkingText) {
-          reasoning = part.thinkingText;
-          break;
+        if (part.thought) {
+          // This is a thought summary
+          thoughtParts.push(part.text || "");
+        } else if (part.text) {
+          // Regular content
+          contentParts.push(part.text);
         }
+      }
+      
+      content = contentParts.join("");
+      if (thoughtParts.length > 0) {
+        reasoning = thoughtParts.join("\n\n");
       }
     }
 

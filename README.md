@@ -111,6 +111,16 @@ const llmService = new LLMService(myKeyProvider);
 - `codestral-2501` - Specialized for code generation
 - `devstral-small-2505` - Compact development-focused model
 
+### Models with Reasoning Support
+
+Some models include advanced reasoning/thinking capabilities that enhance their problem-solving abilities:
+
+- **Anthropic**: Claude Sonnet 4, Claude Opus 4, Claude 3.7 Sonnet
+- **Google Gemini**: Gemini 2.5 Pro (always on), Gemini 2.5 Flash, Gemini 2.5 Flash-Lite Preview
+- **OpenAI**: o4-mini (always on)
+
+See the [Reasoning Mode](#reasoning-mode) section for usage details.
+
 ## Advanced Usage
 
 ### Custom Settings
@@ -128,6 +138,68 @@ const response = await llmService.sendMessage({
   }
 });
 ```
+
+### Reasoning Mode
+
+Enable advanced reasoning capabilities for supported models to get step-by-step thinking and improved problem-solving:
+
+```typescript
+// Enable reasoning with automatic token budget
+const response = await llmService.sendMessage({
+  providerId: 'gemini',
+  modelId: 'gemini-2.5-flash',
+  messages: [{ role: 'user', content: 'Solve this step by step: If a train travels 120km in 2 hours, what is its speed in m/s?' }],
+  settings: {
+    reasoning: {
+      enabled: true  // Let the model decide how much thinking to do
+    }
+  }
+});
+
+// Use effort levels for quick control
+const response = await llmService.sendMessage({
+  providerId: 'anthropic',
+  modelId: 'claude-3-7-sonnet-20250219',
+  messages: [{ role: 'user', content: 'Analyze this complex problem...' }],
+  settings: {
+    reasoning: {
+      enabled: true,
+      effort: 'high'  // 'low', 'medium', or 'high'
+    }
+  }
+});
+
+// Set specific token budget for reasoning
+const response = await llmService.sendMessage({
+  providerId: 'gemini',
+  modelId: 'gemini-2.5-flash-lite-preview-06-17',
+  messages: [{ role: 'user', content: 'What is the square root of 144?' }],
+  settings: {
+    reasoning: {
+      enabled: true,
+      maxTokens: 5000  // Specific token budget for reasoning
+    }
+  }
+});
+
+// Access reasoning output (if available)
+if (response.object === 'chat.completion' && response.choices[0].reasoning) {
+  console.log('Model reasoning:', response.choices[0].reasoning);
+  console.log('Final answer:', response.choices[0].message.content);
+}
+```
+
+**Reasoning Options:**
+- `enabled`: Turn reasoning on/off (some models like o4-mini and Gemini 2.5 Pro have it always on)
+- `effort`: Quick presets - 'low' (20% budget), 'medium' (50%), 'high' (80%)
+- `maxTokens`: Specific token budget for reasoning
+- `exclude`: Set to `true` to enable reasoning but exclude it from the response
+
+**Important Notes:**
+- Reasoning tokens are billed separately and may cost more
+- Some models (o4-mini, Gemini 2.5 Pro) cannot disable reasoning
+- Not all models support reasoning - check the [supported models](#models-with-reasoning-support) list
+- The `reasoning` field in the response contains the model's thought process (when available)
 
 ### Provider Information
 
@@ -287,6 +359,7 @@ import type {
   LLMResponse,
   LLMFailureResponse,
   LLMSettings,
+  LLMReasoningSettings,
   ApiKeyProvider,
   ModelPreset,
   LLMServiceOptions,

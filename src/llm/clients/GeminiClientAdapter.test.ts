@@ -266,7 +266,8 @@ describe('GeminiClientAdapter', () => {
 
         const callArgs = mockGenerateContent.mock.calls[0][0];
         expect(callArgs.config.thinkingConfig).toEqual({
-          thinkingBudget: 5000
+          thinkingBudget: 5000,
+          includeThoughts: true
         });
       });
 

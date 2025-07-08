@@ -262,7 +262,7 @@ export const SUPPORTED_MODELS: ModelInfo[] = [
         value: -1,
         description: "Let model decide based on query complexity",
       },
-      outputType: 'full',
+      outputType: 'summary',
     },
   },
   {
@@ -288,7 +288,7 @@ export const SUPPORTED_MODELS: ModelInfo[] = [
         value: -1,
         description: "Let model decide based on query complexity",
       },
-      outputType: 'full',
+      outputType: 'summary',
     },
   },
   {
@@ -314,7 +314,7 @@ export const SUPPORTED_MODELS: ModelInfo[] = [
         value: -1,
         description: "Let model decide based on query complexity",
       },
-      outputType: 'full',
+      outputType: 'summary',
     },
   },
   {

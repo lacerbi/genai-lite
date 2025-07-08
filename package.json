@@ -38,7 +38,8 @@
     "build": "tsc",
     "test": "jest --coverage",
     "test:watch": "jest --watch",
-    "test:e2e": "npm run build && jest --config jest.e2e.config.js"
+    "test:e2e": "npm run build && jest --config jest.e2e.config.js",
+    "test:e2e:reasoning": "npm run build && jest --config jest.e2e.config.js reasoning.e2e.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.56.0",
