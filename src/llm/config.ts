@@ -68,6 +68,12 @@ export const DEFAULT_LLM_SETTINGS: Required<LLMSettings> = {
     { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
     { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
   ],
+  reasoning: {
+    enabled: false,
+    effort: undefined as any,
+    maxTokens: undefined as any,
+    exclude: false,
+  },
 };
 
 /**
@@ -143,6 +149,16 @@ export const SUPPORTED_MODELS: ModelInfo[] = [
     supportsPromptCache: true,
     cacheWritesPrice: 3.75,
     cacheReadsPrice: 0.3,
+    reasoning: {
+      supported: true,
+      enabledByDefault: false,
+      canDisable: true,
+      minBudget: 1024,
+      maxBudget: 32000,
+      defaultBudget: 10000,
+      outputType: 'summary',
+      requiresStreamingAbove: 21333,
+    },
   },
   {
     id: "claude-opus-4-20250514",
@@ -157,6 +173,16 @@ export const SUPPORTED_MODELS: ModelInfo[] = [
     supportsPromptCache: true,
     cacheWritesPrice: 18.75,
     cacheReadsPrice: 1.5,
+    reasoning: {
+      supported: true,
+      enabledByDefault: false,
+      canDisable: true,
+      minBudget: 1024,
+      maxBudget: 32000,
+      defaultBudget: 10000,
+      outputType: 'summary',
+      requiresStreamingAbove: 21333,
+    },
   },
   {
     id: "claude-3-7-sonnet-20250219",
@@ -171,6 +197,16 @@ export const SUPPORTED_MODELS: ModelInfo[] = [
     supportsPromptCache: true,
     cacheWritesPrice: 3.75,
     cacheReadsPrice: 0.3,
+    reasoning: {
+      supported: true,
+      enabledByDefault: false,
+      canDisable: true,
+      minBudget: 1024,
+      maxBudget: 32000,
+      defaultBudget: 10000,
+      outputType: 'full',
+      requiresStreamingAbove: 21333,
+    },
   },
   {
     id: "claude-3-5-sonnet-20241022",
@@ -215,6 +251,19 @@ export const SUPPORTED_MODELS: ModelInfo[] = [
     supportsImages: true,
     supportsPromptCache: true,
     cacheReadsPrice: 0.31,
+    reasoning: {
+      supported: true,
+      enabledByDefault: true,
+      canDisable: false,
+      minBudget: 1024,
+      maxBudget: 65536,
+      defaultBudget: -1,
+      dynamicBudget: {
+        value: -1,
+        description: "Let model decide based on query complexity",
+      },
+      outputType: 'summary',
+    },
   },
   {
     id: "gemini-2.5-flash",
@@ -228,9 +277,18 @@ export const SUPPORTED_MODELS: ModelInfo[] = [
     maxTokens: 65536,
     supportsImages: true,
     supportsPromptCache: true,
-    thinkingConfig: {
+    reasoning: {
+      supported: true,
+      enabledByDefault: true,
+      canDisable: true,
+      minBudget: 1024,
       maxBudget: 24576,
-      outputPrice: 2.5,
+      defaultBudget: -1,
+      dynamicBudget: {
+        value: -1,
+        description: "Let model decide based on query complexity",
+      },
+      outputType: 'summary',
     },
   },
   {
@@ -245,6 +303,19 @@ export const SUPPORTED_MODELS: ModelInfo[] = [
     maxTokens: 64000,
     supportsImages: true,
     supportsPromptCache: true,
+    reasoning: {
+      supported: true,
+      enabledByDefault: false,
+      canDisable: true,
+      minBudget: 512,
+      maxBudget: 24576,
+      defaultBudget: -1,
+      dynamicBudget: {
+        value: -1,
+        description: "Let model decide based on query complexity",
+      },
+      outputType: 'summary',
+    },
   },
   {
     id: "gemini-2.0-flash",
@@ -287,6 +358,12 @@ export const SUPPORTED_MODELS: ModelInfo[] = [
     supportsPromptCache: true,
     cacheReadsPrice: 0.275,
     unsupportedParameters: ["topP"],
+    reasoning: {
+      supported: true,
+      enabledByDefault: true,
+      canDisable: false,
+      outputType: 'none',
+    },
   },
   {
     id: "gpt-4.1",
@@ -444,6 +521,17 @@ export function getDefaultSettingsForModel(
     mergedSettings.maxTokens = modelInfo.maxTokens;
   }
 
+  // Handle reasoning settings based on model capabilities
+  if (modelInfo?.reasoning?.supported) {
+    // If the model has reasoning enabled by default, update the settings
+    if (modelInfo.reasoning.enabledByDefault) {
+      mergedSettings.reasoning = {
+        ...mergedSettings.reasoning,
+        enabled: true,
+      };
+    }
+  }
+
   // Filter out undefined values and ensure required fields
   return Object.fromEntries(
     Object.entries(mergedSettings).filter(([_, value]) => value !== undefined)
@@ -580,6 +668,32 @@ export function validateLLMSettings(settings: Partial<LLMSettings>): string[] {
             `geminiSafetySettings[${i}].threshold must be a valid Gemini harm block threshold`
           );
         }
+      }
+    }
+  }
+
+  if (settings.reasoning !== undefined) {
+    if (typeof settings.reasoning !== "object" || settings.reasoning === null) {
+      errors.push("reasoning must be an object");
+    } else {
+      if (settings.reasoning.enabled !== undefined && typeof settings.reasoning.enabled !== "boolean") {
+        errors.push("reasoning.enabled must be a boolean");
+      }
+
+      if (settings.reasoning.effort !== undefined) {
+        if (!["high", "medium", "low"].includes(settings.reasoning.effort)) {
+          errors.push("reasoning.effort must be 'high', 'medium', or 'low'");
+        }
+      }
+
+      if (settings.reasoning.maxTokens !== undefined) {
+        if (!Number.isInteger(settings.reasoning.maxTokens) || settings.reasoning.maxTokens < 0) {
+          errors.push("reasoning.maxTokens must be a non-negative integer");
+        }
+      }
+
+      if (settings.reasoning.exclude !== undefined && typeof settings.reasoning.exclude !== "boolean") {
+        errors.push("reasoning.exclude must be a boolean");
       }
     }
   }

@@ -176,6 +176,29 @@ describe('LLM Config', () => {
       expect(validateLLMSettings(validGeminiSettings)).toEqual([]);
     });
 
+    it('should validate reasoning settings', () => {
+      // Invalid reasoning object
+      expect(validateLLMSettings({ reasoning: 'invalid' as any })).toContain('reasoning must be an object');
+      
+      // Invalid enabled value
+      expect(validateLLMSettings({ reasoning: { enabled: 'yes' as any } })).toContain('reasoning.enabled must be a boolean');
+      
+      // Invalid effort value
+      expect(validateLLMSettings({ reasoning: { effort: 'maximum' as any } })).toContain("reasoning.effort must be 'high', 'medium', or 'low'");
+      expect(validateLLMSettings({ reasoning: { effort: 'high' } })).toEqual([]);
+      
+      // Invalid maxTokens value
+      expect(validateLLMSettings({ reasoning: { maxTokens: -100 } })).toContain('reasoning.maxTokens must be a non-negative integer');
+      expect(validateLLMSettings({ reasoning: { maxTokens: 1.5 } })).toContain('reasoning.maxTokens must be a non-negative integer');
+      expect(validateLLMSettings({ reasoning: { maxTokens: 5000 } })).toEqual([]);
+      
+      // Invalid exclude value
+      expect(validateLLMSettings({ reasoning: { exclude: 'yes' as any } })).toContain('reasoning.exclude must be a boolean');
+      
+      // Valid reasoning settings
+      expect(validateLLMSettings({ reasoning: { enabled: true, effort: 'medium', maxTokens: 10000, exclude: false } })).toEqual([]);
+    });
+
     it('should return multiple errors for multiple invalid fields', () => {
       const invalidSettings = {
         temperature: -1,

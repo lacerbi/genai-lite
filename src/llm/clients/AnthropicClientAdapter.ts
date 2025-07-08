@@ -69,6 +69,44 @@ export class AnthropicClientAdapter implements ILLMClientAdapter {
         }),
       };
 
+      // Handle reasoning/thinking configuration for Claude models
+      if (request.settings.reasoning && !request.settings.reasoning.exclude) {
+        const reasoning = request.settings.reasoning;
+        let budgetTokens: number | undefined;
+
+        // Convert reasoning settings to Anthropic's thinking format
+        if (reasoning.maxTokens !== undefined) {
+          budgetTokens = Math.max(reasoning.maxTokens, 1024); // Minimum 1024
+        } else if (reasoning.effort) {
+          // Convert effort levels to token budgets
+          // Max budget for Anthropic is 32000
+          const maxBudget = 32000;
+          
+          switch (reasoning.effort) {
+            case 'high':
+              budgetTokens = Math.floor(maxBudget * 0.8);
+              break;
+            case 'medium':
+              budgetTokens = Math.floor(maxBudget * 0.5);
+              break;
+            case 'low':
+              budgetTokens = Math.floor(maxBudget * 0.2);
+              break;
+          }
+        } else if (reasoning.enabled !== false) {
+          // Use default budget
+          budgetTokens = 10000;
+        }
+
+        if (budgetTokens !== undefined) {
+          // Add thinking configuration to the request
+          (messageParams as any).thinking = {
+            type: "enabled",
+            budget_tokens: Math.min(budgetTokens, 32000) // Cap at max
+          };
+        }
+      }
+
       console.log(`Making Anthropic API call for model: ${request.modelId}`);
       console.log(`Anthropic API parameters:`, {
         model: messageParams.model,
@@ -231,24 +269,48 @@ export class AnthropicClientAdapter implements ILLMClientAdapter {
       throw new Error("Invalid completion structure from Anthropic API");
     }
 
+    // Extract thinking/reasoning content if available
+    let reasoning: string | undefined;
+    let reasoning_details: any | undefined;
+    
+    // Check for thinking content in the response
+    if ((completion as any).thinking_content) {
+      reasoning = (completion as any).thinking_content;
+    }
+    
+    // Check for reasoning details that need to be preserved
+    if ((completion as any).reasoning_details) {
+      reasoning_details = (completion as any).reasoning_details;
+    }
+
     // Map Anthropic's stop reason to our standard format
     const finishReason = this.mapAnthropicStopReason(completion.stop_reason);
+
+    const choice: any = {
+      message: {
+        role: "assistant",
+        content: contentBlock.text,
+      },
+      finish_reason: finishReason,
+      index: 0,
+    };
+
+    // Include reasoning if available and not excluded
+    if (reasoning && request.settings.reasoning && !request.settings.reasoning.exclude) {
+      choice.reasoning = reasoning;
+    }
+    
+    // Always include reasoning_details if present (for tool use continuation)
+    if (reasoning_details) {
+      choice.reasoning_details = reasoning_details;
+    }
 
     return {
       id: completion.id,
       provider: request.providerId,
       model: completion.model || request.modelId,
       created: Math.floor(Date.now() / 1000), // Anthropic doesn't provide created timestamp
-      choices: [
-        {
-          message: {
-            role: "assistant",
-            content: contentBlock.text,
-          },
-          finish_reason: finishReason,
-          index: 0,
-        },
-      ],
+      choices: [choice],
       usage: completion.usage
         ? {
             prompt_tokens: completion.usage.input_tokens,

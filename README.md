@@ -111,6 +111,16 @@ const llmService = new LLMService(myKeyProvider);
 - `codestral-2501` - Specialized for code generation
 - `devstral-small-2505` - Compact development-focused model
 
+### Models with Reasoning Support
+
+Some models include advanced reasoning/thinking capabilities that enhance their problem-solving abilities:
+
+- **Anthropic**: Claude Sonnet 4, Claude Opus 4, Claude 3.7 Sonnet
+- **Google Gemini**: Gemini 2.5 Pro (always on), Gemini 2.5 Flash, Gemini 2.5 Flash-Lite Preview
+- **OpenAI**: o4-mini (always on)
+
+See the [Reasoning Mode](#reasoning-mode) section for usage details.
+
 ## Advanced Usage
 
 ### Custom Settings
@@ -129,6 +139,68 @@ const response = await llmService.sendMessage({
 });
 ```
 
+### Reasoning Mode
+
+Enable advanced reasoning capabilities for supported models to get step-by-step thinking and improved problem-solving:
+
+```typescript
+// Enable reasoning with automatic token budget
+const response = await llmService.sendMessage({
+  providerId: 'gemini',
+  modelId: 'gemini-2.5-flash',
+  messages: [{ role: 'user', content: 'Solve this step by step: If a train travels 120km in 2 hours, what is its speed in m/s?' }],
+  settings: {
+    reasoning: {
+      enabled: true  // Let the model decide how much thinking to do
+    }
+  }
+});
+
+// Use effort levels for quick control
+const response = await llmService.sendMessage({
+  providerId: 'anthropic',
+  modelId: 'claude-3-7-sonnet-20250219',
+  messages: [{ role: 'user', content: 'Analyze this complex problem...' }],
+  settings: {
+    reasoning: {
+      enabled: true,
+      effort: 'high'  // 'low', 'medium', or 'high'
+    }
+  }
+});
+
+// Set specific token budget for reasoning
+const response = await llmService.sendMessage({
+  providerId: 'gemini',
+  modelId: 'gemini-2.5-flash-lite-preview-06-17',
+  messages: [{ role: 'user', content: 'What is the square root of 144?' }],
+  settings: {
+    reasoning: {
+      enabled: true,
+      maxTokens: 5000  // Specific token budget for reasoning
+    }
+  }
+});
+
+// Access reasoning output (if available)
+if (response.object === 'chat.completion' && response.choices[0].reasoning) {
+  console.log('Model reasoning:', response.choices[0].reasoning);
+  console.log('Final answer:', response.choices[0].message.content);
+}
+```
+
+**Reasoning Options:**
+- `enabled`: Turn reasoning on/off (some models like o4-mini and Gemini 2.5 Pro have it always on)
+- `effort`: Quick presets - 'low' (20% budget), 'medium' (50%), 'high' (80%)
+- `maxTokens`: Specific token budget for reasoning
+- `exclude`: Set to `true` to enable reasoning but exclude it from the response
+
+**Important Notes:**
+- Reasoning tokens are billed separately and may cost more
+- Some models (o4-mini, Gemini 2.5 Pro) cannot disable reasoning
+- Not all models support reasoning - check the [supported models](#models-with-reasoning-support) list
+- The `reasoning` field in the response contains the model's thought process (when available)
+
 ### Provider Information
 
 ```typescript
@@ -144,9 +216,11 @@ const presets = llmService.getPresets();
 
 ### Model Presets
 
-genai-lite includes a built-in set of model presets for common use cases. You can use these defaults, extend them with your own, or replace them entirely.
+genai-lite includes a comprehensive set of model presets for common use cases. You can use these defaults, extend them with your own, or replace them entirely.
 
 #### Using Default Presets
+
+The library ships with over 20 pre-configured presets (defined in `src/config/presets.json`), including specialized "thinking" presets for models with reasoning capabilities:
 
 ```typescript
 const llmService = new LLMService(fromEnvironment);
@@ -154,11 +228,14 @@ const llmService = new LLMService(fromEnvironment);
 // Get all default presets
 const presets = llmService.getPresets();
 // Returns presets like:
-// - anthropic-claude-3-5-sonnet-20241022-default
+// - anthropic-claude-sonnet-4-20250514-default
+// - anthropic-claude-sonnet-4-20250514-thinking (reasoning enabled)
 // - openai-gpt-4.1-default
-// - google-gemini-2.5-pro
-// ... and more
+// - google-gemini-2.5-flash-thinking (reasoning enabled)
+// ... and many more
 ```
+
+The thinking presets automatically enable reasoning mode for supported models, making it easy to leverage advanced problem-solving capabilities without manual configuration.
 
 #### Extending Default Presets
 
@@ -212,6 +289,69 @@ const llmService = new LLMService(fromEnvironment, {
   presetMode: 'replace' // Use ONLY these presets, ignore defaults
 });
 ```
+
+### Using Presets with Messages
+
+You can use presets directly in `sendMessage` calls:
+
+```typescript
+// Send a message using a preset
+const response = await llmService.sendMessage({
+  presetId: 'anthropic-claude-3-7-sonnet-20250219-thinking',
+  messages: [{ role: 'user', content: 'Solve this complex problem...' }]
+});
+
+// Override preset settings
+const response = await llmService.sendMessage({
+  presetId: 'openai-gpt-4.1-default',
+  messages: [{ role: 'user', content: 'Write a story' }],
+  settings: {
+    temperature: 0.9, // Override preset's temperature
+    maxTokens: 3000
+  }
+});
+```
+
+### Model-Aware Template Rendering
+
+The library provides a powerful `prepareMessage` method that renders templates with model context, allowing you to create adaptive prompts based on model capabilities:
+
+```typescript
+// Prepare a message with model-aware template
+const result = await llmService.prepareMessage({
+  template: `
+{{ thinking_enabled ? "Please think step-by-step about this problem:" : "Please analyze this problem:" }}
+
+{{ question }}
+
+{{ thinking_available && !thinking_enabled ? "(Note: This model supports reasoning mode which could help with complex problems)" : "" }}
+  `,
+  variables: { 
+    question: 'What is the optimal algorithm for finding the shortest path in a weighted graph?' 
+  },
+  presetId: 'anthropic-claude-3-7-sonnet-20250219-thinking'
+});
+
+if (result.object !== 'error') {
+  // Access the prepared messages and model context
+  console.log('Messages:', result.messages);
+  console.log('Model context:', result.modelContext);
+  
+  // Send the prepared messages
+  const response = await llmService.sendMessage({
+    presetId: 'anthropic-claude-3-7-sonnet-20250219-thinking',
+    messages: result.messages
+  });
+}
+```
+
+The model context includes:
+- `thinking_enabled`: Whether reasoning/thinking is enabled for this request
+- `thinking_available`: Whether the model supports reasoning/thinking
+- `model_id`: The resolved model ID
+- `provider_id`: The resolved provider ID
+- `reasoning_effort`: The reasoning effort level if specified
+- `reasoning_max_tokens`: The reasoning token budget if specified
 
 ### Error Handling
 
@@ -284,13 +424,18 @@ genai-lite is written in TypeScript and provides comprehensive type definitions:
 ```typescript
 import type { 
   LLMChatRequest,
+  LLMChatRequestWithPreset,
   LLMResponse,
   LLMFailureResponse,
   LLMSettings,
+  LLMReasoningSettings,
   ApiKeyProvider,
   ModelPreset,
   LLMServiceOptions,
-  PresetMode
+  PresetMode,
+  PrepareMessageOptions,
+  ModelContext,
+  PrepareMessageResult
 } from 'genai-lite';
 ```
 

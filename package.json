@@ -1,6 +1,6 @@
 {
   "name": "genai-lite",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "A lightweight, portable toolkit for interacting with various Generative AI APIs.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -38,7 +38,8 @@
     "build": "tsc",
     "test": "jest --coverage",
     "test:watch": "jest --watch",
-    "test:e2e": "npm run build && jest --config jest.e2e.config.js"
+    "test:e2e": "npm run build && jest --config jest.e2e.config.js",
+    "test:e2e:reasoning": "npm run build && jest --config jest.e2e.config.js reasoning.e2e.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.56.0",

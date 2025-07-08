@@ -22,7 +22,13 @@ describe('MockClientAdapter', () => {
         stopSequences: [],
         user: 'test-user',
         geminiSafetySettings: [],
-        supportsSystemMessage: true
+        supportsSystemMessage: true,
+        reasoning: {
+          enabled: false,
+          effort: undefined as any,
+          maxTokens: undefined as any,
+          exclude: false
+        }
       }
     };
   });

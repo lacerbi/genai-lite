@@ -26,6 +26,8 @@ node -e "const lib = require('./dist'); console.log('Exports:', Object.keys(lib)
 
 genai-lite is a lightweight, standalone Node.js/TypeScript library providing a unified interface for interacting with various Generative AI APIs, currently focusing on Large Language Models (LLMs). The library has been successfully extracted from an Electron application (Athanor) and is now fully portable across different JavaScript environments.
 
+**Recent: Reasoning Support (2025-07)** - Added unified `reasoning` field for thinking models. Gemini requires `includeThoughts: true` to return thought summaries in parts with `thought: true` flag.
+
 ### Core Architecture Principles
 
 **Adapter Pattern Implementation:**
@@ -137,6 +139,7 @@ const service = new LLMService(customProvider);
 - 100% test coverage for core functionality
 - **E2E Tests:** Separate suite in `e2e-tests/` that makes real API calls
   - Run with `npm run test:e2e` (requires `E2E_*_API_KEY` environment variables)
+  - Run reasoning tests only: `npm run test:e2e:reasoning`
   - **Use sparingly** - only when modifying provider adapters or LLMService
   - Costs real money - uses cheapest models but still incurs API charges
   - Not run in CI by default to avoid costs
@@ -159,6 +162,17 @@ const service = new LLMService(customProvider);
 - Release automation workflow
 
 ### Provider-Specific Considerations
+
+**IMPORTANT: LLM Knowledge and API Interfaces**
+- Claude Code's knowledge of LLMs, models, and provider APIs may be outdated
+- **DO NOT make assumptions** about models, capabilities, endpoints, or parameters
+- **Always verify** by:
+  - Reading `src/llm/config.ts` for current model definitions
+  - Checking adapter implementations in `src/llm/clients/`
+  - Reviewing tests and error handling for actual behavior
+  - Searching online documentation if needed
+  - Asking the user for clarification
+- APIs and models change frequently with new features, pricing, and parameters
 
 **Anthropic/Claude:**
 - Uses system messages differently than OpenAI
@@ -269,7 +283,7 @@ These summary files provide hierarchical context throughout the project:
 
 The summaries enable efficient navigation and understanding of the codebase without processing every file. They include cross-references, usage examples, and architectural decisions at each level.
 
-Last Context Build: 2025-07-05
+Last Context Build: 2025-07-08
 
 ## Commit Guidelines
 

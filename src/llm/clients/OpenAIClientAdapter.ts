@@ -76,6 +76,19 @@ export class OpenAIClientAdapter implements ILLMClientAdapter {
           }),
         };
 
+      // Handle reasoning configuration for OpenAI models (o-series)
+      if (request.settings.reasoning && !request.settings.reasoning.exclude) {
+        const reasoning = request.settings.reasoning;
+        
+        // OpenAI uses reasoning_effort for o-series models
+        if (reasoning.effort) {
+          (completionParams as any).reasoning_effort = reasoning.effort;
+        } else if (reasoning.enabled !== false) {
+          // Default to medium effort if reasoning is enabled
+          (completionParams as any).reasoning_effort = 'medium';
+        }
+      }
+
       console.log(`OpenAI API parameters:`, {
         model: completionParams.model,
         temperature: completionParams.temperature,
@@ -188,21 +201,27 @@ export class OpenAIClientAdapter implements ILLMClientAdapter {
       throw new Error("Invalid completion structure from OpenAI API");
     }
 
+    const responseChoice: any = {
+      message: {
+        role: choice.message.role as "assistant",
+        content: choice.message.content || "",
+      },
+      finish_reason: choice.finish_reason,
+      index: choice.index,
+    };
+
+    // Check for reasoning content if OpenAI starts returning it
+    // (Currently o-series models don't return reasoning tokens)
+    if ((choice as any).reasoning && request.settings.reasoning && !request.settings.reasoning.exclude) {
+      responseChoice.reasoning = (choice as any).reasoning;
+    }
+
     return {
       id: completion.id,
       provider: request.providerId,
       model: completion.model || request.modelId,
       created: completion.created,
-      choices: [
-        {
-          message: {
-            role: choice.message.role as "assistant",
-            content: choice.message.content || "",
-          },
-          finish_reason: choice.finish_reason,
-          index: choice.index,
-        },
-      ],
+      choices: [responseChoice],
       usage: completion.usage
         ? {
             prompt_tokens: completion.usage.prompt_tokens,
