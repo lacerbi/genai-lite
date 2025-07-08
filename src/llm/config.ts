@@ -521,6 +521,17 @@ export function getDefaultSettingsForModel(
     mergedSettings.maxTokens = modelInfo.maxTokens;
   }
 
+  // Handle reasoning settings based on model capabilities
+  if (modelInfo?.reasoning?.supported) {
+    // If the model has reasoning enabled by default, update the settings
+    if (modelInfo.reasoning.enabledByDefault) {
+      mergedSettings.reasoning = {
+        ...mergedSettings.reasoning,
+        enabled: true,
+      };
+    }
+  }
+
   // Filter out undefined values and ensure required fields
   return Object.fromEntries(
     Object.entries(mergedSettings).filter(([_, value]) => value !== undefined)

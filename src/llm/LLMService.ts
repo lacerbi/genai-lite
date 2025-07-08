@@ -4,12 +4,17 @@
 import type { ApiKeyProvider } from '../types';
 import type {
   LLMChatRequest,
+  LLMChatRequestWithPreset,
   LLMResponse,
   LLMFailureResponse,
   ProviderInfo,
   ModelInfo,
   ApiProviderId,
   LLMSettings,
+  PrepareMessageOptions,
+  PrepareMessageResult,
+  ModelContext,
+  LLMMessage,
 } from "./types";
 import type {
   ILLMClientAdapter,
@@ -34,6 +39,7 @@ import {
   validateLLMSettings,
 } from "./config";
 import defaultPresets from "../config/presets.json";
+import { renderTemplate } from "../prompting/template";
 
 /**
  * Defines how custom presets interact with the default presets.
@@ -173,90 +179,44 @@ export class LLMService {
    * @returns Promise resolving to either success or failure response
    */
   async sendMessage(
-    request: LLMChatRequest
+    request: LLMChatRequest | LLMChatRequestWithPreset
   ): Promise<LLMResponse | LLMFailureResponse> {
     console.log(
-      `LLMService.sendMessage called for provider: ${request.providerId}, model: ${request.modelId}`
+      `LLMService.sendMessage called with presetId: ${(request as LLMChatRequestWithPreset).presetId}, provider: ${request.providerId}, model: ${request.modelId}`
     );
 
     try {
-      // Validate provider
-      if (!isProviderSupported(request.providerId)) {
-        console.warn(
-          `Unsupported provider in sendMessage: ${request.providerId}`
-        );
-        return {
-          provider: request.providerId,
-          model: request.modelId,
-          error: {
-            message: `Unsupported provider: ${
-              request.providerId
-            }. Supported providers: ${SUPPORTED_PROVIDERS.map((p) => p.id).join(
-              ", "
-            )}`,
-            code: "UNSUPPORTED_PROVIDER",
-            type: "validation_error",
-          },
-          object: "error",
-        };
+      // Resolve model information from preset or direct IDs
+      const resolved = this.resolveModelInfo(request);
+      if (resolved.error) {
+        return resolved.error;
       }
 
-      // Validate model
-      if (!isModelSupported(request.modelId, request.providerId)) {
-        const availableModels = getModelsByProvider(request.providerId).map(
-          (m) => m.id
-        );
-        console.warn(
-          `Unsupported model ${request.modelId} for provider ${
-            request.providerId
-          }. Available: ${availableModels.join(", ")}`
-        );
-        return {
-          provider: request.providerId,
-          model: request.modelId,
-          error: {
-            message: `Unsupported model: ${request.modelId} for provider: ${
-              request.providerId
-            }. Available models: ${availableModels.join(", ")}`,
-            code: "UNSUPPORTED_MODEL",
-            type: "validation_error",
-          },
-          object: "error",
-        };
-      }
+      const { providerId, modelId, modelInfo, settings: resolvedSettings } = resolved;
 
-      // Get model info for additional validation or settings
-      const modelInfo = getModelById(request.modelId, request.providerId);
-      if (!modelInfo) {
-        // This shouldn't happen if validation above passed, but defensive programming
-        console.error(
-          `Model info not found for validated model: ${request.modelId}`
-        );
-        return {
-          provider: request.providerId,
-          model: request.modelId,
-          error: {
-            message: `Internal error: Model configuration not found for ${request.modelId}`,
-            code: "MODEL_CONFIG_ERROR",
-            type: "internal_error",
-          },
-          object: "error",
-        };
-      }
+      // Create a proper LLMChatRequest with resolved values
+      const resolvedRequest: LLMChatRequest = {
+        ...request,
+        providerId: providerId!,
+        modelId: modelId!,
+      };
+
+      // Provider and model validation already done by resolveModelInfo
 
       // Validate basic request structure
-      const structureValidationResult = this.validateRequestStructure(request);
+      const structureValidationResult = this.validateRequestStructure(resolvedRequest);
       if (structureValidationResult) {
         return structureValidationResult;
       }
 
-      // Validate settings if provided
-      if (request.settings) {
-        const settingsValidationErrors = validateLLMSettings(request.settings);
+      // Validate settings if provided  
+      const combinedSettings = { ...resolvedSettings, ...request.settings };
+      if (combinedSettings) {
+        const settingsValidationErrors = validateLLMSettings(combinedSettings);
         if (settingsValidationErrors.length > 0) {
           return {
-            provider: request.providerId,
-            model: request.modelId,
+            provider: providerId!,
+            model: modelId!,
             error: {
               message: `Invalid settings: ${settingsValidationErrors.join(
                 ", "
@@ -271,16 +231,16 @@ export class LLMService {
 
       // Apply model-specific defaults and merge with user settings
       const finalSettings = this.mergeSettingsForModel(
-        request.modelId,
-        request.providerId,
-        request.settings
+        modelId!,
+        providerId!,
+        combinedSettings
       );
 
       // Validate reasoning settings for model capabilities
       const reasoningValidation = this.validateReasoningSettings(
-        modelInfo,
+        modelInfo!,
         finalSettings.reasoning,
-        request
+        resolvedRequest
       );
       if (reasoningValidation) {
         return reasoningValidation;
@@ -290,7 +250,7 @@ export class LLMService {
       let filteredSettings = { ...finalSettings }; // Create a mutable copy
 
       // Get provider info for parameter filtering (modelInfo is already available from earlier validation)
-      const providerInfo = getProviderById(request.providerId);
+      const providerInfo = getProviderById(providerId!);
 
       const paramsToExclude = new Set<keyof LLMSettings>();
 
@@ -309,7 +269,7 @@ export class LLMService {
 
       if (paramsToExclude.size > 0) {
         console.log(
-          `LLMService: Potential parameters to exclude for provider '${request.providerId}', model '${request.modelId}':`,
+          `LLMService: Potential parameters to exclude for provider '${providerId}', model '${modelId}':`,
           Array.from(paramsToExclude)
         );
       }
@@ -324,8 +284,8 @@ export class LLMService {
           console.log(
             `LLMService: Removing excluded parameter '${String(
               param
-            )}' for provider '${request.providerId}', model '${
-              request.modelId
+            )}' for provider '${providerId}', model '${
+              modelId
             }'. Value was:`,
             filteredSettings[param]
           );
@@ -337,52 +297,52 @@ export class LLMService {
             `LLMService: Parameter '${String(
               param
             )}' marked for exclusion was not found in settings for provider '${
-              request.providerId
-            }', model '${request.modelId}'.`
+              providerId
+            }', model '${modelId}'.`
           );
         }
       });
 
       // Handle reasoning settings for models that don't support it
       // This happens after validateReasoningSettings so we know it's safe to strip
-      if (!modelInfo.reasoning?.supported && filteredSettings.reasoning) {
+      if (!modelInfo!.reasoning?.supported && filteredSettings.reasoning) {
         console.log(
-          `LLMService: Removing reasoning settings for non-reasoning model ${request.modelId}`
+          `LLMService: Removing reasoning settings for non-reasoning model ${modelId}`
         );
         delete (filteredSettings as Partial<LLMSettings>).reasoning;
       }
 
       const internalRequest: InternalLLMChatRequest = {
-        ...request,
+        ...resolvedRequest,
         settings: filteredSettings,
       };
 
       console.log(
         `Processing LLM request with (potentially filtered) settings:`,
         {
-          provider: request.providerId,
-          model: request.modelId,
+          provider: providerId,
+          model: modelId,
           settings: filteredSettings,
-          messageCount: request.messages.length,
+          messageCount: resolvedRequest.messages.length,
         }
       );
 
       console.log(
-        `Processing LLM request: ${request.messages.length} messages, model: ${request.modelId}`
+        `Processing LLM request: ${resolvedRequest.messages.length} messages, model: ${modelId}`
       );
 
       // Get client adapter
-      const clientAdapter = this.getClientAdapter(request.providerId);
+      const clientAdapter = this.getClientAdapter(providerId!);
 
       // Use ApiKeyProvider to get the API key and make the request
       try {
-        const apiKey = await this.getApiKey(request.providerId);
+        const apiKey = await this.getApiKey(providerId!);
         if (!apiKey) {
           return {
-            provider: request.providerId,
-            model: request.modelId,
+            provider: providerId!,
+            model: modelId!,
             error: {
-              message: `API key for provider '${request.providerId}' could not be retrieved. Ensure your ApiKeyProvider is configured correctly.`,
+              message: `API key for provider '${providerId}' could not be retrieved. Ensure your ApiKeyProvider is configured correctly.`,
               code: "API_KEY_ERROR",
               type: "authentication_error",
             },
@@ -391,19 +351,19 @@ export class LLMService {
         }
 
         console.log(
-          `Making LLM request with ${clientAdapter.constructor.name} for provider: ${request.providerId}`
+          `Making LLM request with ${clientAdapter.constructor.name} for provider: ${providerId}`
         );
         const result = await clientAdapter.sendMessage(internalRequest, apiKey);
 
         console.log(
-          `LLM request completed successfully for model: ${request.modelId}`
+          `LLM request completed successfully for model: ${modelId}`
         );
         return result;
       } catch (error) {
         console.error("Error in LLMService.sendMessage:", error);
         return {
-          provider: request.providerId,
-          model: request.modelId,
+          provider: providerId!,
+          model: modelId!,
           error: {
             message:
               error instanceof Error
@@ -420,8 +380,8 @@ export class LLMService {
       console.error("Error in LLMService.sendMessage (outer):", error);
 
       return {
-        provider: request.providerId,
-        model: request.modelId,
+        provider: request.providerId || (request as LLMChatRequestWithPreset).presetId || 'unknown',
+        model: request.modelId || (request as LLMChatRequestWithPreset).presetId || 'unknown',
         error: {
           message:
             error instanceof Error
@@ -443,7 +403,7 @@ export class LLMService {
    * @returns LLMFailureResponse if validation fails, null if valid
    */
   private validateRequestStructure(
-    request: LLMChatRequest
+    request: LLMChatRequest | LLMChatRequestWithPreset
   ): LLMFailureResponse | null {
     // Basic request structure validation
     if (
@@ -452,8 +412,8 @@ export class LLMService {
       request.messages.length === 0
     ) {
       return {
-        provider: request.providerId,
-        model: request.modelId,
+        provider: request.providerId || (request as LLMChatRequestWithPreset).presetId || 'unknown',
+        model: request.modelId || (request as LLMChatRequestWithPreset).presetId || 'unknown',
         error: {
           message: "Request must contain at least one message",
           code: "INVALID_REQUEST",
@@ -468,8 +428,8 @@ export class LLMService {
       const message = request.messages[i];
       if (!message.role || !message.content) {
         return {
-          provider: request.providerId,
-          model: request.modelId,
+          provider: request.providerId || ('presetId' in request ? request.presetId : undefined) || 'unknown',
+          model: request.modelId || ('presetId' in request ? request.presetId : undefined) || 'unknown',
           error: {
             message: `Message at index ${i} must have both 'role' and 'content' properties`,
             code: "INVALID_MESSAGE",
@@ -481,8 +441,8 @@ export class LLMService {
 
       if (!["user", "assistant", "system"].includes(message.role)) {
         return {
-          provider: request.providerId,
-          model: request.modelId,
+          provider: request.providerId || ('presetId' in request ? request.presetId : undefined) || 'unknown',
+          model: request.modelId || ('presetId' in request ? request.presetId : undefined) || 'unknown',
           error: {
             message: `Invalid message role '${message.role}' at index ${i}. Must be 'user', 'assistant', or 'system'`,
             code: "INVALID_MESSAGE_ROLE",
@@ -524,8 +484,8 @@ export class LLMService {
       
       if (tryingToEnableReasoning) {
         return {
-          provider: request.providerId,
-          model: request.modelId,
+          provider: request.providerId!,
+          model: request.modelId!,
           error: {
             message: `Model ${request.modelId} does not support reasoning/thinking`,
             type: 'validation_error',
@@ -575,7 +535,10 @@ export class LLMService {
       geminiSafetySettings:
         requestSettings?.geminiSafetySettings ??
         modelDefaults.geminiSafetySettings,
-      reasoning: requestSettings?.reasoning ?? modelDefaults.reasoning,
+      reasoning: {
+        ...modelDefaults.reasoning,
+        ...requestSettings?.reasoning,
+      },
     };
 
     // Log the final settings for debugging
@@ -683,5 +646,227 @@ export class LLMService {
    */
   getPresets(): ModelPreset[] {
     return [...this.presets]; // Return a copy to prevent external modification
+  }
+
+  /**
+   * Resolves model information from either a preset ID or provider/model IDs
+   * 
+   * @private
+   * @param options Options containing either presetId or providerId/modelId
+   * @returns Resolved model info and settings or error response
+   */
+  private resolveModelInfo(options: {
+    presetId?: string;
+    providerId?: string;
+    modelId?: string;
+    settings?: LLMSettings;
+  }): {
+    providerId?: string;
+    modelId?: string;
+    modelInfo?: ModelInfo;
+    settings?: LLMSettings;
+    error?: LLMFailureResponse;
+  } {
+    // If presetId is provided, use it
+    if (options.presetId) {
+      const preset = this.presets.find(p => p.id === options.presetId);
+      if (!preset) {
+        return {
+          error: {
+            provider: 'unknown',
+            model: 'unknown',
+            error: {
+              message: `Preset not found: ${options.presetId}`,
+              code: 'PRESET_NOT_FOUND',
+              type: 'validation_error',
+            },
+            object: 'error',
+          }
+        };
+      }
+
+      const modelInfo = getModelById(preset.modelId, preset.providerId);
+      if (!modelInfo) {
+        return {
+          error: {
+            provider: preset.providerId,
+            model: preset.modelId,
+            error: {
+              message: `Model not found for preset: ${options.presetId}`,
+              code: 'MODEL_NOT_FOUND',
+              type: 'validation_error',
+            },
+            object: 'error',
+          }
+        };
+      }
+
+      // Merge preset settings with user settings
+      const settings = {
+        ...preset.settings,
+        ...options.settings
+      };
+
+      return {
+        providerId: preset.providerId,
+        modelId: preset.modelId,
+        modelInfo,
+        settings
+      };
+    }
+
+    // Otherwise, use providerId and modelId
+    if (!options.providerId || !options.modelId) {
+      return {
+        error: {
+          provider: options.providerId || 'unknown',
+          model: options.modelId || 'unknown',
+          error: {
+            message: 'Either presetId or both providerId and modelId must be provided',
+            code: 'INVALID_MODEL_SELECTION',
+            type: 'validation_error',
+          },
+          object: 'error',
+        }
+      };
+    }
+
+    // Check if provider is supported first
+    if (!isProviderSupported(options.providerId)) {
+      return {
+        error: {
+          provider: options.providerId,
+          model: options.modelId,
+          error: {
+            message: `Unsupported provider: ${options.providerId}. Supported providers: ${SUPPORTED_PROVIDERS.map((p) => p.id).join(', ')}`,
+            code: 'UNSUPPORTED_PROVIDER',
+            type: 'validation_error',
+          },
+          object: 'error',
+        }
+      };
+    }
+
+    const modelInfo = getModelById(options.modelId, options.providerId);
+    if (!modelInfo) {
+      return {
+        error: {
+          provider: options.providerId,
+          model: options.modelId,
+          error: {
+            message: `Unsupported model: ${options.modelId} for provider: ${options.providerId}`,
+            code: 'UNSUPPORTED_MODEL',
+            type: 'validation_error',
+          },
+          object: 'error',
+        }
+      };
+    }
+
+    return {
+      providerId: options.providerId,
+      modelId: options.modelId,
+      modelInfo,
+      settings: options.settings
+    };
+  }
+
+  /**
+   * Prepares messages with model context for template rendering
+   * 
+   * This method resolves model information from either a preset or direct provider/model IDs,
+   * then renders a template with model context variables injected, or returns pre-built messages
+   * with the model context separately.
+   * 
+   * @param options Options for preparing messages
+   * @returns Promise resolving to prepared messages and model context
+   * 
+   * @example
+   * ```typescript
+   * const { messages } = await llm.prepareMessage({
+   *   template: 'Help me {{ thinking_enabled ? "think through" : "solve" }} this: {{ problem }}',
+   *   variables: { problem: 'complex algorithm' },
+   *   presetId: 'anthropic-claude-3-7-sonnet-20250219-thinking'
+   * });
+   * ```
+   */
+  async prepareMessage(options: PrepareMessageOptions): Promise<PrepareMessageResult | LLMFailureResponse> {
+    console.log('LLMService.prepareMessage called');
+
+    // Validate input
+    if (!options.template && !options.messages) {
+      return {
+        provider: 'unknown',
+        model: 'unknown',
+        error: {
+          message: 'Either template or messages must be provided',
+          code: 'INVALID_INPUT',
+          type: 'validation_error',
+        },
+        object: 'error',
+      };
+    }
+
+    // Resolve model information
+    const resolved = this.resolveModelInfo(options);
+    if (resolved.error) {
+      return resolved.error;
+    }
+
+    const { providerId, modelId, modelInfo, settings } = resolved;
+
+    // Merge settings with model defaults
+    const mergedSettings = this.mergeSettingsForModel(
+      modelId!,
+      providerId!,
+      settings
+    );
+
+    // Create model context
+    const modelContext: ModelContext = {
+      thinking_enabled: !!(modelInfo!.reasoning?.supported && 
+                          (mergedSettings.reasoning?.enabled === true ||
+                           (modelInfo!.reasoning?.enabledByDefault && mergedSettings.reasoning?.enabled !== false))),
+      thinking_available: !!modelInfo!.reasoning?.supported,
+      model_id: modelId!,
+      provider_id: providerId!,
+      reasoning_effort: mergedSettings.reasoning?.effort,
+      reasoning_max_tokens: mergedSettings.reasoning?.maxTokens,
+    };
+
+    // Prepare messages
+    let messages: LLMMessage[];
+    
+    if (options.template) {
+      // Render template with variables and model context
+      const allVariables = {
+        ...options.variables,
+        ...modelContext, // Inject model context at root level
+      };
+
+      try {
+        const content = renderTemplate(options.template, allVariables);
+        messages = [{ role: 'user', content }];
+      } catch (error) {
+        return {
+          provider: providerId!,
+          model: modelId!,
+          error: {
+            message: `Template rendering failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+            code: 'TEMPLATE_ERROR',
+            type: 'validation_error',
+          },
+          object: 'error',
+        };
+      }
+    } else {
+      // Use pre-built messages
+      messages = options.messages!;
+    }
+
+    return {
+      messages,
+      modelContext,
+    };
   }
 }

@@ -283,7 +283,7 @@ These summary files provide hierarchical context throughout the project:
 
 The summaries enable efficient navigation and understanding of the codebase without processing every file. They include cross-references, usage examples, and architectural decisions at each level.
 
-Last Context Build: 2025-07-05
+Last Context Build: 2025-07-08
 
 ## Commit Guidelines
 

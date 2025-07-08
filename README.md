@@ -290,6 +290,69 @@ const llmService = new LLMService(fromEnvironment, {
 });
 ```
 
+### Using Presets with Messages
+
+You can use presets directly in `sendMessage` calls:
+
+```typescript
+// Send a message using a preset
+const response = await llmService.sendMessage({
+  presetId: 'anthropic-claude-3-7-sonnet-20250219-thinking',
+  messages: [{ role: 'user', content: 'Solve this complex problem...' }]
+});
+
+// Override preset settings
+const response = await llmService.sendMessage({
+  presetId: 'openai-gpt-4.1-default',
+  messages: [{ role: 'user', content: 'Write a story' }],
+  settings: {
+    temperature: 0.9, // Override preset's temperature
+    maxTokens: 3000
+  }
+});
+```
+
+### Model-Aware Template Rendering
+
+The library provides a powerful `prepareMessage` method that renders templates with model context, allowing you to create adaptive prompts based on model capabilities:
+
+```typescript
+// Prepare a message with model-aware template
+const result = await llmService.prepareMessage({
+  template: `
+{{ thinking_enabled ? "Please think step-by-step about this problem:" : "Please analyze this problem:" }}
+
+{{ question }}
+
+{{ thinking_available && !thinking_enabled ? "(Note: This model supports reasoning mode which could help with complex problems)" : "" }}
+  `,
+  variables: { 
+    question: 'What is the optimal algorithm for finding the shortest path in a weighted graph?' 
+  },
+  presetId: 'anthropic-claude-3-7-sonnet-20250219-thinking'
+});
+
+if (result.object !== 'error') {
+  // Access the prepared messages and model context
+  console.log('Messages:', result.messages);
+  console.log('Model context:', result.modelContext);
+  
+  // Send the prepared messages
+  const response = await llmService.sendMessage({
+    presetId: 'anthropic-claude-3-7-sonnet-20250219-thinking',
+    messages: result.messages
+  });
+}
+```
+
+The model context includes:
+- `thinking_enabled`: Whether reasoning/thinking is enabled for this request
+- `thinking_available`: Whether the model supports reasoning/thinking
+- `model_id`: The resolved model ID
+- `provider_id`: The resolved provider ID
+- `reasoning_effort`: The reasoning effort level if specified
+- `reasoning_max_tokens`: The reasoning token budget if specified
+
 ### Error Handling
 
 ```typescript
@@ -361,6 +424,7 @@ genai-lite is written in TypeScript and provides comprehensive type definitions:
 ```typescript
 import type { 
   LLMChatRequest,
+  LLMChatRequestWithPreset,
   LLMResponse,
   LLMFailureResponse,
   LLMSettings,
@@ -368,7 +432,10 @@ import type {
   ApiKeyProvider,
   ModelPreset,
   LLMServiceOptions,
-  PresetMode
+  PresetMode,
+  PrepareMessageOptions,
+  ModelContext,
+  PrepareMessageResult
 } from 'genai-lite';
 ```
 
