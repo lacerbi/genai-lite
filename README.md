@@ -27,7 +27,7 @@ import { LLMService, fromEnvironment } from 'genai-lite';
 // Create service with environment variable API key provider
 const llmService = new LLMService(fromEnvironment);
 
-// Send a message to OpenAI
+// Option 1: Direct message sending
 const response = await llmService.sendMessage({
   providerId: 'openai',
   modelId: 'gpt-4.1-mini',
@@ -35,6 +35,19 @@ const response = await llmService.sendMessage({
     { role: 'system', content: 'You are a helpful assistant.' },
     { role: 'user', content: 'Hello, how are you?' }
   ]
+});
+
+// Option 2: Create messages from template (recommended for complex prompts)
+const { messages } = await llmService.createMessages({
+  template: '<SYSTEM>You are a helpful assistant.</SYSTEM><USER>Hello, how are you?</USER>',
+  providerId: 'openai',
+  modelId: 'gpt-4.1-mini'
+});
+
+const response2 = await llmService.sendMessage({
+  providerId: 'openai',
+  modelId: 'gpt-4.1-mini',
+  messages
 });
 
 if (response.object === 'chat.completion') {
@@ -201,6 +214,101 @@ if (response.object === 'chat.completion' && response.choices[0].reasoning) {
 - Not all models support reasoning - check the [supported models](#models-with-reasoning-support) list
 - The `reasoning` field in the response contains the model's thought process (when available)
 
+### Automatic Thinking Extraction
+
+genai-lite can capture reasoning from any model by automatically extracting content wrapped in XML tags. When models output their thinking process in tags like `<thinking>`, the library automatically moves this content to the standardized `reasoning` field. This works with all models, providing a consistent interface for accessing model reasoning:
+
+```typescript
+// Prompt the model to think step-by-step in a <thinking> tag
+const response = await llmService.sendMessage({
+  providerId: 'openai',
+  modelId: 'gpt-4.1',
+  messages: [{
+    role: 'system',
+    content: 'When solving problems, first write your reasoning inside <thinking> tags, then provide the answer.'
+  }, {
+    role: 'user',
+    content: 'Please think through this problem step by step before answering: What is 15% of 240?'
+  }],
+  settings: {
+    thinkingExtraction: { enabled: true } // Must explicitly enable
+  }
+});
+
+// If the model responds with:
+// "<thinking>15% means 15/100 = 0.15. So 15% of 240 = 0.15 × 240 = 36.</thinking>The answer is 36."
+// 
+// The response will have:
+// - response.choices[0].message.content = "The answer is 36."
+// - response.choices[0].reasoning = "<!-- Extracted by genai-lite from <thinking> tag -->\n15% means 15/100 = 0.15. So 15% of 240 = 0.15 × 240 = 36."
+
+// If the model doesn't include the <thinking> tag, you'll get an error (with default 'auto' mode)
+```
+
+**Configuration Options:**
+
+```typescript
+const response = await llmService.sendMessage({
+  providerId: 'anthropic',
+  modelId: 'claude-3-5-haiku-20241022',
+  messages: [{ role: 'user', content: 'Solve this step by step...' }],
+  settings: {
+    thinkingExtraction: {
+      enabled: true,     // Must explicitly enable (default: false)
+      tag: 'scratchpad', // Custom tag name (default: 'thinking')
+      onMissing: 'auto'  // Smart enforcement (see below)
+    }
+  }
+});
+```
+
+**The `onMissing` Property:**
+
+The `onMissing` property controls what happens when the expected thinking tag is not found:
+
+- `'ignore'`: Silently continue without the tag
+- `'warn'`: Log a warning but continue processing
+- `'error'`: Return an error response
+- `'auto'` (default): Intelligently decide based on the model's native reasoning capabilities
+
+**How `'auto'` Mode Works:**
+
+```typescript
+// With non-native reasoning models (e.g., GPT-4)
+const response = await llmService.sendMessage({
+  providerId: 'openai',
+  modelId: 'gpt-4.1',
+  messages: [{
+    role: 'system',
+    content: 'Always think in <thinking> tags before answering.'
+  }, {
+    role: 'user',
+    content: 'What is 15% of 240?'
+  }],
+  settings: {
+    thinkingExtraction: { enabled: true } // onMissing: 'auto' is default
+  }
+});
+// Result: ERROR if <thinking> tag is missing (strict enforcement)
+
+// With native reasoning models (e.g., Claude with reasoning enabled)
+const response = await llmService.sendMessage({
+  providerId: 'anthropic',
+  modelId: 'claude-3-7-sonnet-20250219',
+  messages: [/* same prompt */],
+  settings: {
+    reasoning: { enabled: true },
+    thinkingExtraction: { enabled: true }
+  }
+});
+// Result: SUCCESS even if <thinking> tag is missing (lenient for native reasoning)
+```
+
+This intelligent enforcement ensures that:
+- Non-native models are held to strict requirements when instructed to use thinking tags
+- Native reasoning models aren't penalized for using their built-in reasoning instead of tags
+- The same prompt can work across different model types
+
 ### Provider Information
 
 ```typescript
@@ -312,46 +420,220 @@ const response = await llmService.sendMessage({
 });
 ```
 
-### Model-Aware Template Rendering
+### Creating Messages from Templates
 
-The library provides a powerful `prepareMessage` method that renders templates with model context, allowing you to create adaptive prompts based on model capabilities:
+The library provides a powerful `createMessages` method that combines template rendering, model context injection, and role tag parsing into a single, intuitive API:
 
 ```typescript
-// Prepare a message with model-aware template
-const result = await llmService.prepareMessage({
+// Basic example: Create model-aware messages
+const { messages, modelContext } = await llmService.createMessages({
   template: `
-{{ thinking_enabled ? "Please think step-by-step about this problem:" : "Please analyze this problem:" }}
-
-{{ question }}
-
-{{ thinking_available && !thinking_enabled ? "(Note: This model supports reasoning mode which could help with complex problems)" : "" }}
+    <SYSTEM>
+      You are a {{ thinking_enabled ? "thoughtful" : "helpful" }} assistant.
+      {{ thinking_available && !thinking_enabled ? "Note: Reasoning mode is available for complex problems." : "" }}
+    </SYSTEM>
+    <USER>{{ question }}</USER>
   `,
   variables: { 
-    question: 'What is the optimal algorithm for finding the shortest path in a weighted graph?' 
+    question: 'What is the optimal algorithm for finding the shortest path in a weighted graph?'
   },
   presetId: 'anthropic-claude-3-7-sonnet-20250219-thinking'
 });
 
-if (result.object !== 'error') {
-  // Access the prepared messages and model context
-  console.log('Messages:', result.messages);
-  console.log('Model context:', result.modelContext);
-  
-  // Send the prepared messages
-  const response = await llmService.sendMessage({
-    presetId: 'anthropic-claude-3-7-sonnet-20250219-thinking',
-    messages: result.messages
-  });
-}
+// The messages are ready to send
+const response = await llmService.sendMessage({
+  presetId: 'anthropic-claude-3-7-sonnet-20250219-thinking',
+  messages: messages
+});
+
+// Advanced example: Conditional context and multi-turn conversation
+const { messages } = await llmService.createMessages({
+  template: `
+    <SYSTEM>You are an expert code reviewer.</SYSTEM>
+    {{ hasContext ? '<USER>Context: {{context}}</USER>' : '' }}
+    <USER>Review this code:
+```{{language}}
+{{code}}
+```</USER>
+    {{ hasExamples ? examples : '' }}
+    <USER>Focus on {{ focusAreas.join(', ') }}.</USER>
+  `,
+  variables: { 
+    hasContext: true,
+    context: 'This is part of a high-performance web server',
+    language: 'typescript',
+    code: 'async function handleRequest(req: Request) { ... }',
+    hasExamples: true,
+    examples: '<ASSISTANT>I\'ll review your code focusing on the areas you mentioned.</ASSISTANT>',
+    focusAreas: ['error handling', 'performance', 'type safety']
+  },
+  providerId: 'openai',
+  modelId: 'gpt-4.1'
+});
 ```
 
-The model context includes:
+The method provides:
+- **Unified API**: Single method for all prompt creation needs
+- **Model Context Injection**: Automatically injects model-specific variables
+- **Template Rendering**: Full support for conditionals and variable substitution
+- **Role Tag Parsing**: Converts `<SYSTEM>`, `<USER>`, and `<ASSISTANT>` tags to messages
+
+Available model context variables:
 - `thinking_enabled`: Whether reasoning/thinking is enabled for this request
 - `thinking_available`: Whether the model supports reasoning/thinking
 - `model_id`: The resolved model ID
 - `provider_id`: The resolved provider ID
 - `reasoning_effort`: The reasoning effort level if specified
 - `reasoning_max_tokens`: The reasoning token budget if specified
+
+#### Advanced Features
+
+**Dynamic Role Injection:**
+Variables can dynamically inject entire role blocks, enabling flexible conversation flows:
+
+```typescript
+const { messages } = await llmService.createMessages({
+  template: `
+    {{ includeSystemPrompt ? '<SYSTEM>{{systemPrompt}}</SYSTEM>' : '' }}
+    {{ examples ? examples : '' }}
+    <USER>{{userQuery}}</USER>
+  `,
+  variables: {
+    includeSystemPrompt: true,
+    systemPrompt: 'You are an expert code reviewer.',
+    examples: `
+      <USER>Review this code: const x = 1</USER>
+      <ASSISTANT>The variable name 'x' is not descriptive...</ASSISTANT>
+    `,
+    userQuery: 'Review this: const data = fetchData()'
+  },
+  presetId: 'anthropic-claude-3-5-sonnet-20241022'
+});
+```
+
+**Combining with Thinking Extraction:**
+When using models without native reasoning support, combine createMessages with thinking extraction:
+
+```typescript
+// Prompt any model to think before answering
+const { messages } = await llmService.createMessages({
+  template: `
+    <SYSTEM>
+      When solving problems, first write your step-by-step reasoning inside <thinking> tags,
+      then provide your final answer.
+    </SYSTEM>
+    <USER>{{ question }}</USER>
+  `,
+  variables: { question: 'If a train travels 120km in 2 hours, what is its speed in m/s?' },
+  providerId: 'openai',
+  modelId: 'gpt-4.1'
+});
+
+// Send with automatic thinking extraction
+const response = await llmService.sendMessage({
+  providerId: 'openai',
+  modelId: 'gpt-4.1',
+  messages,
+  settings: {
+    thinkingExtraction: { enabled: true } // Default, but shown for clarity
+  }
+});
+
+// Access both reasoning and answer
+if (response.object === 'chat.completion') {
+  console.log('Reasoning:', response.choices[0].reasoning);
+  console.log('Answer:', response.choices[0].message.content);
+}
+```
+
+### Self-Contained Templates with Metadata
+
+Templates can now include their own settings using a `<META>` block, making them truly self-contained and reusable:
+
+```typescript
+// Define a template with embedded settings
+const creativeWritingTemplate = `
+<META>
+{
+  "settings": {
+    "temperature": 0.9,
+    "maxTokens": 3000,
+    "thinkingExtraction": { "enabled": true, "tag": "reasoning" }
+  }
+}
+</META>
+<SYSTEM>
+You are a creative writer. Use <reasoning> tags to outline your story structure 
+before writing the actual story.
+</SYSTEM>
+<USER>Write a short story about {{ topic }}</USER>
+`;
+
+// Use the template - settings are automatically extracted
+const { messages, settings } = await llmService.createMessages({
+  template: creativeWritingTemplate,
+  variables: { topic: 'a robot discovering music' },
+  providerId: 'openai',
+  modelId: 'gpt-4.1'
+});
+
+// Send the message with the template's settings
+const response = await llmService.sendMessage({
+  providerId: 'openai',
+  modelId: 'gpt-4.1',
+  messages,
+  settings  // Uses temperature: 0.9, maxTokens: 3000, etc.
+});
+```
+
+**Benefits of Self-Contained Templates:**
+- **Portability**: Templates carry their optimal settings with them
+- **Consistency**: Same template always uses the same settings
+- **Less Error-Prone**: No need to remember settings for each template
+- **Shareable**: Easy to share templates with all necessary configuration
+
+**Settings Hierarchy:**
+When multiple settings sources exist, they are merged in this order (later overrides earlier):
+1. Model defaults (lowest priority)
+2. Preset settings
+3. Template `<META>` settings
+4. Runtime settings in `sendMessage()` (highest priority)
+
+```typescript
+// Example of settings hierarchy
+const { messages, settings: templateSettings } = await llmService.createMessages({
+  template: `<META>{"settings": {"temperature": 0.8}}</META><USER>Hello</USER>`,
+  presetId: 'some-preset' // Preset might have temperature: 0.7
+});
+
+// Final temperature will be 0.9 (runtime overrides all)
+const response = await llmService.sendMessage({
+  presetId: 'some-preset',
+  messages,
+  settings: {
+    ...templateSettings,
+    temperature: 0.9  // Runtime override
+  }
+});
+```
+
+**Validation:**
+Invalid settings in the `<META>` block are logged as warnings and ignored:
+
+```typescript
+const template = `
+<META>
+{
+  "settings": {
+    "temperature": 3.0,      // Invalid: will be ignored with warning
+    "maxTokens": 2000,       // Valid: will be used
+    "unknownSetting": "foo"  // Unknown: will be ignored with warning
+  }
+}
+</META>
+<USER>Test</USER>
+`;
+```
 
 ### Error Handling
 
@@ -429,13 +711,14 @@ import type {
   LLMFailureResponse,
   LLMSettings,
   LLMReasoningSettings,
+  LLMThinkingExtractionSettings,
   ApiKeyProvider,
   ModelPreset,
   LLMServiceOptions,
   PresetMode,
-  PrepareMessageOptions,
   ModelContext,
-  PrepareMessageResult
+  CreateMessagesResult,
+  TemplateMetadata
 } from 'genai-lite';
 ```
 
@@ -557,6 +840,19 @@ const prompt = renderTemplate(
 );
 // Result includes the context line when hasContext is true
 
+// Using logical operators in conditions
+const accessControl = renderTemplate(
+  '{{ isAuthenticated && !isBanned ? `Welcome {{username}}!` : `Access denied` }}',
+  { isAuthenticated: true, isBanned: false, username: 'Alice' }
+);
+// Result: "Welcome Alice!"
+
+const notification = renderTemplate(
+  '{{ hasEmail || hasPhone ? `Contact info available` : `No contact info` }}',
+  { hasEmail: false, hasPhone: true }
+);
+// Result: "Contact info available"
+
 // Complex template with multiple conditionals
 const complexTemplate = `
 System: You are a {{ role }} assistant.
@@ -585,9 +881,16 @@ const result = renderTemplate(complexTemplate, {
 Template syntax supports:
 - **Simple substitution**: `{{ variableName }}`
 - **Ternary conditionals**: `{{ condition ? `true result` : `false result` }}`
+- **Logical operators in conditions**:
+  - NOT: `{{ !isDisabled ? `enabled` : `disabled` }}`
+  - AND: `{{ hasPermission && isActive ? `show` : `hide` }}`
+  - OR: `{{ isAdmin || isOwner ? `allow` : `deny` }}`
+  - Combined: `{{ !isDraft && isPublished ? `visible` : `hidden` }}`
 - **Nested variables**: `{{ show ? `Name: {{name}}` : `Anonymous` }}`
 - **Multi-line strings**: Use backticks to preserve formatting
 - **Intelligent newline handling**: Empty results remove trailing newlines
+
+Note: Logical operators support up to 2 operands and don't support parentheses or mixing && and ||.
 
 ### Example: Building Dynamic LLM Prompts
 
@@ -636,36 +939,65 @@ const response = await llm.sendMessage({
 });
 ```
 
-### Prompt Builder Utilities
+### Prompt Engineering Utilities
 
-genai-lite provides powerful utilities for building and parsing structured prompts:
+genai-lite provides powerful utilities for working with prompts and responses:
 
-#### Parsing Messages from Templates
+#### Creating Messages from Templates
 
-Convert template strings with role tags into LLM message arrays:
+The recommended way to create messages is using `LLMService.createMessages`, which provides a unified API for template rendering, model context injection, and role tag parsing:
 
 ```typescript
-import { buildMessagesFromTemplate } from 'genai-lite/prompting';
-
-const template = `
-<SYSTEM>You are a helpful assistant specialized in {{expertise}}.</SYSTEM>
-<USER>Help me with {{task}}</USER>
-<ASSISTANT>I'll help you with {{task}}. Let me analyze the requirements...</ASSISTANT>
-<USER>Can you provide more details?</USER>
-`;
-
-const messages = buildMessagesFromTemplate(template, {
-  expertise: 'TypeScript and React',
-  task: 'building a custom hook'
+// Basic multi-turn conversation
+const { messages } = await llmService.createMessages({
+  template: `
+    <SYSTEM>You are a helpful assistant specialized in {{expertise}}.</SYSTEM>
+    <USER>Help me with {{task}}</USER>
+    <ASSISTANT>I'll help you with {{task}}. Let me analyze the requirements...</ASSISTANT>
+    <USER>Can you provide more details?</USER>
+  `,
+  variables: {
+    expertise: 'TypeScript and React',
+    task: 'building a custom hook'
+  },
+  presetId: 'openai-gpt-4.1-default' // Optional: adds model context
 });
 
-// Result: Array of LLMMessage objects ready for the API
-// [
-//   { role: 'system', content: 'You are a helpful assistant specialized in TypeScript and React.' },
-//   { role: 'user', content: 'Help me with building a custom hook' },
-//   { role: 'assistant', content: "I'll help you with building a custom hook. Let me analyze..." },
-//   { role: 'user', content: 'Can you provide more details?' }
-// ]
+// Advanced: Leverage model context for adaptive prompts
+const { messages, modelContext } = await llmService.createMessages({
+  template: `
+    <SYSTEM>
+      You are a {{ thinking_enabled ? 'analytical problem solver' : 'quick helper' }}.
+      {{ model_id.includes('claude') ? 'Use your advanced reasoning capabilities.' : '' }}
+    </SYSTEM>
+    <USER>
+      {{ thinking_enabled ? 'Please solve this step-by-step:' : 'Please answer:' }}
+      {{ question }}
+    </USER>
+  `,
+  variables: { question: 'What causes the seasons on Earth?' },
+  presetId: 'anthropic-claude-3-7-sonnet-20250219-thinking'
+});
+
+console.log('Model context:', modelContext);
+// Output: { thinking_enabled: true, thinking_available: true, model_id: 'claude-3-7-sonnet-20250219', ... }
+```
+
+**Low-Level Utilities:**
+For cases where you need template parsing without model context:
+
+```typescript
+import { parseRoleTags, renderTemplate } from 'genai-lite/prompting';
+
+// Render variables first
+const rendered = renderTemplate(
+  '<SYSTEM>You are a {{role}} assistant.</SYSTEM><USER>{{query}}</USER>',
+  { role: 'helpful', query: 'What is TypeScript?' }
+);
+
+// Then parse role tags
+const messages = parseRoleTags(rendered);
+// Result: [{ role: 'system', content: 'You are a helpful assistant.' }, { role: 'user', content: 'What is TypeScript?' }]
 ```
 
 #### Extracting Random Variables for Few-Shot Learning
@@ -761,10 +1093,11 @@ console.log(parsed.SUGGESTIONS);  // The suggestions text
 console.log(parsed.REFACTORED_CODE); // The refactored code
 ```
 
-These prompt builder utilities enable:
-- **Structured Conversations**: Build multi-turn conversations from templates
+These utilities enable:
+- **Structured Conversations**: Build multi-turn conversations from templates with model context awareness
 - **Few-Shot Learning**: Randomly sample examples to improve AI responses
 - **Reliable Output Parsing**: Extract specific sections from AI responses
+- **Automatic Thinking Extraction**: Capture reasoning from any model using XML tags
 - **Template Reusability**: Define templates once, use with different variables
 - **Type Safety**: Full TypeScript support with LLMMessage types
 

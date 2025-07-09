@@ -28,6 +28,12 @@ genai-lite is a lightweight, standalone Node.js/TypeScript library providing a u
 
 **Recent: Reasoning Support (2025-07)** - Added unified `reasoning` field for thinking models. Gemini requires `includeThoughts: true` to return thought summaries in parts with `thought: true` flag.
 
+**Recent: Thinking Extraction (2025-07)** - Added automatic extraction of thinking blocks from responses. When models output their reasoning in `<thinking>` tags (or custom tags), it's automatically moved to the `reasoning` field. Enabled by default, configurable via `thinkingExtraction` settings.
+
+**Recent: Unified Prompt Creation API (2025-07)** - Added `createMessages()` method to LLMService that combines template rendering, model context injection, and role tag parsing into a single API. Removed deprecated `prepareMessage()` and `buildMessagesFromTemplate()` functions.
+
+**Recent: Self-Contained Templates (2025-07)** - Templates can now include their own settings via `<META>` blocks containing JSON. The `createMessages()` method extracts and returns these settings, making templates truly portable and self-contained. Added `parseTemplateWithMetadata()` parser function and `TemplateMetadata` type.
+
 ### Core Architecture Principles
 
 **Adapter Pattern Implementation:**
@@ -83,6 +89,32 @@ const customProvider: ApiKeyProvider = async (providerId) => {
 const service = new LLMService(customProvider);
 ```
 
+**Using createMessages for Model-Aware Prompts:**
+```typescript
+const { messages, modelContext, settings } = await service.createMessages({
+  template: `
+    <META>
+    {
+      "settings": {
+        "temperature": 0.8,
+        "thinkingExtraction": { "enabled": true }
+      }
+    }
+    </META>
+    <SYSTEM>You are a {{ thinking_enabled ? "thoughtful" : "quick" }} assistant.</SYSTEM>
+    <USER>{{ question }}</USER>
+  `,
+  variables: { question: 'Explain recursion' },
+  presetId: 'anthropic-claude-3-7-sonnet-20250219-thinking'
+});
+
+const response = await service.sendMessage({ 
+  presetId: 'anthropic-claude-3-7-sonnet-20250219-thinking', 
+  messages,
+  settings // Includes settings from template metadata
+});
+```
+
 ### Adding New AI Providers
 
 1. Create adapter in `src/llm/clients/[Provider]ClientAdapter.ts`
@@ -106,6 +138,7 @@ const service = new LLMService(customProvider);
   - `ProviderInfo` - Provider information
   - `ModelInfo` - Model capabilities and settings
   - `LLMSettings` - Configuration options
+  - `LLMThinkingExtractionSettings` - Settings for automatic thinking extraction
 
 **Always maintain type safety:**
 - Use strict TypeScript settings
@@ -116,9 +149,12 @@ const service = new LLMService(customProvider);
 
 **Main Entry Point:**
 - `src/index.ts` - Exports public API including:
-  - `LLMService` - Main service class
+  - `LLMService` - Main service class with `createMessages()` method
+  - `CreateMessagesResult` - Return type for createMessages
   - `fromEnvironment` - Built-in environment variable provider
   - `renderTemplate` - Template engine for dynamic prompt generation
+  - `parseRoleTags`, `parseStructuredContent`, `extractInitialTaggedContent`, `parseTemplateWithMetadata` - Parser utilities
+  - `TemplateMetadata` - Type for template metadata structure
   - All types from `src/llm/types.ts` and `src/llm/clients/types.ts`
   - `ApiKeyProvider` type from `src/types.ts`
 
@@ -130,8 +166,7 @@ const service = new LLMService(customProvider);
 - `src/llm/clients/` - Provider-specific adapters
 - `src/prompting/template.ts` - Template rendering utility
 - `src/prompting/content.ts` - Token counting, text preview, and content preparation utilities
-- `src/prompting/builder.ts` - Message building from templates
-- `src/prompting/parser.ts` - Structured content parsing from LLM responses
+- `src/prompting/parser.ts` - Structured content parsing from LLM responses, thinking extraction, and template metadata parsing
 
 **Testing:**
 - Jest with ts-jest for TypeScript support
@@ -283,7 +318,7 @@ These summary files provide hierarchical context throughout the project:
 
 The summaries enable efficient navigation and understanding of the codebase without processing every file. They include cross-references, usage examples, and architectural decisions at each level.
 
-Last Context Build: 2025-07-08
+Last Context Build: 2025-07-09
 
 ## Commit Guidelines
 

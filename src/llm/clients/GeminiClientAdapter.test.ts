@@ -49,6 +49,10 @@ describe('GeminiClientAdapter', () => {
           effort: undefined as any,
           maxTokens: undefined as any,
           exclude: false
+        },
+        thinkingExtraction: {
+          enabled: true,
+          tag: 'thinking'
         }
       }
     };

@@ -14,14 +14,9 @@ function getTokenizer(model: TiktokenModel): Tiktoken {
   if (tokenizerCache.has(model)) {
     return tokenizerCache.get(model)!;
   }
-  try {
-    const tokenizer = encodingForModel(model);
-    tokenizerCache.set(model, tokenizer);
-    return tokenizer;
-  } catch (error) {
-    console.error(`Failed to initialize tokenizer for model ${model}:`, error);
-    throw error;
-  }
+  const tokenizer = encodingForModel(model);
+  tokenizerCache.set(model, tokenizer);
+  return tokenizer;
 }
 
 /**
