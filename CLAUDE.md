@@ -28,6 +28,8 @@ genai-lite is a lightweight, standalone Node.js/TypeScript library providing a u
 
 **Recent: Reasoning Support (2025-07)** - Added unified `reasoning` field for thinking models. Gemini requires `includeThoughts: true` to return thought summaries in parts with `thought: true` flag.
 
+**Recent: Thinking Extraction (2025-07)** - Added automatic extraction of thinking blocks from responses. When models output their reasoning in `<thinking>` tags (or custom tags), it's automatically moved to the `reasoning` field. Enabled by default, configurable via `thinkingExtraction` settings.
+
 ### Core Architecture Principles
 
 **Adapter Pattern Implementation:**
@@ -106,6 +108,7 @@ const service = new LLMService(customProvider);
   - `ProviderInfo` - Provider information
   - `ModelInfo` - Model capabilities and settings
   - `LLMSettings` - Configuration options
+  - `LLMThinkingExtractionSettings` - Settings for automatic thinking extraction
 
 **Always maintain type safety:**
 - Use strict TypeScript settings
@@ -131,7 +134,7 @@ const service = new LLMService(customProvider);
 - `src/prompting/template.ts` - Template rendering utility
 - `src/prompting/content.ts` - Token counting, text preview, and content preparation utilities
 - `src/prompting/builder.ts` - Message building from templates
-- `src/prompting/parser.ts` - Structured content parsing from LLM responses
+- `src/prompting/parser.ts` - Structured content parsing from LLM responses & thinking extraction
 
 **Testing:**
 - Jest with ts-jest for TypeScript support
@@ -283,7 +286,7 @@ These summary files provide hierarchical context throughout the project:
 
 The summaries enable efficient navigation and understanding of the codebase without processing every file. They include cross-references, usage examples, and architectural decisions at each level.
 
-Last Context Build: 2025-07-08
+Last Context Build: 2025-07-09
 
 ## Commit Guidelines
 

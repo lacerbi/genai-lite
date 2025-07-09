@@ -23,6 +23,7 @@ import type {
 import type { ModelPreset } from "../types/presets";
 import { SUPPORTED_PROVIDERS, getProviderById, getModelsByProvider } from "./config";
 import { renderTemplate } from "../prompting/template";
+import { extractInitialTaggedContent, parseRoleTags } from "../prompting/parser";
 
 // Import the extracted services
 import { PresetManager, type PresetMode } from "./services/PresetManager";
@@ -231,6 +232,32 @@ export class LLMService {
         );
         const result = await clientAdapter.sendMessage(internalRequest, apiKey);
 
+        // Post-process for thinking extraction
+        if (result.object === 'chat.completion' && internalRequest.settings.thinkingExtraction?.enabled) {
+          const settings = internalRequest.settings.thinkingExtraction;
+          const tagName = settings.tag || 'thinking'; // Default to 'thinking'
+          const choice = result.choices[0];
+
+          if (choice?.message?.content) {
+            const { extracted, remaining } = extractInitialTaggedContent(choice.message.content, tagName);
+
+            if (extracted !== null) {
+              console.log(`Extracted <${tagName}> block from response.`);
+
+              // Handle the edge case: append to existing reasoning if present.
+              const existingReasoning = choice.reasoning || '';
+              const separator = existingReasoning ? '\n\n' : '';
+
+              // Add a comment to indicate the source of this reasoning block.
+              const newReasoning = `<!-- Extracted by genai-lite from <${tagName}> tag -->\n${extracted}`;
+
+              // Update the choice object
+              choice.reasoning = `${existingReasoning}${separator}${newReasoning}`;
+              choice.message.content = remaining;
+            }
+          }
+        }
+
         console.log(
           `LLM request completed successfully for model: ${modelId}`
         );
@@ -287,6 +314,9 @@ export class LLMService {
    * This method resolves model information from either a preset or direct provider/model IDs,
    * then renders a template with model context variables injected, or returns pre-built messages
    * with the model context separately.
+   * 
+   * @deprecated Use the more powerful `LLMService.createMessages` method instead, which combines
+   * template rendering, model context injection, and role tag parsing in a single API.
    * 
    * @param options Options for preparing messages
    * @returns Promise resolving to prepared messages and model context
@@ -377,6 +407,105 @@ export class LLMService {
     return {
       messages,
       modelContext,
+    };
+  }
+
+  /**
+   * Creates messages from a template with role tags and model-aware variable substitution
+   * 
+   * This unified method combines the functionality of template rendering, model context
+   * injection, and role tag parsing into a single, intuitive API. It replaces the need
+   * to chain prepareMessage and buildMessagesFromTemplate for model-aware multi-turn prompts.
+   * 
+   * @param options Options for creating messages
+   * @returns Promise resolving to parsed messages and model context
+   * 
+   * @example
+   * ```typescript
+   * const { messages } = await llm.createMessages({
+   *   template: `
+   *     <SYSTEM>You are a {{ thinking_enabled ? "thoughtful" : "helpful" }} assistant.</SYSTEM>
+   *     <USER>Help me with {{ task }}</USER>
+   *   `,
+   *   variables: { task: 'understanding async/await' },
+   *   presetId: 'openai-gpt-4.1-default'
+   * });
+   * ```
+   */
+  async createMessages(options: {
+    template: string;
+    variables?: Record<string, any>;
+    presetId?: string;
+    providerId?: string;
+    modelId?: string;
+  }): Promise<{ messages: LLMMessage[]; modelContext: ModelContext | null }> {
+    console.log('LLMService.createMessages called');
+
+    // Step 1: Get model context if model information is provided
+    let modelContext: ModelContext | null = null;
+    
+    if (options.presetId || (options.providerId && options.modelId)) {
+      // Resolve model information
+      const resolved = this.modelResolver.resolve({
+        presetId: options.presetId,
+        providerId: options.providerId as ApiProviderId,
+        modelId: options.modelId
+      });
+      
+      if (resolved.error) {
+        // If resolution fails, proceed without model context
+        console.warn('Model resolution failed, proceeding without model context:', resolved.error);
+      } else {
+        const { providerId, modelId, modelInfo, settings } = resolved;
+        
+        // Merge settings with model defaults
+        const mergedSettings = this.settingsManager.mergeSettingsForModel(
+          modelId!,
+          providerId!,
+          settings || {}
+        );
+        
+        // Create model context
+        modelContext = {
+          thinking_enabled: !!(modelInfo!.reasoning?.supported && 
+                              (mergedSettings.reasoning?.enabled === true ||
+                               (modelInfo!.reasoning?.enabledByDefault && mergedSettings.reasoning?.enabled !== false))),
+          thinking_available: !!modelInfo!.reasoning?.supported,
+          model_id: modelId!,
+          provider_id: providerId!,
+          reasoning_effort: mergedSettings.reasoning?.effort,
+          reasoning_max_tokens: mergedSettings.reasoning?.maxTokens,
+        };
+      }
+    }
+
+    // Step 2: Combine variables with model context
+    // Model context comes first so user variables can override
+    const allVariables = {
+      ...(modelContext || {}),
+      ...options.variables
+    };
+
+    // Step 3: Render the template with all variables
+    let renderedTemplate: string;
+    try {
+      renderedTemplate = renderTemplate(options.template, allVariables);
+    } catch (error) {
+      throw new Error(`Template rendering failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+
+    // Step 4: Parse role tags from the rendered template
+    const parsedMessages = parseRoleTags(renderedTemplate);
+
+    // Step 5: Convert to LLMMessage format
+    const messages: LLMMessage[] = parsedMessages.map(({ role, content }) => ({
+      role: role as 'system' | 'user' | 'assistant',
+      content
+    }));
+
+    return {
+      messages,
+      modelContext
     };
   }
 

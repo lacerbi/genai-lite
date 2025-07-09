@@ -48,7 +48,8 @@ export class MockClientAdapter implements ILLMClientAdapter {
     try {
       // Check for special test patterns in the last user message
       const lastMessage = request.messages[request.messages.length - 1];
-      const content = lastMessage?.content?.toLowerCase() || "";
+      const originalContent = lastMessage?.content || "";
+      const content = originalContent.toLowerCase();
 
       // Simulate various error conditions based on message content
       if (content.includes("error_invalid_key")) {
@@ -124,7 +125,7 @@ export class MockClientAdapter implements ILLMClientAdapter {
       }
 
       // Generate successful mock response
-      return this.createSuccessResponse(request, content);
+      return this.createSuccessResponse(request, content, originalContent);
     } catch (error) {
       return this.createErrorResponse(
         `Mock adapter error: ${
@@ -161,7 +162,8 @@ export class MockClientAdapter implements ILLMClientAdapter {
    */
   private createSuccessResponse(
     request: InternalLLMChatRequest,
-    userContent: string
+    userContent: string,
+    originalContent: string
   ): LLMResponse {
     // Generate response content based on user input and settings
     let responseContent: string;
@@ -173,6 +175,10 @@ export class MockClientAdapter implements ILLMClientAdapter {
       );
     } else if (userContent.includes("test_settings")) {
       responseContent = this.generateSettingsTestResponse(request.settings);
+    } else if (userContent.includes("test_thinking:")) {
+      // Extract content after "test_thinking:" for testing thinking extraction
+      const startIndex = originalContent.indexOf("test_thinking:") + "test_thinking:".length;
+      responseContent = originalContent.substring(startIndex).trim();
     } else if (userContent.includes("hello") || userContent.includes("hi")) {
       responseContent =
         "Hello! I'm a mock LLM assistant. How can I help you today?";

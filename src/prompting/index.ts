@@ -18,4 +18,4 @@ export { countTokens, getSmartPreview, extractRandomVariables } from './content'
 export { buildMessagesFromTemplate } from './builder';
 
 // Response parsing
-export { parseStructuredContent } from './parser';
+export { parseStructuredContent, extractInitialTaggedContent, parseRoleTags } from './parser';

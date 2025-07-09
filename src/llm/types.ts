@@ -64,6 +64,23 @@ export interface LLMReasoningSettings {
 }
 
 /**
+ * Settings for extracting 'thinking' content from the start of a response
+ */
+export interface LLMThinkingExtractionSettings {
+  /**
+   * If true, enables the automatic extraction of content from a specified XML tag.
+   * @default true
+   */
+  enabled?: boolean;
+
+  /**
+   * The XML tag name to look for (e.g., 'thinking', 'reasoning', 'scratchpad').
+   * @default 'thinking'
+   */
+  tag?: string;
+}
+
+/**
  * Configurable settings for LLM requests
  */
 export interface LLMSettings {
@@ -87,6 +104,11 @@ export interface LLMSettings {
   geminiSafetySettings?: GeminiSafetySetting[];
   /** Universal reasoning/thinking configuration */
   reasoning?: LLMReasoningSettings;
+  /**
+   * Configuration for automatically extracting 'thinking' blocks from responses.
+   * Enabled by default.
+   */
+  thinkingExtraction?: LLMThinkingExtractionSettings;
 }
 
 /**

@@ -43,6 +43,10 @@ export class SettingsManager {
         ...modelDefaults.reasoning,
         ...requestSettings?.reasoning,
       },
+      thinkingExtraction: {
+        ...modelDefaults.thinkingExtraction,
+        ...requestSettings?.thinkingExtraction,
+      },
     };
 
     // Log the final settings for debugging

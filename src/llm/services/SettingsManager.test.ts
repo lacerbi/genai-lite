@@ -19,6 +19,10 @@ jest.mock('../config', () => ({
       maxTokens: undefined,
       exclude: false,
     },
+    thinkingExtraction: {
+      enabled: true,
+      tag: 'thinking',
+    },
   }),
 }));
 
@@ -50,6 +54,10 @@ describe('SettingsManager', () => {
           effort: undefined,
           maxTokens: undefined,
           exclude: false,
+        },
+        thinkingExtraction: {
+          enabled: true,
+          tag: 'thinking',
         },
       });
     });
@@ -122,6 +130,10 @@ describe('SettingsManager', () => {
           maxTokens: 5000,
           exclude: true,
         },
+        thinkingExtraction: {
+          enabled: false,
+          tag: 'scratchpad',
+        },
       };
 
       const result = settingsManager.mergeSettingsForModel('gpt-4.1', 'openai', userSettings);
@@ -146,6 +158,10 @@ describe('SettingsManager', () => {
         effort: undefined,
         maxTokens: undefined,
         exclude: false,
+      },
+      thinkingExtraction: {
+        enabled: true,
+        tag: 'thinking',
       },
     };
 

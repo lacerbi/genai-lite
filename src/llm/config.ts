@@ -74,6 +74,10 @@ export const DEFAULT_LLM_SETTINGS: Required<LLMSettings> = {
     maxTokens: undefined as any,
     exclude: false,
   },
+  thinkingExtraction: {
+    enabled: true, // Enabled by default as requested
+    tag: 'thinking'
+  },
 };
 
 /**
