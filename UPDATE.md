@@ -8,6 +8,7 @@ This document describes recent significant updates to genai-lite.
 2. **[Unified Prompt Creation API](#unified-prompt-creation-api)** - New `createMessages()` method simplifies creating model-aware, multi-turn prompts
 3. **[Self-Contained Templates with Metadata](#self-contained-templates-with-metadata)** - Templates can now embed their own settings using `<META>` blocks
 4. **[Intelligent Enforcement for Thinking Tag Extraction](#intelligent-enforcement-for-thinking-tag-extraction)** - New `onMissing` property with smart 'auto' mode ensures thinking tags are present when needed
+5. **[Partial Response Preservation on Validation Errors](#partial-response-preservation-on-validation-errors)** - LLM responses are now preserved in `partialResponse` field when validation errors occur
 
 ---
 
@@ -820,3 +821,87 @@ const isNativeReasoningActive =
     internalRequest.settings.reasoning?.enabled !== false) || // Only if not explicitly disabled
    modelInfo!.reasoning?.canDisable === false); // Always-on models
 ```
+
+---
+
+# Partial Response Preservation on Validation Errors
+
+## Overview
+
+Enhanced error responses to include the original LLM response data when validation errors occur, ensuring that generated content is never lost even when the response doesn't meet validation requirements.
+
+## Problem Solved
+
+Previously, when thinking extraction was enabled and the expected tag was missing (with `onMissing: 'error'`), the entire LLM response was discarded and only an error was returned. This was wasteful since the model had successfully generated content - it just didn't follow the expected format. Developers had no way to access the generated content for debugging or recovery purposes.
+
+## Solution
+
+Added a `partialResponse` field to the `LLMFailureResponse` type that contains the complete original response (minus the `object` field) when validation errors occur. This preserves all response data while maintaining clear error semantics.
+
+## Implementation Details
+
+### 1. Type Enhancement (`src/llm/types.ts`)
+```typescript
+export interface LLMFailureResponse {
+  provider: ApiProviderId;
+  model?: string;
+  error: LLMError;
+  object: 'error';
+  /** The partial response that was generated before the error occurred (if available) */
+  partialResponse?: Omit<LLMResponse, 'object'>;
+}
+```
+
+### 2. Error Handling Update (`src/llm/LLMService.ts`)
+When a thinking tag is missing and `effectiveOnMissing === 'error'`, the service now:
+- Returns an error response (maintaining original semantics)
+- Includes the complete LLM response in `partialResponse`
+- Preserves all fields: `id`, `provider`, `model`, `created`, `choices`, `usage`
+
+## Usage Example
+
+```typescript
+const response = await llmService.sendMessage({
+  providerId: 'openai',
+  modelId: 'gpt-4.1',
+  messages: [{
+    role: 'system',
+    content: 'Always think in <thinking> tags before answering.'
+  }, {
+    role: 'user',
+    content: 'What is 15% of 240?'
+  }],
+  settings: {
+    thinkingExtraction: { 
+      enabled: true,
+      onMissing: 'error'
+    }
+  }
+});
+
+if (response.object === 'error') {
+  console.error('Validation failed:', response.error.message);
+  
+  // But the response is still accessible!
+  if (response.partialResponse) {
+    const content = response.partialResponse.choices[0].message.content;
+    console.log('Generated content:', content);
+    // Can still use the response, log it, or handle recovery
+  }
+}
+```
+
+## Benefits
+
+1. **No Data Loss**: LLM responses are never discarded, even on validation failures
+2. **Better Debugging**: Developers can inspect what the model actually generated
+3. **Recovery Options**: Applications can choose to use the response despite validation failure
+4. **Backward Compatible**: Existing error handling continues to work; the `partialResponse` field is optional
+5. **Clear Semantics**: Still returns an error (not success), maintaining API contract
+
+## Technical Notes
+
+- Only populated for validation errors where a response was successfully generated
+- Not applicable to other error types (authentication, rate limit, etc.)
+- Includes all response metadata (timestamps, usage stats, etc.)
+- The `object: 'chat.completion'` field is omitted to maintain type safety
