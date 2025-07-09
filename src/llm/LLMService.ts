@@ -254,7 +254,8 @@ export class LLMService {
             const isNativeReasoningActive = 
               modelInfo!.reasoning?.supported === true &&
               (internalRequest.settings.reasoning?.enabled === true ||
-               modelInfo!.reasoning?.enabledByDefault === true ||
+               (modelInfo!.reasoning?.enabledByDefault === true &&
+                internalRequest.settings.reasoning?.enabled !== false) || // Only if not explicitly disabled
                modelInfo!.reasoning?.canDisable === false); // Always-on models
 
             effectiveOnMissing = isNativeReasoningActive ? 'ignore' : 'error';

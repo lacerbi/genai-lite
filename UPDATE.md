@@ -773,7 +773,7 @@ The system considers native reasoning "active" when:
 1. Model supports reasoning (`reasoning.supported === true`)
 2. AND one of:
    - Reasoning is explicitly enabled (`reasoning.enabled === true`)
-   - Model has reasoning on by default (`reasoning.enabledByDefault === true`)
+   - Model has reasoning on by default (`reasoning.enabledByDefault === true`) AND not explicitly disabled (`reasoning.enabled !== false`)
    - Model cannot disable reasoning (`reasoning.canDisable === false`)
 
 ### Special Model Handling
@@ -797,3 +797,26 @@ The system considers native reasoning "active" when:
 - Error messages include model context to aid debugging
 - Console warnings (when using 'warn' mode) include model ID
 - Fully backward compatible with explicit mode settings
+
+---
+
+## Bug Fix: Native Reasoning Detection for Auto Mode (2025-07)
+
+### Issue Fixed
+Fixed the `isNativeReasoningActive` logic to properly handle models with `enabledByDefault: true` (like Gemini Flash 2.5). Previously, these models were always considered to have native reasoning active, even when the user explicitly disabled reasoning with `reasoning: { enabled: false }`.
+
+### Impact
+- Models with `enabledByDefault: true` now correctly enforce thinking tags when reasoning is explicitly disabled
+- The `onMissing: 'auto'` mode now works as intended for all model configurations
+- No breaking changes - only affects the strictness of thinking tag enforcement
+
+### Technical Details
+The logic now checks if reasoning is explicitly disabled before considering `enabledByDefault`:
+```typescript
+const isNativeReasoningActive = 
+  modelInfo!.reasoning?.supported === true &&
+  (internalRequest.settings.reasoning?.enabled === true ||
+   (modelInfo!.reasoning?.enabledByDefault === true &&
+    internalRequest.settings.reasoning?.enabled !== false) || // Only if not explicitly disabled
+   modelInfo!.reasoning?.canDisable === false); // Always-on models
+```
