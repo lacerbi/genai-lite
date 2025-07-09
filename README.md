@@ -27,7 +27,7 @@ import { LLMService, fromEnvironment } from 'genai-lite';
 // Create service with environment variable API key provider
 const llmService = new LLMService(fromEnvironment);
 
-// Send a message to OpenAI
+// Option 1: Direct message sending
 const response = await llmService.sendMessage({
   providerId: 'openai',
   modelId: 'gpt-4.1-mini',
@@ -35,6 +35,19 @@ const response = await llmService.sendMessage({
     { role: 'system', content: 'You are a helpful assistant.' },
     { role: 'user', content: 'Hello, how are you?' }
   ]
+});
+
+// Option 2: Create messages from template (recommended for complex prompts)
+const { messages } = await llmService.createMessages({
+  template: '<SYSTEM>You are a helpful assistant.</SYSTEM><USER>Hello, how are you?</USER>',
+  providerId: 'openai',
+  modelId: 'gpt-4.1-mini'
+});
+
+const response2 = await llmService.sendMessage({
+  providerId: 'openai',
+  modelId: 'gpt-4.1-mini',
+  messages
 });
 
 if (response.object === 'chat.completion') {
@@ -203,7 +216,7 @@ if (response.object === 'chat.completion' && response.choices[0].reasoning) {
 
 ### Automatic Thinking Extraction
 
-For models that don't have native reasoning support, you can still capture their "thinking process" by having them output it in XML tags. genai-lite automatically extracts and moves this content to the `reasoning` field:
+genai-lite can capture reasoning from any model by automatically extracting content wrapped in XML tags. When models output their thinking process in tags like `<thinking>`, the library automatically moves this content to the standardized `reasoning` field. This works with all models, providing a consistent interface for accessing model reasoning:
 
 ```typescript
 // Prompt the model to think step-by-step in a <thinking> tag
@@ -211,11 +224,11 @@ const response = await llmService.sendMessage({
   providerId: 'openai',
   modelId: 'gpt-4.1',
   messages: [{
-    role: 'user',
-    content: 'Please think through this problem step by step before answering: What is 15% of 240?'
-  }, {
     role: 'system',
     content: 'When solving problems, first write your reasoning inside <thinking> tags, then provide the answer.'
+  }, {
+    role: 'user',
+    content: 'Please think through this problem step by step before answering: What is 15% of 240?'
   }]
 });
 
@@ -359,38 +372,58 @@ const response = await llmService.sendMessage({
 The library provides a powerful `createMessages` method that combines template rendering, model context injection, and role tag parsing into a single, intuitive API:
 
 ```typescript
-// Create model-aware, multi-turn messages from a template
+// Basic example: Create model-aware messages
 const { messages, modelContext } = await llmService.createMessages({
   template: `
     <SYSTEM>
       You are a {{ thinking_enabled ? "thoughtful" : "helpful" }} assistant.
       {{ thinking_available && !thinking_enabled ? "Note: Reasoning mode is available for complex problems." : "" }}
     </SYSTEM>
-    <USER>
-      {{ hasContext ? "Context: {{context}}\n\n" : "" }}
-      Question: {{ question }}
-    </USER>
+    <USER>{{ question }}</USER>
   `,
   variables: { 
-    question: 'What is the optimal algorithm for finding the shortest path in a weighted graph?',
-    hasContext: true,
-    context: 'Working with a dense graph with positive edge weights'
+    question: 'What is the optimal algorithm for finding the shortest path in a weighted graph?'
   },
   presetId: 'anthropic-claude-3-7-sonnet-20250219-thinking'
 });
 
-// Send the prepared messages
+// The messages are ready to send
 const response = await llmService.sendMessage({
   presetId: 'anthropic-claude-3-7-sonnet-20250219-thinking',
   messages: messages
 });
+
+// Advanced example: Conditional context and multi-turn conversation
+const { messages } = await llmService.createMessages({
+  template: `
+    <SYSTEM>You are an expert code reviewer.</SYSTEM>
+    {{ hasContext ? '<USER>Context: {{context}}</USER>' : '' }}
+    <USER>Review this code:
+```{{language}}
+{{code}}
+```</USER>
+    {{ hasExamples ? examples : '' }}
+    <USER>Focus on {{ focusAreas.join(', ') }}.</USER>
+  `,
+  variables: { 
+    hasContext: true,
+    context: 'This is part of a high-performance web server',
+    language: 'typescript',
+    code: 'async function handleRequest(req: Request) { ... }',
+    hasExamples: true,
+    examples: '<ASSISTANT>I\'ll review your code focusing on the areas you mentioned.</ASSISTANT>',
+    focusAreas: ['error handling', 'performance', 'type safety']
+  },
+  providerId: 'openai',
+  modelId: 'gpt-4.1'
+});
 ```
 
-The method automatically:
-- Resolves model information from presets or provider/model IDs
-- Injects model context variables into your template
-- Renders the template with all variables
-- Parses role tags to create structured messages
+The method provides:
+- **Unified API**: Single method for all prompt creation needs
+- **Model Context Injection**: Automatically injects model-specific variables
+- **Template Rendering**: Full support for conditionals and variable substitution
+- **Role Tag Parsing**: Converts `<SYSTEM>`, `<USER>`, and `<ASSISTANT>` tags to messages
 
 Available model context variables:
 - `thinking_enabled`: Whether reasoning/thinking is enabled for this request
@@ -400,9 +433,10 @@ Available model context variables:
 - `reasoning_effort`: The reasoning effort level if specified
 - `reasoning_max_tokens`: The reasoning token budget if specified
 
-#### Advanced Example: Dynamic Role Injection
+#### Advanced Features
 
-Variables can dynamically inject role tags based on conditions:
+**Dynamic Role Injection:**
+Variables can dynamically inject entire role blocks, enabling flexible conversation flows:
 
 ```typescript
 const { messages } = await llmService.createMessages({
@@ -422,6 +456,41 @@ const { messages } = await llmService.createMessages({
   },
   presetId: 'anthropic-claude-3-5-sonnet-20241022'
 });
+```
+
+**Combining with Thinking Extraction:**
+When using models without native reasoning support, combine createMessages with thinking extraction:
+
+```typescript
+// Prompt any model to think before answering
+const { messages } = await llmService.createMessages({
+  template: `
+    <SYSTEM>
+      When solving problems, first write your step-by-step reasoning inside <thinking> tags,
+      then provide your final answer.
+    </SYSTEM>
+    <USER>{{ question }}</USER>
+  `,
+  variables: { question: 'If a train travels 120km in 2 hours, what is its speed in m/s?' },
+  providerId: 'openai',
+  modelId: 'gpt-4.1'
+});
+
+// Send with automatic thinking extraction
+const response = await llmService.sendMessage({
+  providerId: 'openai',
+  modelId: 'gpt-4.1',
+  messages,
+  settings: {
+    thinkingExtraction: { enabled: true } // Default, but shown for clarity
+  }
+});
+
+// Access both reasoning and answer
+if (response.object === 'chat.completion') {
+  console.log('Reasoning:', response.choices[0].reasoning);
+  console.log('Answer:', response.choices[0].message.content);
+}
 ```
 
 ### Error Handling
@@ -500,13 +569,12 @@ import type {
   LLMFailureResponse,
   LLMSettings,
   LLMReasoningSettings,
+  LLMThinkingExtractionSettings,
   ApiKeyProvider,
   ModelPreset,
   LLMServiceOptions,
   PresetMode,
-  PrepareMessageOptions,
-  ModelContext,
-  PrepareMessageResult
+  ModelContext
 } from 'genai-lite';
 ```
 
@@ -727,16 +795,16 @@ const response = await llm.sendMessage({
 });
 ```
 
-### Prompt Builder Utilities
+### Prompt Engineering Utilities
 
-genai-lite provides powerful utilities for building and parsing structured prompts:
+genai-lite provides powerful utilities for working with prompts and responses:
 
-#### Creating Messages from Templates (Recommended)
+#### Creating Messages from Templates
 
-The primary way to create messages from templates is using the `LLMService.createMessages` method, which provides model-aware template rendering:
+The recommended way to create messages is using `LLMService.createMessages`, which provides a unified API for template rendering, model context injection, and role tag parsing:
 
 ```typescript
-// Create messages with model context injection
+// Basic multi-turn conversation
 const { messages } = await llmService.createMessages({
   template: `
     <SYSTEM>You are a helpful assistant specialized in {{expertise}}.</SYSTEM>
@@ -750,16 +818,42 @@ const { messages } = await llmService.createMessages({
   },
   presetId: 'openai-gpt-4.1-default' // Optional: adds model context
 });
+
+// Advanced: Leverage model context for adaptive prompts
+const { messages, modelContext } = await llmService.createMessages({
+  template: `
+    <SYSTEM>
+      You are a {{ thinking_enabled ? 'analytical problem solver' : 'quick helper' }}.
+      {{ model_id.includes('claude') ? 'Use your advanced reasoning capabilities.' : '' }}
+    </SYSTEM>
+    <USER>
+      {{ thinking_enabled ? 'Please solve this step-by-step:' : 'Please answer:' }}
+      {{ question }}
+    </USER>
+  `,
+  variables: { question: 'What causes the seasons on Earth?' },
+  presetId: 'anthropic-claude-3-7-sonnet-20250219-thinking'
+});
+
+console.log('Model context:', modelContext);
+// Output: { thinking_enabled: true, thinking_available: true, model_id: 'claude-3-7-sonnet-20250219', ... }
 ```
 
-For standalone template parsing without model context, you can use the lower-level utilities:
+**Low-Level Utilities:**
+For cases where you need template parsing without model context:
 
 ```typescript
 import { parseRoleTags, renderTemplate } from 'genai-lite/prompting';
 
-// First render variables, then parse role tags
-const rendered = renderTemplate(template, variables);
+// Render variables first
+const rendered = renderTemplate(
+  '<SYSTEM>You are a {{role}} assistant.</SYSTEM><USER>{{query}}</USER>',
+  { role: 'helpful', query: 'What is TypeScript?' }
+);
+
+// Then parse role tags
 const messages = parseRoleTags(rendered);
+// Result: [{ role: 'system', content: 'You are a helpful assistant.' }, { role: 'user', content: 'What is TypeScript?' }]
 ```
 
 #### Extracting Random Variables for Few-Shot Learning
@@ -855,10 +949,11 @@ console.log(parsed.SUGGESTIONS);  // The suggestions text
 console.log(parsed.REFACTORED_CODE); // The refactored code
 ```
 
-These prompt builder utilities enable:
-- **Structured Conversations**: Build multi-turn conversations from templates
+These utilities enable:
+- **Structured Conversations**: Build multi-turn conversations from templates with model context awareness
 - **Few-Shot Learning**: Randomly sample examples to improve AI responses
 - **Reliable Output Parsing**: Extract specific sections from AI responses
+- **Automatic Thinking Extraction**: Capture reasoning from any model using XML tags
 - **Template Reusability**: Define templates once, use with different variables
 - **Type Safety**: Full TypeScript support with LLMMessage types
 

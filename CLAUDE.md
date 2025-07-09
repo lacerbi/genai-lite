@@ -30,6 +30,8 @@ genai-lite is a lightweight, standalone Node.js/TypeScript library providing a u
 
 **Recent: Thinking Extraction (2025-07)** - Added automatic extraction of thinking blocks from responses. When models output their reasoning in `<thinking>` tags (or custom tags), it's automatically moved to the `reasoning` field. Enabled by default, configurable via `thinkingExtraction` settings.
 
+**Recent: Unified Prompt Creation API (2025-07)** - Added `createMessages()` method to LLMService that combines template rendering, model context injection, and role tag parsing into a single API. Removed deprecated `prepareMessage()` and `buildMessagesFromTemplate()` functions.
+
 ### Core Architecture Principles
 
 **Adapter Pattern Implementation:**
@@ -85,6 +87,20 @@ const customProvider: ApiKeyProvider = async (providerId) => {
 const service = new LLMService(customProvider);
 ```
 
+**Using createMessages for Model-Aware Prompts:**
+```typescript
+const { messages, modelContext } = await service.createMessages({
+  template: `
+    <SYSTEM>You are a {{ thinking_enabled ? "thoughtful" : "quick" }} assistant.</SYSTEM>
+    <USER>{{ question }}</USER>
+  `,
+  variables: { question: 'Explain recursion' },
+  presetId: 'anthropic-claude-3-7-sonnet-20250219-thinking'
+});
+
+const response = await service.sendMessage({ presetId: 'anthropic-claude-3-7-sonnet-20250219-thinking', messages });
+```
+
 ### Adding New AI Providers
 
 1. Create adapter in `src/llm/clients/[Provider]ClientAdapter.ts`
@@ -119,9 +135,10 @@ const service = new LLMService(customProvider);
 
 **Main Entry Point:**
 - `src/index.ts` - Exports public API including:
-  - `LLMService` - Main service class
+  - `LLMService` - Main service class with `createMessages()` method
   - `fromEnvironment` - Built-in environment variable provider
   - `renderTemplate` - Template engine for dynamic prompt generation
+  - `parseRoleTags`, `parseStructuredContent`, `extractInitialTaggedContent` - Parser utilities
   - All types from `src/llm/types.ts` and `src/llm/clients/types.ts`
   - `ApiKeyProvider` type from `src/types.ts`
 
@@ -133,7 +150,6 @@ const service = new LLMService(customProvider);
 - `src/llm/clients/` - Provider-specific adapters
 - `src/prompting/template.ts` - Template rendering utility
 - `src/prompting/content.ts` - Token counting, text preview, and content preparation utilities
-- `src/prompting/builder.ts` - Message building from templates
 - `src/prompting/parser.ts` - Structured content parsing from LLM responses & thinking extraction
 
 **Testing:**
