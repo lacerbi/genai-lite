@@ -240,7 +240,7 @@ const response = await llmService.sendMessage({
 // 
 // The response will have:
 // - response.choices[0].message.content = "The answer is 36."
-// - response.choices[0].reasoning = "<!-- Extracted by genai-lite from <thinking> tag -->\n15% means 15/100 = 0.15. So 15% of 240 = 0.15 × 240 = 36."
+// - response.choices[0].reasoning = "15% means 15/100 = 0.15. So 15% of 240 = 0.15 × 240 = 36."
 
 // If the model doesn't include the <thinking> tag, you'll get an error (with default 'auto' mode)
 ```

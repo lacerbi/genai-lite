@@ -270,13 +270,15 @@ export class LLMService {
 
               // Handle the edge case: append to existing reasoning if present.
               const existingReasoning = choice.reasoning || '';
-              const separator = existingReasoning ? '\n\n' : '';
-
-              // Add a comment to indicate the source of this reasoning block.
-              const newReasoning = `<!-- Extracted by genai-lite from <${tagName}> tag -->\n${extracted}`;
-
-              // Update the choice object
-              choice.reasoning = `${existingReasoning}${separator}${newReasoning}`;
+              
+              // Only add a separator when appending to existing reasoning
+              if (existingReasoning) {
+                // Use a neutral markdown header that works for any consumer (human or AI)
+                choice.reasoning = `${existingReasoning}\n\n#### Additional Reasoning\n\n${extracted}`;
+              } else {
+                // No existing reasoning, just use the extracted content directly
+                choice.reasoning = extracted;
+              }
               choice.message.content = remaining;
             } else {
               // Tag was not found, enforce the effective strategy
