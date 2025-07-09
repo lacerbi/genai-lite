@@ -557,6 +557,19 @@ const prompt = renderTemplate(
 );
 // Result includes the context line when hasContext is true
 
+// Using logical operators in conditions
+const accessControl = renderTemplate(
+  '{{ isAuthenticated && !isBanned ? `Welcome {{username}}!` : `Access denied` }}',
+  { isAuthenticated: true, isBanned: false, username: 'Alice' }
+);
+// Result: "Welcome Alice!"
+
+const notification = renderTemplate(
+  '{{ hasEmail || hasPhone ? `Contact info available` : `No contact info` }}',
+  { hasEmail: false, hasPhone: true }
+);
+// Result: "Contact info available"
+
 // Complex template with multiple conditionals
 const complexTemplate = `
 System: You are a {{ role }} assistant.
@@ -585,9 +598,16 @@ const result = renderTemplate(complexTemplate, {
 Template syntax supports:
 - **Simple substitution**: `{{ variableName }}`
 - **Ternary conditionals**: `{{ condition ? `true result` : `false result` }}`
+- **Logical operators in conditions**:
+  - NOT: `{{ !isDisabled ? `enabled` : `disabled` }}`
+  - AND: `{{ hasPermission && isActive ? `show` : `hide` }}`
+  - OR: `{{ isAdmin || isOwner ? `allow` : `deny` }}`
+  - Combined: `{{ !isDraft && isPublished ? `visible` : `hidden` }}`
 - **Nested variables**: `{{ show ? `Name: {{name}}` : `Anonymous` }}`
 - **Multi-line strings**: Use backticks to preserve formatting
 - **Intelligent newline handling**: Empty results remove trailing newlines
+
+Note: Logical operators support up to 2 operands and don't support parentheses or mixing && and ||.
 
 ### Example: Building Dynamic LLM Prompts
 

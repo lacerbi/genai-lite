@@ -13,8 +13,16 @@
  * - Simple variable substitution: {{ variableName }}
  * - Conditional rendering: {{ condition ? `true result` : `false result` }}
  * - Conditional with only true branch: {{ condition ? `true result` }}
+ * - Logical operators in conditions:
+ *   - NOT: {{ !isDisabled ? `enabled` : `disabled` }}
+ *   - AND: {{ hasPermission && isActive ? `show` : `hide` }}
+ *   - OR: {{ isAdmin || isOwner ? `allow` : `deny` }}
+ *   - Combined: {{ !isDraft && isPublished ? `public` : `private` }}
  * - Multi-line strings in backticks
  * - Intelligent newline handling (removes empty lines when result is empty)
+ * 
+ * Note: Logical operators support up to 2 operands. Complex expressions 
+ * (parentheses, mixing && and ||, or 3+ operands) are not supported.
  * 
  * @param template The template string containing placeholders
  * @param variables Object containing variable values
@@ -97,6 +105,60 @@ export function renderTemplate(
   return result;
 }
 
+/**
+ * Evaluates a condition string that may contain logical operators (&&, ||, !)
+ * Supports:
+ * - Simple variable: varName
+ * - Negation: !varName
+ * - AND: varName1 && varName2, !varName1 && varName2
+ * - OR: varName1 || varName2, !varName1 || varName2
+ * 
+ * Does NOT support:
+ * - Parentheses for grouping
+ * - Mixing && and || in same expression
+ * - More than 2 operands
+ */
+function evaluateCondition(condition: string, variables: Record<string, any>): boolean {
+  condition = condition.trim();
+  
+  // Check for AND operator
+  if (condition.includes('&&')) {
+    const parts = condition.split('&&').map(p => p.trim());
+    if (parts.length !== 2) {
+      // Fallback to simple variable lookup for complex expressions
+      return !!variables[condition];
+    }
+    return evaluateSimpleCondition(parts[0], variables) && evaluateSimpleCondition(parts[1], variables);
+  }
+  
+  // Check for OR operator
+  if (condition.includes('||')) {
+    const parts = condition.split('||').map(p => p.trim());
+    if (parts.length !== 2) {
+      // Fallback to simple variable lookup for complex expressions
+      return !!variables[condition];
+    }
+    return evaluateSimpleCondition(parts[0], variables) || evaluateSimpleCondition(parts[1], variables);
+  }
+  
+  // Simple condition (possibly with negation)
+  return evaluateSimpleCondition(condition, variables);
+}
+
+/**
+ * Evaluates a simple condition that may have a ! prefix
+ */
+function evaluateSimpleCondition(condition: string, variables: Record<string, any>): boolean {
+  condition = condition.trim();
+  
+  if (condition.startsWith('!')) {
+    const varName = condition.substring(1).trim();
+    return !variables[varName];
+  }
+  
+  return !!variables[condition];
+}
+
 function processExpression(expression: string, variables: Record<string, any>, leadingNewline: string, trailingNewline: string): string {
     const conditionalMarkerIndex = expression.indexOf('?');
 
@@ -114,7 +176,7 @@ function processExpression(expression: string, variables: Record<string, any>, l
       }
     } else {
       // --- Conditional 'ternary' substitution ---
-      const conditionKey = expression.substring(0, conditionalMarkerIndex).trim() as keyof typeof variables;
+      const conditionStr = expression.substring(0, conditionalMarkerIndex).trim();
       const rest = expression.substring(conditionalMarkerIndex + 1).trim();
 
       // Parse ternary expression with backtick-delimited strings
@@ -175,8 +237,31 @@ function processExpression(expression: string, variables: Record<string, any>, l
           trueText = rest;
         }
       } else {
-        // Fallback to old quote-based parsing for backward compatibility
-        const elseMarkerIndex = rest.indexOf(':');
+        // Fallback to quote-based parsing for backward compatibility
+        // Need to find the ':' that separates true/false parts, not one inside quotes
+        let elseMarkerIndex = -1;
+        let inSingleQuote = false;
+        let inDoubleQuote = false;
+        
+        for (let i = 0; i < rest.length; i++) {
+          const char = rest[i];
+          const prevChar = i > 0 ? rest[i - 1] : '';
+          
+          // Track quote state (ignoring escaped quotes)
+          if (char === "'" && prevChar !== '\\') {
+            if (!inDoubleQuote) {
+              inSingleQuote = !inSingleQuote;
+            }
+          } else if (char === '"' && prevChar !== '\\') {
+            if (!inSingleQuote) {
+              inDoubleQuote = !inDoubleQuote;
+            }
+          } else if (char === ':' && !inSingleQuote && !inDoubleQuote) {
+            // Found the separator outside of quotes
+            elseMarkerIndex = i;
+            break;
+          }
+        }
         
         if (elseMarkerIndex === -1) {
           trueText = rest;
@@ -187,8 +272,12 @@ function processExpression(expression: string, variables: Record<string, any>, l
 
         // Remove quotes from the start and end of the text parts
         const unquote = (text: string) => {
-            if ((text.startsWith('"') && text.endsWith('"')) || (text.startsWith("'") && text.endsWith("'"))) {
-                return text.slice(1, -1);
+            if (text.startsWith('"') && text.endsWith('"')) {
+                // Remove the outer double quotes and unescape inner quotes
+                return text.slice(1, -1).replace(/\\"/g, '"');
+            } else if (text.startsWith("'") && text.endsWith("'")) {
+                // Remove the outer single quotes and unescape inner quotes
+                return text.slice(1, -1).replace(/\\'/g, "'");
             }
             return text;
         };
@@ -197,7 +286,7 @@ function processExpression(expression: string, variables: Record<string, any>, l
         falseText = unquote(falseText);
       }
 
-      const conditionValue = !!variables[conditionKey]; // Evaluate truthiness
+      const conditionValue = evaluateCondition(conditionStr, variables);
       result = conditionValue ? trueText : falseText;
       
       // Recursively process the result to handle nested variables
