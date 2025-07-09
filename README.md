@@ -268,7 +268,7 @@ The `onMissing` property controls what happens when the expected thinking tag is
 
 - `'ignore'`: Silently continue without the tag
 - `'warn'`: Log a warning but continue processing
-- `'error'`: Return an error response
+- `'error'`: Return an error response with the original response preserved in `partialResponse`
 - `'auto'` (default): Intelligently decide based on the model's native reasoning capabilities
 
 **How `'auto'` Mode Works:**
@@ -290,6 +290,7 @@ const response = await llmService.sendMessage({
   }
 });
 // Result: ERROR if <thinking> tag is missing (strict enforcement)
+// The response is still accessible via errorResponse.partialResponse
 
 // With native reasoning models (e.g., Claude with reasoning enabled)
 const response = await llmService.sendMessage({
@@ -654,6 +655,10 @@ if (response.object === 'error') {
       break;
     case 'validation_error':
       console.error('Invalid request:', response.error.message);
+      // For validation errors, the response may still be available
+      if (response.partialResponse) {
+        console.log('Partial response:', response.partialResponse.choices[0].message.content);
+      }
       break;
     default:
       console.error('Error:', response.error.message);

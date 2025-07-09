@@ -198,6 +198,8 @@ export interface LLMFailureResponse {
   model?: string;
   error: LLMError;
   object: 'error';
+  /** The partial response that was generated before the error occurred (if available) */
+  partialResponse?: Omit<LLMResponse, 'object'>;
 }
 
 /**

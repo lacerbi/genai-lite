@@ -295,6 +295,14 @@ export class LLMService {
                     type: "validation_error",
                   },
                   object: "error",
+                  partialResponse: {
+                    id: result.id,
+                    provider: result.provider,
+                    model: result.model,
+                    created: result.created,
+                    choices: result.choices,
+                    usage: result.usage
+                  }
                 };
               } else if (effectiveOnMissing === 'warn') {
                 console.warn(`Expected <${tagName}> tag was not found in the response from model ${modelId}.`);

@@ -602,6 +602,10 @@ describe('LLMService', () => {
         expect(errorResponse.error.type).toBe('validation_error');
         expect(errorResponse.error.message).toContain('response was expected to start with a <thinking> tag');
         expect(errorResponse.error.message).toContain('does not have native reasoning active');
+        
+        // Check that partial response is included
+        expect(errorResponse.partialResponse).toBeDefined();
+        expect(errorResponse.partialResponse!.choices[0].message.content).toBe('Response without thinking tag.');
       });
 
       it('should handle missing tag for non-reasoning model with warn', async () => {
@@ -627,6 +631,31 @@ describe('LLMService', () => {
         expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Expected <thinking> tag was not found'));
         
         consoleSpy.mockRestore();
+      });
+
+      it('should handle missing tag with explicit error mode', async () => {
+        const request: LLMChatRequest = {
+          providerId: 'mistral',
+          modelId: 'codestral-2501',
+          messages: [{ role: 'user', content: 'test_thinking:Response without thinking tag.' }],
+          settings: {
+            thinkingExtraction: {
+              enabled: true,
+              onMissing: 'error' // Explicitly set to error
+            }
+          }
+        };
+
+        const response = await service.sendMessage(request);
+
+        expect(response.object).toBe('error');
+        const errorResponse = response as LLMFailureResponse;
+        expect(errorResponse.error.code).toBe('MISSING_EXPECTED_TAG');
+        expect(errorResponse.error.message).toContain('response was expected to start with a <thinking> tag');
+        
+        // Check that partial response is included
+        expect(errorResponse.partialResponse).toBeDefined();
+        expect(errorResponse.partialResponse!.choices[0].message.content).toBe('Response without thinking tag.');
       });
 
       it('should handle missing tag for non-reasoning model with ignore', async () => {
@@ -668,6 +697,8 @@ describe('LLMService', () => {
         expect(response.object).toBe('error');
         const errorResponse = response as LLMFailureResponse;
         expect(errorResponse.error.message).toContain('expected to start with a <reasoning> tag');
+        expect(errorResponse.partialResponse).toBeDefined();
+        expect(errorResponse.partialResponse!.choices[0].message.content).toBe('Response without custom tag.');
       });
 
       describe('auto mode with native reasoning detection', () => {
@@ -692,6 +723,8 @@ describe('LLMService', () => {
           const errorResponse = response as LLMFailureResponse;
           expect(errorResponse.error.code).toBe('MISSING_EXPECTED_TAG');
           expect(errorResponse.error.message).toContain('does not have native reasoning active');
+          expect(errorResponse.partialResponse).toBeDefined();
+          expect(errorResponse.partialResponse!.choices[0].message.content).toBe('Response without thinking tag.');
         });
 
         it('should respect explicit reasoning.enabled: false even for models with enabledByDefault', async () => {
@@ -715,6 +748,7 @@ describe('LLMService', () => {
           expect(response.object).toBe('error');
           const errorResponse = response as LLMFailureResponse;
           expect(errorResponse.error.code).toBe('MISSING_EXPECTED_TAG');
+          expect(errorResponse.partialResponse).toBeDefined();
         });
       });
     });
