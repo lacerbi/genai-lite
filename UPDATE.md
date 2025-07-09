@@ -6,6 +6,8 @@ This document describes recent significant updates to genai-lite.
 
 1. **[Automatic Thinking Extraction](#automatic-thinking-extraction-feature)** - Automatically extracts and standardizes reasoning/thinking from all models
 2. **[Unified Prompt Creation API](#unified-prompt-creation-api)** - New `createMessages()` method simplifies creating model-aware, multi-turn prompts
+3. **[Self-Contained Templates with Metadata](#self-contained-templates-with-metadata)** - Templates can now embed their own settings using `<META>` blocks
+4. **[Intelligent Enforcement for Thinking Tag Extraction](#intelligent-enforcement-for-thinking-tag-extraction)** - New `onMissing` property with smart 'auto' mode ensures thinking tags are present when needed
 
 ---
 
@@ -400,3 +402,398 @@ import { parseRoleTags, renderTemplate } from 'genai-lite/prompting';
 - Model context resolution is skipped if no preset/model specified
 - Backward compatible through clean deprecation path
 - TypeScript types fully updated for better IntelliSense
+
+---
+
+# Self-Contained Templates with Metadata
+
+## Overview
+
+Templates can now embed their own LLM settings directly using a `<META>` block, making them self-contained units that carry their optimal configuration. This eliminates the need to remember and manually specify settings for each template.
+
+## Problem Solved
+
+Previously, developers had to remember to apply specific settings every time they used a template:
+
+```typescript
+// OLD WAY - Settings separate from template
+const template = '<SYSTEM>You are a creative writer...</SYSTEM>';
+const { messages } = await llmService.createMessages({ template });
+
+// Had to remember these settings every time
+await llmService.sendMessage({
+  messages,
+  settings: {
+    temperature: 0.9,
+    thinkingExtraction: { enabled: true, tag: "reasoning" }
+  }
+});
+```
+
+This was error-prone and made templates less portable.
+
+## Solution
+
+Templates can now include their settings directly:
+
+```typescript
+// NEW WAY - Self-contained template
+const template = `
+<META>
+{
+  "settings": {
+    "temperature": 0.9,
+    "thinkingExtraction": { "enabled": true, "tag": "reasoning" }
+  }
+}
+</META>
+<SYSTEM>You are a creative writer...</SYSTEM>
+`;
+
+const { messages, settings } = await llmService.createMessages({ template });
+await llmService.sendMessage({ messages, settings });
+```
+
+## Implementation Details
+
+### 1. Parser Enhancement (`src/prompting/parser.ts`)
+- Added `parseTemplateWithMetadata()` function
+- Extracts JSON from `<META>` blocks at template start
+- Returns `{ metadata: TemplateMetadata, content: string }`
+- Graceful error handling for invalid JSON
+
+### 2. Type System
+- Added `TemplateMetadata` interface with optional `settings` field
+- Added `CreateMessagesResult` interface with new `settings` field
+- Exported from main index for public API
+
+### 3. Service Integration (`src/llm/LLMService.ts`)
+- Updated `createMessages()` to parse metadata before rendering
+- Returns extracted settings in addition to messages and modelContext
+- Validates settings through `SettingsManager.validateTemplateSettings()`
+
+### 4. Settings Validation (`src/llm/services/SettingsManager.ts`)
+- Added `validateTemplateSettings()` method
+- Type-checks all LLM settings fields
+- Logs warnings for invalid values
+- Returns only valid settings
+
+## Settings Hierarchy
+
+The complete settings precedence order (later overrides earlier):
+
+1. **Model Defaults** - Base settings for each model
+2. **Preset Settings** - From selected preset
+3. **Template Settings** - From `<META>` block
+4. **Runtime Settings** - From `sendMessage()` call
+
+Example:
+```typescript
+// Model default: temperature = 0.7
+// Preset: temperature = 0.8
+// Template: temperature = 0.9
+// Runtime: temperature = 1.0
+
+// Final temperature used: 1.0 (runtime wins)
+```
+
+## Usage Examples
+
+### Basic Usage
+```typescript
+const template = `
+<META>
+{
+  "settings": {
+    "temperature": 0.9,
+    "maxTokens": 2000
+  }
+}
+</META>
+<USER>Write a poem</USER>
+`;
+
+const { messages, settings } = await llmService.createMessages({ template });
+// settings = { temperature: 0.9, maxTokens: 2000 }
+```
+
+### With Model Context
+```typescript
+const template = `
+<META>
+{
+  "settings": {
+    "reasoning": { "enabled": true, "effort": "high" }
+  }
+}
+</META>
+<SYSTEM>You are a {{ thinking_enabled ? "thoughtful" : "quick" }} assistant.</SYSTEM>
+<USER>Solve this problem...</USER>
+`;
+
+const { messages, settings, modelContext } = await llmService.createMessages({
+  template,
+  presetId: 'claude-thinking'
+});
+```
+
+### Invalid Settings Handling
+```typescript
+const template = `
+<META>
+{
+  "settings": {
+    "temperature": 3.0,     // Invalid - logged and ignored
+    "unknownField": true,   // Unknown - logged and ignored
+    "maxTokens": 1000      // Valid - included
+  }
+}
+</META>
+`;
+// Console warnings for invalid fields
+// settings = { maxTokens: 1000 }
+```
+
+## Benefits
+
+1. **Self-Contained**: Templates are complete units with their optimal settings
+2. **Portable**: Easy to share templates with all necessary configuration
+3. **Maintainable**: Settings live with the template they belong to
+4. **Type-Safe**: Full TypeScript validation and IntelliSense
+5. **Backward Compatible**: Templates without `<META>` work as before
+
+## Testing
+
+- Added 9 comprehensive tests for `parseTemplateWithMetadata()`
+- Added 8 tests for `createMessages()` with metadata
+- Tests cover validation, error handling, and backward compatibility
+- 100% coverage maintained
+
+## Technical Notes
+
+- `<META>` must be at the beginning of the template
+- Invalid JSON results in warning, not error
+- Empty or missing settings default to `{}`
+- All settings are validated before use
+- Compatible with all existing features (model context, thinking extraction, etc.)
+
+---
+
+# Intelligent Enforcement for Thinking Tag Extraction
+
+## Overview
+
+Introduced intelligent enforcement for thinking tag extraction through a new `onMissing` property that automatically determines whether to be strict or lenient based on the model's native reasoning capabilities. This ensures reliable prompt-driven reasoning for non-native models while maintaining flexibility for models with native reasoning support.
+
+## Problem Solved
+
+When prompting models to "think in tags", developers need assurance that the model followed the instruction. However, the same prompt might be used with different models - some with native reasoning, others without. A simple "strict mode" would fail for native reasoning models that don't need tags. The challenge was providing a single setting that works intelligently across all model types.
+
+## Solution
+
+The new `onMissing` property in `LLMThinkingExtractionSettings` supports four modes:
+- `'ignore'`: Silently continue if tag is missing
+- `'warn'`: Log a warning but continue
+- `'error'`: Return an error response
+- `'auto'` (default): Intelligently decide based on native reasoning status
+
+The `'auto'` mode logic:
+> Be **strict** (error) unless the model has **native reasoning active**. If native reasoning is active, be **lenient** (ignore).
+
+## Migration Guide
+
+### Breaking Change: Default Settings Updated
+
+**Before:**
+```typescript
+// Default settings
+thinkingExtraction: {
+  enabled: true,    // Was enabled by default
+  tag: 'thinking'
+}
+```
+
+**After:**
+```typescript
+// New default settings
+thinkingExtraction: {
+  enabled: false,   // Now requires explicit opt-in
+  tag: 'thinking',
+  onMissing: 'auto' // Smart enforcement
+}
+```
+
+### Migration Examples
+
+**1. If you were relying on default extraction being enabled:**
+```typescript
+// Before (extraction happened automatically)
+const response = await llm.sendMessage({
+  providerId: 'openai',
+  modelId: 'gpt-4.1',
+  messages: [{ role: 'user', content: 'Think step by step...' }]
+});
+
+// After (must explicitly enable)
+const response = await llm.sendMessage({
+  providerId: 'openai',
+  modelId: 'gpt-4.1',
+  messages: [{ role: 'user', content: 'Think step by step...' }],
+  settings: {
+    thinkingExtraction: { enabled: true }
+  }
+});
+```
+
+**2. For universal prompts that instruct thinking in tags:**
+```typescript
+// This now works intelligently across all models
+const universalPrompt = `
+<SYSTEM>Always think through problems step-by-step in <thinking> tags before answering.</SYSTEM>
+<USER>{{ question }}</USER>
+`;
+
+// With non-native model: enforces tag presence
+// With native reasoning model: allows missing tag
+const response = await llm.sendMessage({
+  presetId: modelPreset,
+  messages,
+  settings: {
+    reasoning: { enabled: true },
+    thinkingExtraction: { 
+      enabled: true
+      // onMissing: 'auto' is default
+    }
+  }
+});
+```
+
+**3. If you need the old behavior (no enforcement):**
+```typescript
+settings: {
+  thinkingExtraction: {
+    enabled: true,
+    onMissing: 'ignore' // Old behavior
+  }
+}
+```
+
+## Usage Examples
+
+### Basic Usage with Auto Mode
+
+```typescript
+// For non-native models (e.g., GPT-4)
+const response = await llm.sendMessage({
+  providerId: 'openai',
+  modelId: 'gpt-4.1',
+  messages: [{
+    role: 'system',
+    content: 'Think in <thinking> tags before answering.'
+  }, {
+    role: 'user',
+    content: 'What is 15% of 240?'
+  }],
+  settings: {
+    thinkingExtraction: { enabled: true } // Uses auto mode
+  }
+});
+
+// If model doesn't output <thinking> tag: ERROR
+// "The model (gpt-4.1) response was expected to start with a <thinking> tag..."
+```
+
+### With Native Reasoning Models
+
+```typescript
+// For native reasoning models (e.g., Claude 3.7)
+const response = await llm.sendMessage({
+  providerId: 'anthropic',
+  modelId: 'claude-3-7-sonnet-20250219',
+  messages: [/* same prompt */],
+  settings: {
+    reasoning: { enabled: true },
+    thinkingExtraction: { enabled: true }
+  }
+});
+
+// If model doesn't output <thinking> tag: SUCCESS (ignored)
+// Native reasoning is active, so tags are optional
+```
+
+### Explicit Control
+
+```typescript
+// Force strict checking even for native models
+settings: {
+  reasoning: { enabled: true },
+  thinkingExtraction: {
+    enabled: true,
+    onMissing: 'error' // Override auto behavior
+  }
+}
+
+// Just warn instead of error
+settings: {
+  thinkingExtraction: {
+    enabled: true,
+    onMissing: 'warn'
+  }
+}
+```
+
+### Custom Tag Names
+
+```typescript
+settings: {
+  thinkingExtraction: {
+    enabled: true,
+    tag: 'reasoning', // Custom tag name
+    onMissing: 'auto'
+  }
+}
+// Error message will reference <reasoning> tag
+```
+
+## Implementation Details
+
+### Type Changes
+
+```typescript
+export interface LLMThinkingExtractionSettings {
+  enabled?: boolean;  // Now defaults to false
+  tag?: string;       // Default: 'thinking'
+  onMissing?: 'ignore' | 'warn' | 'error' | 'auto'; // NEW - Default: 'auto'
+}
+```
+
+### Native Reasoning Detection
+
+The system considers native reasoning "active" when:
+1. Model supports reasoning (`reasoning.supported === true`)
+2. AND one of:
+   - Reasoning is explicitly enabled (`reasoning.enabled === true`)
+   - Model has reasoning on by default (`reasoning.enabledByDefault === true`)
+   - Model cannot disable reasoning (`reasoning.canDisable === false`)
+
+### Special Model Handling
+
+- **Always-on models** (e.g., o4-mini): Always considered to have active reasoning
+- **Default-enabled models** (e.g., Gemini 2.5 Pro): Considered active unless explicitly disabled
+- **Regular models**: Only active when explicitly enabled
+
+## Benefits
+
+1. **Write Once, Run Anywhere**: Single prompt template works across all models
+2. **Reliability**: Ensures non-native models follow thinking instructions
+3. **Flexibility**: Doesn't break when using native reasoning models
+4. **Developer Experience**: Smart defaults reduce configuration burden
+5. **Gradual Migration**: Can override behavior when needed
+
+## Technical Notes
+
+- Only affects responses when `thinkingExtraction.enabled === true`
+- The `'auto'` mode evaluation happens at runtime based on actual settings
+- Error messages include model context to aid debugging
+- Console warnings (when using 'warn' mode) include model ID
+- Fully backward compatible with explicit mode settings

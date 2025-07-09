@@ -5,6 +5,16 @@
  * from an LLM. It helps deconstruct LLM responses into usable data structures.
  */
 
+import type { LLMSettings } from '../llm/types';
+
+/**
+ * Metadata structure that can be embedded in templates
+ */
+export interface TemplateMetadata {
+  settings?: Partial<LLMSettings>;
+  // Future expansion: name?, description?, version?
+}
+
 /**
  * Parses a string containing structured data wrapped in custom XML-style tags.
  * 
@@ -148,4 +158,66 @@ export function parseRoleTags(template: string): Array<{ role: string; content: 
   }
 
   return messages;
+}
+
+/**
+ * Parses a template to separate a <META> block from the main content.
+ * The <META> block is expected to be at the start and contain a JSON object.
+ *
+ * @param template The template string to parse.
+ * @returns An object with the parsed metadata and the remaining content.
+ * 
+ * @example
+ * const template = `
+ * <META>
+ * {
+ *   "settings": {
+ *     "temperature": 0.9,
+ *     "thinkingExtraction": { "enabled": true, "tag": "reasoning" }
+ *   }
+ * }
+ * </META>
+ * <SYSTEM>You are a creative writer...</SYSTEM>
+ * <USER>Write a story</USER>
+ * `;
+ * 
+ * const { metadata, content } = parseTemplateWithMetadata(template);
+ * // metadata.settings will contain the temperature and thinkingExtraction settings
+ * // content will contain the SYSTEM and USER tags
+ */
+export function parseTemplateWithMetadata(template: string): { 
+  metadata: TemplateMetadata;
+  content: string;
+} {
+  // This regular expression looks for a <META> tag at the very beginning of the string.
+  // It's designed to be "non-greedy" (the ? after *) so it stops at the first </META>.
+  const metaRegex = /^<META>([\s\S]*?)<\/META>/;
+  const trimmedTemplate = template.trim();
+  const match = trimmedTemplate.match(metaRegex);
+
+  // If no <META> block is found, we just return the original template.
+  if (!match) {
+    return { metadata: { settings: {} }, content: template };
+  }
+
+  const metaContent = match[1]; // This is the text inside the <META> tag.
+  const content = trimmedTemplate.replace(metaRegex, '').trim(); // The rest of the template.
+
+  try {
+    // We try to parse the metadata as JSON.
+    // Handle empty META block case
+    const parsed = metaContent.trim() ? JSON.parse(metaContent) : {};
+    
+    // Basic structure validation - ensure settings is an object if present
+    const metadata: TemplateMetadata = {
+      settings: (parsed.settings && typeof parsed.settings === 'object') ? parsed.settings : {}
+    };
+    
+    return { metadata, content };
+  } catch (error) {
+    // If the JSON is invalid, we warn the developer and treat the <META> block
+    // as regular text to avoid crashing.
+    console.warn('Could not parse <META> block in template. Treating it as content.', error);
+    return { metadata: { settings: {} }, content: template };
+  }
 }

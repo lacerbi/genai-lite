@@ -139,4 +139,143 @@ export class SettingsManager {
 
     return filteredSettings;
   }
+
+  /**
+   * Validates settings extracted from templates, warning about invalid fields
+   * and returning only valid settings
+   *
+   * @param settings - The settings to validate (e.g., from template metadata)
+   * @returns Validated settings with invalid fields removed
+   */
+  validateTemplateSettings(settings: Partial<LLMSettings>): Partial<LLMSettings> {
+    const validated: Partial<LLMSettings> = {};
+    const knownFields: Array<keyof LLMSettings> = [
+      'temperature',
+      'maxTokens',
+      'topP',
+      'stopSequences',
+      'frequencyPenalty',
+      'presencePenalty',
+      'user',
+      'supportsSystemMessage',
+      'geminiSafetySettings',
+      'reasoning',
+      'thinkingExtraction'
+    ];
+
+    // Check each setting field
+    for (const [key, value] of Object.entries(settings)) {
+      // Check if it's a known field
+      if (!knownFields.includes(key as keyof LLMSettings)) {
+        console.warn(`Unknown setting "${key}" in template metadata. Ignoring.`);
+        continue;
+      }
+
+      // Type-specific validation
+      if (key === 'temperature') {
+        if (typeof value !== 'number' || value < 0 || value > 2) {
+          console.warn(`Invalid temperature value in template: ${value}. Must be a number between 0 and 2.`);
+          continue;
+        }
+      }
+
+      if (key === 'maxTokens') {
+        if (typeof value !== 'number' || value <= 0) {
+          console.warn(`Invalid maxTokens value in template: ${value}. Must be a positive number.`);
+          continue;
+        }
+      }
+
+      if (key === 'topP') {
+        if (typeof value !== 'number' || value < 0 || value > 1) {
+          console.warn(`Invalid topP value in template: ${value}. Must be a number between 0 and 1.`);
+          continue;
+        }
+      }
+
+      if (key === 'stopSequences') {
+        if (!Array.isArray(value) || !value.every(v => typeof v === 'string')) {
+          console.warn(`Invalid stopSequences value in template. Must be an array of strings.`);
+          continue;
+        }
+      }
+
+      if ((key === 'frequencyPenalty' || key === 'presencePenalty')) {
+        if (typeof value !== 'number' || value < -2 || value > 2) {
+          console.warn(`Invalid ${key} value in template: ${value}. Must be a number between -2 and 2.`);
+          continue;
+        }
+      }
+
+      if (key === 'user' && typeof value !== 'string') {
+        console.warn(`Invalid user value in template. Must be a string.`);
+        continue;
+      }
+
+      if (key === 'supportsSystemMessage' && typeof value !== 'boolean') {
+        console.warn(`Invalid supportsSystemMessage value in template. Must be a boolean.`);
+        continue;
+      }
+
+      // Nested object validation
+      if (key === 'reasoning' && typeof value === 'object' && value !== null) {
+        const reasoningValidated: any = {};
+        
+        if ('enabled' in value && typeof value.enabled !== 'boolean') {
+          console.warn(`Invalid reasoning.enabled value in template. Must be a boolean.`);
+        } else if ('enabled' in value) {
+          reasoningValidated.enabled = value.enabled;
+        }
+
+        if ('effort' in value && !['low', 'medium', 'high'].includes(value.effort as string)) {
+          console.warn(`Invalid reasoning.effort value in template: ${value.effort}. Must be 'low', 'medium', or 'high'.`);
+        } else if ('effort' in value) {
+          reasoningValidated.effort = value.effort;
+        }
+
+        if ('maxTokens' in value && (typeof value.maxTokens !== 'number' || value.maxTokens <= 0)) {
+          console.warn(`Invalid reasoning.maxTokens value in template. Must be a positive number.`);
+        } else if ('maxTokens' in value) {
+          reasoningValidated.maxTokens = value.maxTokens;
+        }
+
+        if ('exclude' in value && typeof value.exclude !== 'boolean') {
+          console.warn(`Invalid reasoning.exclude value in template. Must be a boolean.`);
+        } else if ('exclude' in value) {
+          reasoningValidated.exclude = value.exclude;
+        }
+
+        if (Object.keys(reasoningValidated).length > 0) {
+          validated.reasoning = reasoningValidated;
+        }
+        continue;
+      }
+
+      if (key === 'thinkingExtraction' && typeof value === 'object' && value !== null) {
+        const thinkingValidated: any = {};
+        
+        if ('enabled' in value && typeof value.enabled !== 'boolean') {
+          console.warn(`Invalid thinkingExtraction.enabled value in template. Must be a boolean.`);
+        } else if ('enabled' in value) {
+          thinkingValidated.enabled = value.enabled;
+        }
+
+        if ('tag' in value && typeof value.tag !== 'string') {
+          console.warn(`Invalid thinkingExtraction.tag value in template. Must be a string.`);
+        } else if ('tag' in value) {
+          thinkingValidated.tag = value.tag;
+        }
+
+        if (Object.keys(thinkingValidated).length > 0) {
+          validated.thinkingExtraction = thinkingValidated;
+        }
+        continue;
+      }
+
+      // If we made it here, the field is valid
+      (validated as any)[key] = value;
+    }
+
+    return validated;
+  }
 }

@@ -21,7 +21,7 @@ import type {
 import type { ModelPreset } from "../types/presets";
 import { SUPPORTED_PROVIDERS, getProviderById, getModelsByProvider } from "./config";
 import { renderTemplate } from "../prompting/template";
-import { extractInitialTaggedContent, parseRoleTags } from "../prompting/parser";
+import { extractInitialTaggedContent, parseRoleTags, parseTemplateWithMetadata } from "../prompting/parser";
 
 // Import the extracted services
 import { PresetManager, type PresetMode } from "./services/PresetManager";
@@ -41,6 +41,18 @@ export interface LLMServiceOptions {
   presets?: ModelPreset[];
   /** The strategy for integrating custom presets. Defaults to 'extend'. */
   presetMode?: PresetMode;
+}
+
+/**
+ * Result from createMessages method
+ */
+export interface CreateMessagesResult {
+  /** The parsed messages with role assignments */
+  messages: LLMMessage[];
+  /** Model context variables that were injected during template rendering */
+  modelContext: ModelContext | null;
+  /** Settings extracted from the template's <META> block */
+  settings: Partial<LLMSettings>;
 }
 
 /**
@@ -233,9 +245,23 @@ export class LLMService {
         // Post-process for thinking extraction
         if (result.object === 'chat.completion' && internalRequest.settings.thinkingExtraction?.enabled) {
           const settings = internalRequest.settings.thinkingExtraction;
-          const tagName = settings.tag || 'thinking'; // Default to 'thinking'
-          const choice = result.choices[0];
+          const tagName = settings.tag || 'thinking';
+          
+          // Step 1: Resolve the effective onMissing strategy
+          let effectiveOnMissing = settings.onMissing || 'auto';
+          if (effectiveOnMissing === 'auto') {
+            // Check if native reasoning is active
+            const isNativeReasoningActive = 
+              modelInfo!.reasoning?.supported === true &&
+              (internalRequest.settings.reasoning?.enabled === true ||
+               modelInfo!.reasoning?.enabledByDefault === true ||
+               modelInfo!.reasoning?.canDisable === false); // Always-on models
 
+            effectiveOnMissing = isNativeReasoningActive ? 'ignore' : 'error';
+          }
+
+          // Step 2: Process the response
+          const choice = result.choices[0];
           if (choice?.message?.content) {
             const { extracted, remaining } = extractInitialTaggedContent(choice.message.content, tagName);
 
@@ -252,6 +278,25 @@ export class LLMService {
               // Update the choice object
               choice.reasoning = `${existingReasoning}${separator}${newReasoning}`;
               choice.message.content = remaining;
+            } else {
+              // Tag was not found, enforce the effective strategy
+              if (effectiveOnMissing === 'error') {
+                return {
+                  provider: providerId!,
+                  model: modelId!,
+                  error: {
+                    message: `The model (${modelId}) response was expected to start with a <${tagName}> tag but it was not found. ` +
+                             `This is enforced because the model does not have native reasoning active. ` +
+                             `Either ensure your prompt instructs the model to use <${tagName}> tags, or enable native reasoning if supported.`,
+                    code: "MISSING_EXPECTED_TAG",
+                    type: "validation_error",
+                  },
+                  object: "error",
+                };
+              } else if (effectiveOnMissing === 'warn') {
+                console.warn(`Expected <${tagName}> tag was not found in the response from model ${modelId}.`);
+              }
+              // If 'ignore', do nothing
             }
           }
         }
@@ -334,10 +379,15 @@ export class LLMService {
     presetId?: string;
     providerId?: string;
     modelId?: string;
-  }): Promise<{ messages: LLMMessage[]; modelContext: ModelContext | null }> {
+  }): Promise<CreateMessagesResult> {
     console.log('LLMService.createMessages called');
 
-    // Step 1: Get model context if model information is provided
+    // NEW: Step 1 - Parse the template for metadata and content
+    const { metadata, content: templateContent } = parseTemplateWithMetadata(options.template);
+    // Validate the settings from the template
+    const templateSettings = this.settingsManager.validateTemplateSettings(metadata.settings || {});
+
+    // Step 2: Get model context if model information is provided
     let modelContext: ModelContext | null = null;
     
     if (options.presetId || (options.providerId && options.modelId)) {
@@ -385,7 +435,8 @@ export class LLMService {
     // Step 3: Render the template with all variables
     let renderedTemplate: string;
     try {
-      renderedTemplate = renderTemplate(options.template, allVariables);
+      // Use templateContent which is the template without the <META> block
+      renderedTemplate = renderTemplate(templateContent, allVariables);
     } catch (error) {
       throw new Error(`Template rendering failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
@@ -401,7 +452,8 @@ export class LLMService {
 
     return {
       messages,
-      modelContext
+      modelContext,
+      settings: templateSettings // NEW: Add the extracted settings
     };
   }
 

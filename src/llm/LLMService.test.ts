@@ -544,7 +544,7 @@ describe('LLMService', () => {
       expect(successResponse.choices[0].message.content).toBe('The analysis is complete.');
     });
 
-    it('should handle missing tag gracefully', async () => {
+    it('should handle missing tag with explicit ignore', async () => {
       const request: LLMChatRequest = {
         providerId: 'mistral',
         modelId: 'codestral-2501',
@@ -552,7 +552,8 @@ describe('LLMService', () => {
         settings: {
           thinkingExtraction: {
             enabled: true,
-            tag: 'thinking'
+            tag: 'thinking',
+            onMissing: 'ignore' // Explicitly set to ignore
           }
         }
       };
@@ -566,7 +567,7 @@ describe('LLMService', () => {
     });
 
     it('should use default settings when not specified', async () => {
-      // Default is enabled with tag 'thinking'
+      // Default is now disabled, needs explicit opt-in
       const request: LLMChatRequest = {
         providerId: 'mistral',
         modelId: 'codestral-2501',
@@ -577,8 +578,100 @@ describe('LLMService', () => {
 
       expect(response.object).toBe('chat.completion');
       const successResponse = response as LLMResponse;
-      expect(successResponse.choices[0].reasoning).toContain('Default extraction test.');
-      expect(successResponse.choices[0].message.content).toBe('Result here.');
+      // With default settings (enabled: false), no extraction should occur
+      expect(successResponse.choices[0].reasoning).toBeUndefined();
+      expect(successResponse.choices[0].message.content).toBe('<thinking>Default extraction test.</thinking>Result here.');
+    });
+
+    describe('onMissing behavior', () => {
+      it('should use auto mode by default with error for non-native models', async () => {
+        const request: LLMChatRequest = {
+          providerId: 'mistral',
+          modelId: 'codestral-2501', // Non-native reasoning model (using mock)
+          messages: [{ role: 'user', content: 'test_thinking:Response without thinking tag.' }],
+          settings: {
+            thinkingExtraction: {
+              enabled: true,
+              // onMissing defaults to 'auto'
+            }
+          }
+        };
+
+        const response = await service.sendMessage(request);
+
+        expect(response.object).toBe('error');
+        const errorResponse = response as LLMFailureResponse;
+        expect(errorResponse.error.code).toBe('MISSING_EXPECTED_TAG');
+        expect(errorResponse.error.type).toBe('validation_error');
+        expect(errorResponse.error.message).toContain('response was expected to start with a <thinking> tag');
+        expect(errorResponse.error.message).toContain('does not have native reasoning active');
+      });
+
+      it('should handle missing tag for non-reasoning model with warn', async () => {
+        const consoleSpy = jest.spyOn(console, 'warn').mockImplementation();
+        
+        const request: LLMChatRequest = {
+          providerId: 'mistral',
+          modelId: 'codestral-2501',
+          messages: [{ role: 'user', content: 'test_thinking:Response without thinking tag.' }],
+          settings: {
+            thinkingExtraction: {
+              enabled: true,
+              onMissing: 'warn'
+            }
+          }
+        };
+
+        const response = await service.sendMessage(request);
+
+        expect(response.object).toBe('chat.completion');
+        const successResponse = response as LLMResponse;
+        expect(successResponse.choices[0].message.content).toBe('Response without thinking tag.');
+        expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Expected <thinking> tag was not found'));
+        
+        consoleSpy.mockRestore();
+      });
+
+      it('should handle missing tag for non-reasoning model with ignore', async () => {
+        const request: LLMChatRequest = {
+          providerId: 'mistral',
+          modelId: 'codestral-2501',
+          messages: [{ role: 'user', content: 'test_thinking:Response without thinking tag.' }],
+          settings: {
+            thinkingExtraction: {
+              enabled: true,
+              onMissing: 'ignore'
+            }
+          }
+        };
+
+        const response = await service.sendMessage(request);
+
+        expect(response.object).toBe('chat.completion');
+        const successResponse = response as LLMResponse;
+        expect(successResponse.choices[0].message.content).toBe('Response without thinking tag.');
+      });
+
+      it('should work with custom tag names in error messages', async () => {
+        const request: LLMChatRequest = {
+          providerId: 'mistral',
+          modelId: 'codestral-2501',
+          messages: [{ role: 'user', content: 'test_thinking:Response without custom tag.' }],
+          settings: {
+            thinkingExtraction: {
+              enabled: true,
+              tag: 'reasoning',
+              onMissing: 'error'
+            }
+          }
+        };
+
+        const response = await service.sendMessage(request);
+
+        expect(response.object).toBe('error');
+        const errorResponse = response as LLMFailureResponse;
+        expect(errorResponse.error.message).toContain('expected to start with a <reasoning> tag');
+      });
     });
   });
 });

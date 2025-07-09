@@ -69,7 +69,7 @@ export interface LLMReasoningSettings {
 export interface LLMThinkingExtractionSettings {
   /**
    * If true, enables the automatic extraction of content from a specified XML tag.
-   * @default true
+   * @default false
    */
   enabled?: boolean;
 
@@ -78,6 +78,16 @@ export interface LLMThinkingExtractionSettings {
    * @default 'thinking'
    */
   tag?: string;
+
+  /**
+   * Defines behavior when the tag is not found. 'auto' is the recommended default.
+   * - 'ignore': Silently continue without a warning or error.
+   * - 'warn': Log a console warning but return the response as-is.
+   * - 'error': Return an LLMFailureResponse, treating it as a failed request.
+   * - 'auto': Becomes 'error' unless the model has active native reasoning. If native reasoning is active, this becomes 'ignore'.
+   * @default 'auto'
+   */
+  onMissing?: 'ignore' | 'warn' | 'error' | 'auto';
 }
 
 /**

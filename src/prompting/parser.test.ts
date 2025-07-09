@@ -2,7 +2,7 @@
  * Tests for response parsing utilities
  */
 
-import { parseStructuredContent, extractInitialTaggedContent, parseRoleTags } from './parser';
+import { parseStructuredContent, extractInitialTaggedContent, parseRoleTags, parseTemplateWithMetadata } from './parser';
 
 describe('parseStructuredContent', () => {
   it('should parse properly closed tags', () => {
@@ -420,5 +420,175 @@ describe('parseRoleTags', () => {
       { role: 'system', content: 'System message' },
       { role: 'user', content: 'User message' }
     ]);
+  });
+});
+
+describe('parseTemplateWithMetadata', () => {
+  it('should parse template with valid META block', () => {
+    const template = `<META>
+{
+  "settings": {
+    "temperature": 0.9,
+    "thinkingExtraction": { "enabled": true, "tag": "reasoning" }
+  }
+}
+</META>
+<SYSTEM>You are a creative writer.</SYSTEM>
+<USER>Write a story</USER>`;
+    
+    const result = parseTemplateWithMetadata(template);
+    
+    expect(result.metadata).toEqual({
+      settings: {
+        temperature: 0.9,
+        thinkingExtraction: { enabled: true, tag: "reasoning" }
+      }
+    });
+    expect(result.content).toBe('<SYSTEM>You are a creative writer.</SYSTEM>\n<USER>Write a story</USER>');
+  });
+
+  it('should handle template without META block', () => {
+    const template = `<SYSTEM>You are a helpful assistant.</SYSTEM>
+<USER>Help me understand TypeScript</USER>`;
+    
+    const result = parseTemplateWithMetadata(template);
+    
+    expect(result.metadata).toEqual({ settings: {} });
+    expect(result.content).toBe(template);
+  });
+
+  it('should handle invalid JSON in META block', () => {
+    const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation();
+    
+    const template = `<META>
+{
+  "settings": {
+    "temperature": 0.9,
+    invalid json here
+  }
+}
+</META>
+<SYSTEM>Test</SYSTEM>`;
+    
+    const result = parseTemplateWithMetadata(template);
+    
+    expect(result.metadata).toEqual({ settings: {} });
+    expect(result.content).toBe(template); // Original template returned on error
+    expect(consoleWarnSpy).toHaveBeenCalledWith(
+      'Could not parse <META> block in template. Treating it as content.',
+      expect.any(Error)
+    );
+    
+    consoleWarnSpy.mockRestore();
+  });
+
+  it('should handle META block with missing settings', () => {
+    const template = `<META>
+{
+  "name": "My Template",
+  "version": "1.0"
+}
+</META>
+<USER>Hello</USER>`;
+    
+    const result = parseTemplateWithMetadata(template);
+    
+    expect(result.metadata).toEqual({ settings: {} });
+    expect(result.content).toBe('<USER>Hello</USER>');
+  });
+
+  it('should handle META block with non-object settings', () => {
+    const template = `<META>
+{
+  "settings": "not an object"
+}
+</META>
+<USER>Test</USER>`;
+    
+    const result = parseTemplateWithMetadata(template);
+    
+    expect(result.metadata).toEqual({ settings: {} });
+    expect(result.content).toBe('<USER>Test</USER>');
+  });
+
+  it('should handle empty META block', () => {
+    const template = `<META></META>
+<USER>Test</USER>`;
+    
+    const result = parseTemplateWithMetadata(template);
+    
+    expect(result.metadata).toEqual({ settings: {} });
+    expect(result.content).toBe('<USER>Test</USER>');
+  });
+
+  it('should handle META block with whitespace', () => {
+    const template = `  <META>
+    {
+      "settings": {
+        "temperature": 0.5
+      }
+    }
+  </META>  
+  <SYSTEM>Assistant</SYSTEM>`;
+    
+    const result = parseTemplateWithMetadata(template);
+    
+    expect(result.metadata).toEqual({
+      settings: { temperature: 0.5 }
+    });
+    expect(result.content).toBe('<SYSTEM>Assistant</SYSTEM>');
+  });
+
+  it('should handle complex settings in META block', () => {
+    const template = `<META>
+{
+  "settings": {
+    "temperature": 0.8,
+    "maxTokens": 2000,
+    "stopSequences": ["\\n\\n", "END"],
+    "reasoning": {
+      "enabled": true,
+      "effort": "high",
+      "maxTokens": 5000
+    },
+    "thinkingExtraction": {
+      "enabled": false
+    }
+  }
+}
+</META>
+<SYSTEM>Complex template</SYSTEM>`;
+    
+    const result = parseTemplateWithMetadata(template);
+    
+    expect(result.metadata.settings).toEqual({
+      temperature: 0.8,
+      maxTokens: 2000,
+      stopSequences: ["\n\n", "END"],
+      reasoning: {
+        enabled: true,
+        effort: "high",
+        maxTokens: 5000
+      },
+      thinkingExtraction: {
+        enabled: false
+      }
+    });
+  });
+
+  it('should only parse META at the beginning of the template', () => {
+    const template = `<USER>Some content</USER>
+<META>
+{
+  "settings": { "temperature": 0.5 }
+}
+</META>
+<USER>More content</USER>`;
+    
+    const result = parseTemplateWithMetadata(template);
+    
+    // META block not at start, so it's not parsed
+    expect(result.metadata).toEqual({ settings: {} });
+    expect(result.content).toBe(template);
   });
 });

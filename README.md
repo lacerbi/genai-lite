@@ -229,7 +229,10 @@ const response = await llmService.sendMessage({
   }, {
     role: 'user',
     content: 'Please think through this problem step by step before answering: What is 15% of 240?'
-  }]
+  }],
+  settings: {
+    thinkingExtraction: { enabled: true } // Must explicitly enable
+  }
 });
 
 // If the model responds with:
@@ -238,9 +241,11 @@ const response = await llmService.sendMessage({
 // The response will have:
 // - response.choices[0].message.content = "The answer is 36."
 // - response.choices[0].reasoning = "<!-- Extracted by genai-lite from <thinking> tag -->\n15% means 15/100 = 0.15. So 15% of 240 = 0.15 × 240 = 36."
+
+// If the model doesn't include the <thinking> tag, you'll get an error (with default 'auto' mode)
 ```
 
-This feature is enabled by default but can be customized:
+**Configuration Options:**
 
 ```typescript
 const response = await llmService.sendMessage({
@@ -249,12 +254,60 @@ const response = await llmService.sendMessage({
   messages: [{ role: 'user', content: 'Solve this step by step...' }],
   settings: {
     thinkingExtraction: {
-      enabled: false,  // Disable extraction
-      tag: 'scratchpad'  // Or use a custom tag name (default: 'thinking')
+      enabled: true,     // Must explicitly enable (default: false)
+      tag: 'scratchpad', // Custom tag name (default: 'thinking')
+      onMissing: 'auto'  // Smart enforcement (see below)
     }
   }
 });
 ```
+
+**The `onMissing` Property:**
+
+The `onMissing` property controls what happens when the expected thinking tag is not found:
+
+- `'ignore'`: Silently continue without the tag
+- `'warn'`: Log a warning but continue processing
+- `'error'`: Return an error response
+- `'auto'` (default): Intelligently decide based on the model's native reasoning capabilities
+
+**How `'auto'` Mode Works:**
+
+```typescript
+// With non-native reasoning models (e.g., GPT-4)
+const response = await llmService.sendMessage({
+  providerId: 'openai',
+  modelId: 'gpt-4.1',
+  messages: [{
+    role: 'system',
+    content: 'Always think in <thinking> tags before answering.'
+  }, {
+    role: 'user',
+    content: 'What is 15% of 240?'
+  }],
+  settings: {
+    thinkingExtraction: { enabled: true } // onMissing: 'auto' is default
+  }
+});
+// Result: ERROR if <thinking> tag is missing (strict enforcement)
+
+// With native reasoning models (e.g., Claude with reasoning enabled)
+const response = await llmService.sendMessage({
+  providerId: 'anthropic',
+  modelId: 'claude-3-7-sonnet-20250219',
+  messages: [/* same prompt */],
+  settings: {
+    reasoning: { enabled: true },
+    thinkingExtraction: { enabled: true }
+  }
+});
+// Result: SUCCESS even if <thinking> tag is missing (lenient for native reasoning)
+```
+
+This intelligent enforcement ensures that:
+- Non-native models are held to strict requirements when instructed to use thinking tags
+- Native reasoning models aren't penalized for using their built-in reasoning instead of tags
+- The same prompt can work across different model types
 
 ### Provider Information
 
@@ -493,6 +546,95 @@ if (response.object === 'chat.completion') {
 }
 ```
 
+### Self-Contained Templates with Metadata
+
+Templates can now include their own settings using a `<META>` block, making them truly self-contained and reusable:
+
+```typescript
+// Define a template with embedded settings
+const creativeWritingTemplate = `
+<META>
+{
+  "settings": {
+    "temperature": 0.9,
+    "maxTokens": 3000,
+    "thinkingExtraction": { "enabled": true, "tag": "reasoning" }
+  }
+}
+</META>
+<SYSTEM>
+You are a creative writer. Use <reasoning> tags to outline your story structure 
+before writing the actual story.
+</SYSTEM>
+<USER>Write a short story about {{ topic }}</USER>
+`;
+
+// Use the template - settings are automatically extracted
+const { messages, settings } = await llmService.createMessages({
+  template: creativeWritingTemplate,
+  variables: { topic: 'a robot discovering music' },
+  providerId: 'openai',
+  modelId: 'gpt-4.1'
+});
+
+// Send the message with the template's settings
+const response = await llmService.sendMessage({
+  providerId: 'openai',
+  modelId: 'gpt-4.1',
+  messages,
+  settings  // Uses temperature: 0.9, maxTokens: 3000, etc.
+});
+```
+
+**Benefits of Self-Contained Templates:**
+- **Portability**: Templates carry their optimal settings with them
+- **Consistency**: Same template always uses the same settings
+- **Less Error-Prone**: No need to remember settings for each template
+- **Shareable**: Easy to share templates with all necessary configuration
+
+**Settings Hierarchy:**
+When multiple settings sources exist, they are merged in this order (later overrides earlier):
+1. Model defaults (lowest priority)
+2. Preset settings
+3. Template `<META>` settings
+4. Runtime settings in `sendMessage()` (highest priority)
+
+```typescript
+// Example of settings hierarchy
+const { messages, settings: templateSettings } = await llmService.createMessages({
+  template: `<META>{"settings": {"temperature": 0.8}}</META><USER>Hello</USER>`,
+  presetId: 'some-preset' // Preset might have temperature: 0.7
+});
+
+// Final temperature will be 0.9 (runtime overrides all)
+const response = await llmService.sendMessage({
+  presetId: 'some-preset',
+  messages,
+  settings: {
+    ...templateSettings,
+    temperature: 0.9  // Runtime override
+  }
+});
+```
+
+**Validation:**
+Invalid settings in the `<META>` block are logged as warnings and ignored:
+
+```typescript
+const template = `
+<META>
+{
+  "settings": {
+    "temperature": 3.0,      // Invalid: will be ignored with warning
+    "maxTokens": 2000,       // Valid: will be used
+    "unknownSetting": "foo"  // Unknown: will be ignored with warning
+  }
+}
+</META>
+<USER>Test</USER>
+`;
+```
+
 ### Error Handling
 
 ```typescript
@@ -574,7 +716,9 @@ import type {
   ModelPreset,
   LLMServiceOptions,
   PresetMode,
-  ModelContext
+  ModelContext,
+  CreateMessagesResult,
+  TemplateMetadata
 } from 'genai-lite';
 ```
 

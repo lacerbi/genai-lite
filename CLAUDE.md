@@ -32,6 +32,8 @@ genai-lite is a lightweight, standalone Node.js/TypeScript library providing a u
 
 **Recent: Unified Prompt Creation API (2025-07)** - Added `createMessages()` method to LLMService that combines template rendering, model context injection, and role tag parsing into a single API. Removed deprecated `prepareMessage()` and `buildMessagesFromTemplate()` functions.
 
+**Recent: Self-Contained Templates (2025-07)** - Templates can now include their own settings via `<META>` blocks containing JSON. The `createMessages()` method extracts and returns these settings, making templates truly portable and self-contained. Added `parseTemplateWithMetadata()` parser function and `TemplateMetadata` type.
+
 ### Core Architecture Principles
 
 **Adapter Pattern Implementation:**
@@ -89,8 +91,16 @@ const service = new LLMService(customProvider);
 
 **Using createMessages for Model-Aware Prompts:**
 ```typescript
-const { messages, modelContext } = await service.createMessages({
+const { messages, modelContext, settings } = await service.createMessages({
   template: `
+    <META>
+    {
+      "settings": {
+        "temperature": 0.8,
+        "thinkingExtraction": { "enabled": true }
+      }
+    }
+    </META>
     <SYSTEM>You are a {{ thinking_enabled ? "thoughtful" : "quick" }} assistant.</SYSTEM>
     <USER>{{ question }}</USER>
   `,
@@ -98,7 +108,11 @@ const { messages, modelContext } = await service.createMessages({
   presetId: 'anthropic-claude-3-7-sonnet-20250219-thinking'
 });
 
-const response = await service.sendMessage({ presetId: 'anthropic-claude-3-7-sonnet-20250219-thinking', messages });
+const response = await service.sendMessage({ 
+  presetId: 'anthropic-claude-3-7-sonnet-20250219-thinking', 
+  messages,
+  settings // Includes settings from template metadata
+});
 ```
 
 ### Adding New AI Providers
@@ -136,9 +150,11 @@ const response = await service.sendMessage({ presetId: 'anthropic-claude-3-7-son
 **Main Entry Point:**
 - `src/index.ts` - Exports public API including:
   - `LLMService` - Main service class with `createMessages()` method
+  - `CreateMessagesResult` - Return type for createMessages
   - `fromEnvironment` - Built-in environment variable provider
   - `renderTemplate` - Template engine for dynamic prompt generation
-  - `parseRoleTags`, `parseStructuredContent`, `extractInitialTaggedContent` - Parser utilities
+  - `parseRoleTags`, `parseStructuredContent`, `extractInitialTaggedContent`, `parseTemplateWithMetadata` - Parser utilities
+  - `TemplateMetadata` - Type for template metadata structure
   - All types from `src/llm/types.ts` and `src/llm/clients/types.ts`
   - `ApiKeyProvider` type from `src/types.ts`
 
@@ -150,7 +166,7 @@ const response = await service.sendMessage({ presetId: 'anthropic-claude-3-7-son
 - `src/llm/clients/` - Provider-specific adapters
 - `src/prompting/template.ts` - Template rendering utility
 - `src/prompting/content.ts` - Token counting, text preview, and content preparation utilities
-- `src/prompting/parser.ts` - Structured content parsing from LLM responses & thinking extraction
+- `src/prompting/parser.ts` - Structured content parsing from LLM responses, thinking extraction, and template metadata parsing
 
 **Testing:**
 - Jest with ts-jest for TypeScript support

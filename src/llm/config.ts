@@ -75,8 +75,9 @@ export const DEFAULT_LLM_SETTINGS: Required<LLMSettings> = {
     exclude: false,
   },
   thinkingExtraction: {
-    enabled: true, // Enabled by default as requested
-    tag: 'thinking'
+    enabled: false, // Now requires explicit opt-in, works with onMissing: 'auto'
+    tag: 'thinking',
+    onMissing: 'auto' // Smart enforcement based on native reasoning status
   },
 };
 

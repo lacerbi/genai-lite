@@ -256,4 +256,179 @@ describe('LLMService.createMessages', () => {
       expect(result.messages[0].content).toBe('Model: claude-3-7-sonnet-20250219, Task: code review, Thinking: true');
     });
   });
+
+  describe('Template metadata parsing', () => {
+    it('should extract settings from META block', async () => {
+      const result = await service.createMessages({
+        template: `<META>
+{
+  "settings": {
+    "temperature": 0.9,
+    "thinkingExtraction": { "enabled": true, "tag": "reasoning" }
+  }
+}
+</META>
+<SYSTEM>You are a creative writer.</SYSTEM>
+<USER>Write a story about {{topic}}</USER>`,
+        variables: { topic: 'a robot discovering music' }
+      });
+
+      expect(result.messages).toEqual([
+        { role: 'system', content: 'You are a creative writer.' },
+        { role: 'user', content: 'Write a story about a robot discovering music' }
+      ]);
+      expect(result.settings).toEqual({
+        temperature: 0.9,
+        thinkingExtraction: { enabled: true, tag: 'reasoning' }
+      });
+    });
+
+    it('should return empty settings when no META block exists', async () => {
+      const result = await service.createMessages({
+        template: '<USER>Simple message</USER>'
+      });
+
+      expect(result.messages).toEqual([
+        { role: 'user', content: 'Simple message' }
+      ]);
+      expect(result.settings).toEqual({});
+    });
+
+    it('should handle invalid settings in META block with warnings', async () => {
+      const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation();
+
+      const result = await service.createMessages({
+        template: `<META>
+{
+  "settings": {
+    "temperature": 3.0,
+    "unknownSetting": "value",
+    "maxTokens": -50
+  }
+}
+</META>
+<USER>Test</USER>`
+      });
+
+      expect(result.messages).toEqual([
+        { role: 'user', content: 'Test' }
+      ]);
+      expect(result.settings).toEqual({}); // All settings were invalid
+      
+      expect(consoleWarnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Invalid temperature value')
+      );
+      expect(consoleWarnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Unknown setting "unknownSetting"')
+      );
+      expect(consoleWarnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Invalid maxTokens value')
+      );
+
+      consoleWarnSpy.mockRestore();
+    });
+
+    it('should work with model context and META settings', async () => {
+      const result = await service.createMessages({
+        template: `<META>
+{
+  "settings": {
+    "temperature": 0.7,
+    "maxTokens": 2000
+  }
+}
+</META>
+<SYSTEM>You are a {{ thinking_enabled ? "thoughtful" : "quick" }} assistant.</SYSTEM>
+<USER>Help me understand {{concept}}</USER>`,
+        variables: { concept: 'recursion' },
+        presetId: 'anthropic-claude-3-7-sonnet-20250219-thinking'
+      });
+
+      expect(result.messages).toEqual([
+        { role: 'system', content: 'You are a thoughtful assistant.' },
+        { role: 'user', content: 'Help me understand recursion' }
+      ]);
+      expect(result.settings).toEqual({
+        temperature: 0.7,
+        maxTokens: 2000
+      });
+      expect(result.modelContext).not.toBeNull();
+      expect(result.modelContext?.thinking_enabled).toBe(true);
+    });
+
+    it('should validate complex nested settings', async () => {
+      const result = await service.createMessages({
+        template: `<META>
+{
+  "settings": {
+    "reasoning": {
+      "enabled": true,
+      "effort": "high",
+      "maxTokens": 5000
+    },
+    "stopSequences": ["\\n\\n", "END"],
+    "frequencyPenalty": 0.5
+  }
+}
+</META>
+<USER>Complex request</USER>`
+      });
+
+      expect(result.settings).toEqual({
+        reasoning: {
+          enabled: true,
+          effort: 'high',
+          maxTokens: 5000
+        },
+        stopSequences: ['\n\n', 'END'],
+        frequencyPenalty: 0.5
+      });
+    });
+
+    it('should handle invalid nested settings gracefully', async () => {
+      const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation();
+
+      const result = await service.createMessages({
+        template: `<META>
+{
+  "settings": {
+    "reasoning": {
+      "enabled": "yes",
+      "effort": "maximum",
+      "maxTokens": -1000
+    }
+  }
+}
+</META>
+<USER>Test</USER>`
+      });
+
+      expect(result.settings).toEqual({}); // All fields were invalid, so empty object
+
+      expect(consoleWarnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Invalid reasoning.enabled')
+      );
+      expect(consoleWarnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Invalid reasoning.effort')
+      );
+      expect(consoleWarnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Invalid reasoning.maxTokens')
+      );
+
+      consoleWarnSpy.mockRestore();
+    });
+
+    it('should maintain backward compatibility for callers not using settings', async () => {
+      // Old code that destructures without settings should still work
+      const { messages, modelContext } = await service.createMessages({
+        template: `<META>{"settings": {"temperature": 0.8}}</META><USER>Test</USER>`
+      });
+
+      expect(messages).toEqual([
+        { role: 'user', content: 'Test' }
+      ]);
+      expect(modelContext).toBeNull();
+      // settings field exists but old code doesn't need to know about it
+    });
+  });
 });

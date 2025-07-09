@@ -14,4 +14,12 @@ export { renderTemplate } from './template';
 export { countTokens, getSmartPreview, extractRandomVariables } from './content';
 
 // Response parsing
-export { parseStructuredContent, extractInitialTaggedContent, parseRoleTags } from './parser';
+export { 
+  parseStructuredContent, 
+  extractInitialTaggedContent, 
+  parseRoleTags, 
+  parseTemplateWithMetadata 
+} from './parser';
+
+// Types
+export type { TemplateMetadata } from './parser';
