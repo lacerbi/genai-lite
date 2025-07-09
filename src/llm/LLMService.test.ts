@@ -669,6 +669,54 @@ describe('LLMService', () => {
         const errorResponse = response as LLMFailureResponse;
         expect(errorResponse.error.message).toContain('expected to start with a <reasoning> tag');
       });
+
+      describe('auto mode with native reasoning detection', () => {
+        it('should enforce thinking tags for non-reasoning models by default', async () => {
+          // Mistral model doesn't have reasoning support
+          const request: LLMChatRequest = {
+            providerId: 'mistral',
+            modelId: 'codestral-2501',
+            messages: [{ role: 'user', content: 'test_thinking:Response without thinking tag.' }],
+            settings: {
+              thinkingExtraction: {
+                enabled: true,
+                onMissing: 'auto'
+              }
+            }
+          };
+
+          const response = await service.sendMessage(request);
+
+          // Should error because model doesn't have native reasoning
+          expect(response.object).toBe('error');
+          const errorResponse = response as LLMFailureResponse;
+          expect(errorResponse.error.code).toBe('MISSING_EXPECTED_TAG');
+          expect(errorResponse.error.message).toContain('does not have native reasoning active');
+        });
+
+        it('should respect explicit reasoning.enabled: false even for models with enabledByDefault', async () => {
+          // This is the key test for the fix
+          const request: LLMChatRequest = {
+            providerId: 'mistral',
+            modelId: 'codestral-2501',
+            messages: [{ role: 'user', content: 'test_thinking:Response without thinking tag.' }],
+            settings: {
+              reasoning: { enabled: false }, // Explicitly disabled
+              thinkingExtraction: {
+                enabled: true,
+                onMissing: 'auto'
+              }
+            }
+          };
+
+          const response = await service.sendMessage(request);
+
+          // Should error because reasoning is explicitly disabled
+          expect(response.object).toBe('error');
+          const errorResponse = response as LLMFailureResponse;
+          expect(errorResponse.error.code).toBe('MISSING_EXPECTED_TAG');
+        });
+      });
     });
   });
 });
