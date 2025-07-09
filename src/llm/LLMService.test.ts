@@ -469,8 +469,7 @@ describe('LLMService', () => {
 
       expect(response.object).toBe('chat.completion');
       const successResponse = response as LLMResponse;
-      expect(successResponse.choices[0].reasoning).toContain('I am thinking about this problem.');
-      expect(successResponse.choices[0].reasoning).toContain('<!-- Extracted by genai-lite from <thinking> tag -->');
+      expect(successResponse.choices[0].reasoning).toBe('I am thinking about this problem.');
       expect(successResponse.choices[0].message.content).toBe('Here is the answer.');
     });
 
@@ -512,20 +511,16 @@ describe('LLMService', () => {
 
       expect(response.object).toBe('chat.completion');
       const successResponse = response as LLMResponse;
-      expect(successResponse.choices[0].reasoning).toContain('Working through the logic...');
-      expect(successResponse.choices[0].reasoning).toContain('<!-- Extracted by genai-lite from <scratchpad> tag -->');
+      expect(successResponse.choices[0].reasoning).toBe('Working through the logic...');
       expect(successResponse.choices[0].message.content).toBe('Final answer is 42.');
     });
 
     it('should append to existing reasoning', async () => {
-      // For this test, we first create a response with reasoning by using a reasoning-enabled model
-      // Then test that thinking extraction appends to it
-      // Since MockClientAdapter doesn't generate reasoning, we'll skip this complex test
-      // and just test the simple case
+      // Use test_reasoning to get a response with existing reasoning, then test extraction appends to it
       const request: LLMChatRequest = {
         providerId: 'mistral',
         modelId: 'codestral-2501',
-        messages: [{ role: 'user', content: 'test_thinking:<thinking>Additional thoughts here.</thinking>The analysis is complete.' }],
+        messages: [{ role: 'user', content: 'test_reasoning:<thinking>Additional thoughts here.</thinking>The analysis is complete.' }],
         settings: {
           thinkingExtraction: {
             enabled: true,
@@ -539,8 +534,10 @@ describe('LLMService', () => {
       expect(response.object).toBe('chat.completion');
       const successResponse = response as LLMResponse;
       
-      expect(successResponse.choices[0].reasoning).toContain('<!-- Extracted by genai-lite from <thinking> tag -->');
-      expect(successResponse.choices[0].reasoning).toContain('Additional thoughts here.');
+      // Should contain both the initial reasoning and the extracted thinking with separator
+      expect(successResponse.choices[0].reasoning).toBe(
+        'Initial model reasoning from native capabilities.\n\n#### Additional Reasoning\n\nAdditional thoughts here.'
+      );
       expect(successResponse.choices[0].message.content).toBe('The analysis is complete.');
     });
 

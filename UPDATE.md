@@ -72,7 +72,7 @@ const response = await llmService.sendMessage({
 // 
 // Extracted result:
 // response.choices[0].message.content = "The answer is 36."
-// response.choices[0].reasoning = "<!-- Extracted by genai-lite from <thinking> tag -->\n15% = 0.15, so 0.15 × 240 = 36"
+// response.choices[0].reasoning = "15% = 0.15, so 0.15 × 240 = 36"
 ```
 
 ## Configuration Options

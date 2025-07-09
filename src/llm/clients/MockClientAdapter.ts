@@ -179,6 +179,10 @@ export class MockClientAdapter implements ILLMClientAdapter {
       // Extract content after "test_thinking:" for testing thinking extraction
       const startIndex = originalContent.indexOf("test_thinking:") + "test_thinking:".length;
       responseContent = originalContent.substring(startIndex).trim();
+    } else if (userContent.includes("test_reasoning:")) {
+      // Extract content after "test_reasoning:" and return it as both content and reasoning
+      const startIndex = originalContent.indexOf("test_reasoning:") + "test_reasoning:".length;
+      responseContent = originalContent.substring(startIndex).trim();
     } else if (userContent.includes("hello") || userContent.includes("hi")) {
       responseContent =
         "Hello! I'm a mock LLM assistant. How can I help you today?";
@@ -248,21 +252,29 @@ export class MockClientAdapter implements ILLMClientAdapter {
       finishReason = "stop";
     }
 
+    // Check if we need to add reasoning to the response
+    const isReasoningTest = userContent.includes("test_reasoning:");
+    
+    const choice: any = {
+      message: {
+        role: "assistant",
+        content: responseContent,
+      },
+      finish_reason: finishReason,
+      index: 0,
+    };
+    
+    // Add reasoning field for test_reasoning pattern
+    if (isReasoningTest) {
+      choice.reasoning = "Initial model reasoning from native capabilities.";
+    }
+
     return {
       id: `mock-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       provider: request.providerId,
       model: request.modelId,
       created: Math.floor(Date.now() / 1000),
-      choices: [
-        {
-          message: {
-            role: "assistant",
-            content: responseContent,
-          },
-          finish_reason: finishReason,
-          index: 0,
-        },
-      ],
+      choices: [choice],
       usage: {
         prompt_tokens: promptTokenCount,
         completion_tokens: mockTokenCount,
