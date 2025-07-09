@@ -11,8 +11,6 @@ import type {
   ModelInfo,
   ApiProviderId,
   LLMSettings,
-  PrepareMessageOptions,
-  PrepareMessageResult,
   ModelContext,
   LLMMessage,
 } from "./types";
@@ -306,108 +304,6 @@ export class LLMService {
    */
   getPresets(): ModelPreset[] {
     return this.presetManager.getPresets();
-  }
-
-  /**
-   * Prepares messages with model context for template rendering
-   * 
-   * This method resolves model information from either a preset or direct provider/model IDs,
-   * then renders a template with model context variables injected, or returns pre-built messages
-   * with the model context separately.
-   * 
-   * @deprecated Use the more powerful `LLMService.createMessages` method instead, which combines
-   * template rendering, model context injection, and role tag parsing in a single API.
-   * 
-   * @param options Options for preparing messages
-   * @returns Promise resolving to prepared messages and model context
-   * 
-   * @example
-   * ```typescript
-   * const { messages } = await llm.prepareMessage({
-   *   template: 'Help me {{ thinking_enabled ? "think through" : "solve" }} this: {{ problem }}',
-   *   variables: { problem: 'complex algorithm' },
-   *   presetId: 'anthropic-claude-3-7-sonnet-20250219-thinking'
-   * });
-   * ```
-   */
-  async prepareMessage(options: PrepareMessageOptions): Promise<PrepareMessageResult | LLMFailureResponse> {
-    console.log('LLMService.prepareMessage called');
-
-    // Validate input
-    if (!options.template && !options.messages) {
-      return {
-        provider: 'unknown',
-        model: 'unknown',
-        error: {
-          message: 'Either template or messages must be provided',
-          code: 'INVALID_INPUT',
-          type: 'validation_error',
-        },
-        object: 'error',
-      };
-    }
-
-    // Resolve model information
-    const resolved = this.modelResolver.resolve(options);
-    if (resolved.error) {
-      return resolved.error;
-    }
-
-    const { providerId, modelId, modelInfo, settings } = resolved;
-
-    // Merge settings with model defaults
-    const mergedSettings = this.settingsManager.mergeSettingsForModel(
-      modelId!,
-      providerId!,
-      settings
-    );
-
-    // Create model context
-    const modelContext: ModelContext = {
-      thinking_enabled: !!(modelInfo!.reasoning?.supported && 
-                          (mergedSettings.reasoning?.enabled === true ||
-                           (modelInfo!.reasoning?.enabledByDefault && mergedSettings.reasoning?.enabled !== false))),
-      thinking_available: !!modelInfo!.reasoning?.supported,
-      model_id: modelId!,
-      provider_id: providerId!,
-      reasoning_effort: mergedSettings.reasoning?.effort,
-      reasoning_max_tokens: mergedSettings.reasoning?.maxTokens,
-    };
-
-    // Prepare messages
-    let messages: LLMMessage[];
-    
-    if (options.template) {
-      // Render template with variables and model context
-      const allVariables = {
-        ...options.variables,
-        ...modelContext, // Inject model context at root level
-      };
-
-      try {
-        const content = renderTemplate(options.template, allVariables);
-        messages = [{ role: 'user', content }];
-      } catch (error) {
-        return {
-          provider: providerId!,
-          model: modelId!,
-          error: {
-            message: `Template rendering failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
-            code: 'TEMPLATE_ERROR',
-            type: 'validation_error',
-          },
-          object: 'error',
-        };
-      }
-    } else {
-      // Use pre-built messages
-      messages = options.messages!;
-    }
-
-    return {
-      messages,
-      modelContext,
-    };
   }
 
   /**

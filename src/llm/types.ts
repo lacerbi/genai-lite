@@ -272,29 +272,6 @@ export type LLMIPCChannelName =
   (typeof LLM_IPC_CHANNELS)[keyof typeof LLM_IPC_CHANNELS];
 
 /**
- * Options for preparing messages with model context
- */
-export interface PrepareMessageOptions {
-  /** Template string to render with variables and model context */
-  template?: string;
-  /** Variables to inject into the template */
-  variables?: Record<string, any>;
-  
-  /** Pre-built messages (alternative to template) */
-  messages?: LLMMessage[];
-  
-  /** Model selection - use preset ID */
-  presetId?: string;
-  /** Model selection - use provider ID (requires modelId) */
-  providerId?: ApiProviderId;
-  /** Model selection - use model ID (requires providerId) */
-  modelId?: string;
-  
-  /** Optional settings override */
-  settings?: LLMSettings;
-}
-
-/**
  * Model context variables injected into templates
  */
 export interface ModelContext {
@@ -310,14 +287,4 @@ export interface ModelContext {
   reasoning_effort?: string;
   /** Reasoning max tokens if specified */
   reasoning_max_tokens?: number;
-}
-
-/**
- * Result of preparing messages with model context
- */
-export interface PrepareMessageResult {
-  /** The prepared messages ready to send */
-  messages: LLMMessage[];
-  /** Model context that was injected into the template */
-  modelContext: ModelContext;
 }
