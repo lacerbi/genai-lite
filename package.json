@@ -42,7 +42,7 @@
     "test:e2e:reasoning": "npm run build && jest --config jest.e2e.config.js reasoning.e2e.test.ts"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.56.0",
+    "@anthropic-ai/sdk": "^0.62.0",
     "@google/genai": "^1.0.1",
     "js-tiktoken": "^1.0.20",
     "openai": "^5.8.2"
