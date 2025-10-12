@@ -14,6 +14,7 @@ import type { ILLMClientAdapter } from "./clients/types";
 import { OpenAIClientAdapter } from "./clients/OpenAIClientAdapter";
 import { AnthropicClientAdapter } from "./clients/AnthropicClientAdapter";
 import { GeminiClientAdapter } from "./clients/GeminiClientAdapter";
+import { LlamaCppClientAdapter } from "./clients/LlamaCppClientAdapter";
 // Placeholder for future imports:
 // import { MistralClientAdapter } from './clients/MistralClientAdapter';
 
@@ -24,12 +25,13 @@ import { GeminiClientAdapter } from "./clients/GeminiClientAdapter";
 export const ADAPTER_CONSTRUCTORS: Partial<
   Record<
     ApiProviderId,
-    new (config?: { baseURL?: string }) => ILLMClientAdapter
+    new (config?: { baseURL?: string; checkHealth?: boolean }) => ILLMClientAdapter
   >
 > = {
   openai: OpenAIClientAdapter,
   anthropic: AnthropicClientAdapter,
   gemini: GeminiClientAdapter,
+  llamacpp: LlamaCppClientAdapter,
   // 'mistral': MistralClientAdapter, // Uncomment and add when Mistral adapter is ready
 };
 
@@ -45,6 +47,9 @@ export const ADAPTER_CONFIGS: Partial<
   },
   anthropic: {
     baseURL: process.env.ANTHROPIC_API_BASE_URL || undefined,
+  },
+  llamacpp: {
+    baseURL: process.env.LLAMACPP_API_BASE_URL || 'http://localhost:8080',
   },
   // 'gemini': { /* ... Gemini specific config ... */ },
   // 'mistral': { /* ... Mistral specific config ... */ },
@@ -131,6 +136,16 @@ export const SUPPORTED_PROVIDERS: ProviderInfo[] = [
   {
     id: "mistral",
     name: "Mistral AI",
+  },
+  {
+    id: "llamacpp",
+    name: "llama.cpp",
+    allowUnknownModels: true,  // Users load arbitrary GGUF models with custom names
+  },
+  {
+    id: "mock",
+    name: "Mock Provider",
+    allowUnknownModels: true,  // Test provider accepts any model
   },
 ];
 
@@ -435,6 +450,44 @@ export const SUPPORTED_MODELS: ModelInfo[] = [
     supportsImages: false,
     supportsPromptCache: false,
   },
+
+  // llama.cpp Models (examples - users can specify any loaded model)
+  {
+    id: "llama-3-8b-instruct",
+    name: "Llama 3 8B Instruct",
+    providerId: "llamacpp",
+    contextWindow: 8192,
+    inputPrice: 0.0,
+    outputPrice: 0.0,
+    description: "Local Llama 3 8B model via llama.cpp server",
+    maxTokens: 4096,
+    supportsImages: false,
+    supportsPromptCache: false,
+  },
+  {
+    id: "llama-3-70b-instruct",
+    name: "Llama 3 70B Instruct",
+    providerId: "llamacpp",
+    contextWindow: 8192,
+    inputPrice: 0.0,
+    outputPrice: 0.0,
+    description: "Local Llama 3 70B model via llama.cpp server",
+    maxTokens: 4096,
+    supportsImages: false,
+    supportsPromptCache: false,
+  },
+  {
+    id: "mistral-7b-instruct",
+    name: "Mistral 7B Instruct",
+    providerId: "llamacpp",
+    contextWindow: 32768,
+    inputPrice: 0.0,
+    outputPrice: 0.0,
+    description: "Local Mistral 7B model via llama.cpp server",
+    maxTokens: 4096,
+    supportsImages: false,
+    supportsPromptCache: false,
+  },
 ];
 
 /**
@@ -495,6 +548,34 @@ export function isModelSupported(modelId: string, providerId: string): boolean {
   return SUPPORTED_MODELS.some(
     (model) => model.id === modelId && model.providerId === providerId
   );
+}
+
+/**
+ * Creates a fallback ModelInfo for unknown/unregistered models
+ *
+ * Used when allowUnknownModels is enabled for a provider, or as a permissive
+ * fallback when strict validation is disabled. Provides sensible defaults.
+ *
+ * @param modelId - The model ID to create info for
+ * @param providerId - The provider ID
+ * @returns ModelInfo with default/placeholder values
+ */
+export function createFallbackModelInfo(
+  modelId: string,
+  providerId: string
+): ModelInfo {
+  return {
+    id: modelId,
+    name: modelId,
+    providerId: providerId as ApiProviderId,
+    contextWindow: 4096,
+    maxTokens: 2048,
+    inputPrice: 0,
+    outputPrice: 0,
+    description: `Unknown model (using defaults)`,
+    supportsImages: false,
+    supportsPromptCache: false,
+  };
 }
 
 /**

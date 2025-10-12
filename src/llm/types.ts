@@ -209,6 +209,12 @@ export interface ProviderInfo {
   id: ApiProviderId;
   name: string;
   unsupportedParameters?: (keyof LLMSettings)[];
+  /**
+   * If true, allows using unknown/unregistered model IDs with this provider.
+   * Useful for providers like llamacpp where users load arbitrary models.
+   * Default: false (strict validation)
+   */
+  allowUnknownModels?: boolean;
 }
 
 /**

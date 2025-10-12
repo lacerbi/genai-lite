@@ -1,10 +1,11 @@
 # genai-lite
 
-A lightweight, portable Node.js/TypeScript library providing a unified interface for interacting with multiple Generative AI providers (OpenAI, Anthropic, Google Gemini, Mistral, and more).
+A lightweight, portable Node.js/TypeScript library providing a unified interface for interacting with multiple Generative AI providers—both cloud-based (OpenAI, Anthropic, Google Gemini, Mistral) and local (llama.cpp).
 
 ## Features
 
 - 🔌 **Unified API** - Single interface for multiple AI providers
+- 🏠 **Local & Cloud Models** - Run models locally with llama.cpp or use cloud APIs
 - 🔐 **Flexible API Key Management** - Bring your own key storage solution
 - 📦 **Zero Electron Dependencies** - Works in any Node.js environment
 - 🎯 **TypeScript First** - Full type safety and IntelliSense support
@@ -21,13 +22,14 @@ npm install genai-lite
 
 ## Quick Start
 
+### Cloud Providers (OpenAI, Anthropic, Gemini, Mistral)
+
 ```typescript
 import { LLMService, fromEnvironment } from 'genai-lite';
 
 // Create service with environment variable API key provider
 const llmService = new LLMService(fromEnvironment);
 
-// Option 1: Direct message sending
 const response = await llmService.sendMessage({
   providerId: 'openai',
   modelId: 'gpt-4.1-mini',
@@ -37,25 +39,36 @@ const response = await llmService.sendMessage({
   ]
 });
 
-// Option 2: Create messages from template (recommended for complex prompts)
-const { messages } = await llmService.createMessages({
-  template: '<SYSTEM>You are a helpful assistant.</SYSTEM><USER>Hello, how are you?</USER>',
-  providerId: 'openai',
-  modelId: 'gpt-4.1-mini'
-});
-
-const response2 = await llmService.sendMessage({
-  providerId: 'openai',
-  modelId: 'gpt-4.1-mini',
-  messages
-});
-
 if (response.object === 'chat.completion') {
   console.log(response.choices[0].message.content);
 } else {
   console.error('Error:', response.error.message);
 }
 ```
+
+### Local Models (llama.cpp)
+
+```typescript
+import { LLMService } from 'genai-lite';
+
+// Start llama.cpp server first: llama-server -m /path/to/model.gguf --port 8080
+const llmService = new LLMService(async () => 'not-needed');
+
+const response = await llmService.sendMessage({
+  providerId: 'llamacpp',
+  modelId: 'llama-3-8b-instruct',  // Must match your loaded model
+  messages: [
+    { role: 'system', content: 'You are a helpful assistant.' },
+    { role: 'user', content: 'Explain quantum computing briefly.' }
+  ]
+});
+
+if (response.object === 'chat.completion') {
+  console.log(response.choices[0].message.content);
+}
+```
+
+See the [llama.cpp Integration](#llamacpp-integration) section for setup details.
 
 ## API Key Management
 
@@ -123,6 +136,64 @@ const llmService = new LLMService(myKeyProvider);
 
 - `codestral-2501` - Specialized for code generation
 - `devstral-small-2505` - Compact development-focused model
+
+### llama.cpp (Local Models)
+
+Run models locally via [llama.cpp](https://github.com/ggml-org/llama.cpp) server. Model IDs can be any name—they're not validated since you load your own GGUF models.
+
+**Example models:**
+- `llama-3-8b-instruct` - Llama 3 8B Instruct
+- `llama-3-70b-instruct` - Llama 3 70B Instruct
+- `mistral-7b-instruct` - Mistral 7B Instruct
+- `my-custom-model` - Any custom model you've loaded
+
+**Setup:**
+
+1. Start llama.cpp server with your model:
+```bash
+llama-server -m /path/to/model.gguf --port 8080
+```
+
+2. Use with genai-lite (no API key needed):
+```typescript
+import { LLMService } from 'genai-lite';
+
+// API key can be any string for llama.cpp
+const service = new LLMService(async () => 'not-needed');
+
+const response = await service.sendMessage({
+  providerId: 'llamacpp',
+  modelId: 'llama-3-8b-instruct', // Must match your loaded model name
+  messages: [{ role: 'user', content: 'Hello!' }]
+});
+```
+
+3. Configure server URL via environment variable:
+```bash
+export LLAMACPP_API_BASE_URL=http://localhost:8080
+```
+
+**Advanced features** - Access non-LLM endpoints:
+
+```typescript
+import { LlamaCppServerClient } from 'genai-lite';
+
+const client = new LlamaCppServerClient('http://localhost:8080');
+
+// Check server health
+const health = await client.getHealth();
+
+// Tokenize text
+const { tokens } = await client.tokenize('Hello world');
+
+// Generate embeddings
+const { embedding } = await client.createEmbedding('Some text');
+
+// Code completion
+const result = await client.infill('def hello():\n', '\nprint("done")');
+```
+
+See the [llama.cpp Integration](#llamacpp-integration) section for details.
 
 ### Models with Reasoning Support
 
@@ -666,6 +737,261 @@ if (response.object === 'error') {
 }
 ```
 
+## llama.cpp Integration
+
+`genai-lite` provides comprehensive support for running local LLMs via [llama.cpp](https://github.com/ggml-org/llama.cpp) server, enabling completely offline AI capabilities with the same unified interface.
+
+### Why llama.cpp?
+
+- **Privacy**: All model inference runs locally on your hardware
+- **Cost**: No API costs after initial model download
+- **Control**: Use any GGUF model from Hugging Face
+- **Performance**: Optimized C++ implementation with hardware acceleration
+
+### Setup
+
+#### 1. Install llama.cpp
+
+```bash
+# Clone and build llama.cpp
+git clone https://github.com/ggml-org/llama.cpp
+cd llama.cpp
+make
+
+# Or download pre-built binaries from releases
+```
+
+#### 2. Download a Model
+
+Get GGUF models from Hugging Face, for example:
+- [Meta-Llama-3.1-8B-Instruct-GGUF](https://huggingface.co/bartowski/Meta-Llama-3.1-8B-Instruct-GGUF)
+- [Mistral-7B-Instruct-v0.3-GGUF](https://huggingface.co/bartowski/Mistral-7B-Instruct-v0.3-GGUF)
+
+#### 3. Start the Server
+
+```bash
+# Basic usage
+llama-server -m /path/to/model.gguf --port 8080
+
+# With more options
+llama-server -m /path/to/model.gguf \
+  --port 8080 \
+  -c 4096 \           # Context size
+  -np 4 \             # Parallel requests
+  --threads 8         # CPU threads
+```
+
+### Basic Usage
+
+```typescript
+import { LLMService } from 'genai-lite';
+
+// llama.cpp doesn't need API keys
+const service = new LLMService(async () => 'not-needed');
+
+const response = await service.sendMessage({
+  providerId: 'llamacpp',
+  modelId: 'llama-3-8b-instruct',  // Arbitrary name matching your model
+  messages: [
+    { role: 'system', content: 'You are a helpful assistant.' },
+    { role: 'user', content: 'Explain quantum computing in simple terms.' }
+  ],
+  settings: {
+    temperature: 0.7,
+    maxTokens: 500
+  }
+});
+
+if (response.object === 'chat.completion') {
+  console.log(response.choices[0].message.content);
+}
+```
+
+### Configuration
+
+#### Environment Variable
+
+Set the server URL via environment variable (default: `http://localhost:8080`):
+
+```bash
+export LLAMACPP_API_BASE_URL=http://localhost:8080
+```
+
+#### Multiple Servers
+
+Register multiple llama.cpp instances for different models:
+
+```typescript
+import { LLMService, LlamaCppClientAdapter } from 'genai-lite';
+
+const service = new LLMService(async () => 'not-needed');
+
+// Register adapters for different servers/models
+service.registerAdapter(
+  'llamacpp-small',
+  new LlamaCppClientAdapter({ baseURL: 'http://localhost:8080' })
+);
+
+service.registerAdapter(
+  'llamacpp-large',
+  new LlamaCppClientAdapter({ baseURL: 'http://localhost:8081' })
+);
+
+// Use them
+const response = await service.sendMessage({
+  providerId: 'llamacpp-small',
+  modelId: 'llama-3-8b',
+  messages: [{ role: 'user', content: 'Hello!' }]
+});
+```
+
+#### Health Checking
+
+Enable automatic health checks before requests:
+
+```typescript
+import { LlamaCppClientAdapter } from 'genai-lite';
+
+const adapter = new LlamaCppClientAdapter({
+  baseURL: 'http://localhost:8080',
+  checkHealth: true  // Check server status before each request
+});
+
+service.registerAdapter('llamacpp', adapter);
+```
+
+### Advanced Features
+
+#### Server Management
+
+The `LlamaCppServerClient` class provides access to all llama.cpp server endpoints:
+
+```typescript
+import { LlamaCppServerClient } from 'genai-lite';
+
+const client = new LlamaCppServerClient('http://localhost:8080');
+
+// Health monitoring
+const health = await client.getHealth();
+console.log(health.status); // 'ok', 'loading', or 'error'
+
+// Server properties
+const props = await client.getProps();
+console.log(props.total_slots); // Number of available slots
+
+// Performance metrics (if enabled)
+const metrics = await client.getMetrics();
+```
+
+#### Tokenization
+
+```typescript
+const client = new LlamaCppServerClient('http://localhost:8080');
+
+// Tokenize text
+const { tokens } = await client.tokenize('Hello, world!');
+console.log(tokens); // [123, 456, 789]
+
+// Count tokens before sending to LLM
+const prompt = 'Long text...';
+const { tokens: promptTokens } = await client.tokenize(prompt);
+if (promptTokens.length > 4000) {
+  console.log('Prompt too long, truncating...');
+}
+
+// Detokenize back to text
+const { content } = await client.detokenize([123, 456, 789]);
+console.log(content); // 'Hello, world!'
+```
+
+#### Text Embeddings
+
+```typescript
+const client = new LlamaCppServerClient('http://localhost:8080');
+
+// Generate embeddings for semantic search
+const { embedding } = await client.createEmbedding('Search query text');
+console.log(embedding.length); // e.g., 768 dimensions
+
+// With images (for multimodal models)
+const { embedding: multimodalEmbed } = await client.createEmbedding(
+  'Describe this image',
+  'base64_image_data_here'
+);
+```
+
+#### Code Infilling
+
+Perfect for code completion in IDEs:
+
+```typescript
+const client = new LlamaCppServerClient('http://localhost:8080');
+
+const result = await client.infill(
+  'def calculate_fibonacci(n):\n    ',  // Prefix (before cursor)
+  '\n    return result'                   // Suffix (after cursor)
+);
+
+console.log(result.content);
+// Output: "if n <= 1:\n        return n\n    result = calculate_fibonacci(n-1) + calculate_fibonacci(n-2)"
+```
+
+### Error Handling
+
+```typescript
+const response = await service.sendMessage({
+  providerId: 'llamacpp',
+  modelId: 'my-model',
+  messages: [{ role: 'user', content: 'Hello' }]
+});
+
+if (response.object === 'error') {
+  switch (response.error.code) {
+    case 'NETWORK_ERROR':
+      console.error('Server not running or unreachable');
+      break;
+    case 'PROVIDER_ERROR':
+      console.error('Server error:', response.error.message);
+      break;
+    default:
+      console.error('Unknown error:', response.error);
+  }
+}
+```
+
+### Best Practices
+
+1. **Model Naming**: Use descriptive model IDs (e.g., `llama-3-8b-instruct`) since llama.cpp accepts any name
+2. **Context Size**: Set appropriate context (`-c` flag) when starting the server
+3. **Parallel Requests**: Configure slots (`-np`) based on your hardware
+4. **Health Monitoring**: Enable `checkHealth` for production to detect server issues early
+5. **Resource Management**: Monitor memory usage; large models need significant RAM
+
+### Troubleshooting
+
+**Server not responding:**
+```bash
+# Check if server is running
+curl http://localhost:8080/health
+
+# Should return: {"status":"ok"}
+```
+
+**Model loading errors:**
+```bash
+# Increase memory or reduce context size
+llama-server -m model.gguf --port 8080 -c 2048
+```
+
+**Slow responses:**
+```bash
+# Use quantized models (smaller but faster)
+# e.g., Q4_K_M, Q5_K_M instead of F16
+
+# Increase threads
+llama-server -m model.gguf --threads 16
+```
+
 ## Using with Electron
 
 `genai-lite` is designed to work seamlessly within an Electron application's main process, especially when paired with a secure storage solution like `genai-key-storage-lite`.
@@ -724,6 +1050,26 @@ import type {
   ModelContext,
   CreateMessagesResult,
   TemplateMetadata
+} from 'genai-lite';
+
+// llama.cpp integration types and classes
+import {
+  LlamaCppClientAdapter,
+  LlamaCppServerClient,
+  createFallbackModelInfo
+} from 'genai-lite';
+
+import type {
+  LlamaCppClientConfig,
+  LlamaCppHealthResponse,
+  LlamaCppTokenizeResponse,
+  LlamaCppDetokenizeResponse,
+  LlamaCppEmbeddingResponse,
+  LlamaCppInfillResponse,
+  LlamaCppPropsResponse,
+  LlamaCppMetricsResponse,
+  LlamaCppSlot,
+  LlamaCppSlotsResponse
 } from 'genai-lite';
 ```
 

@@ -26,18 +26,40 @@ node -e "const lib = require('./dist'); console.log('Exports:', Object.keys(lib)
 
 genai-lite is a lightweight, standalone Node.js/TypeScript library providing a unified interface for interacting with various Generative AI APIs, currently focusing on Large Language Models (LLMs). The library has been successfully extracted from an Electron application (Athanor) and is now fully portable across different JavaScript environments.
 
-**Recent: Reasoning Support (2025-07)** - Added unified `reasoning` field for thinking models. Gemini requires `includeThoughts: true` to return thought summaries in parts with `thought: true` flag.
+### Supported Providers
 
-**Recent: Thinking Extraction (2025-07)** - Added automatic extraction of thinking blocks from responses. When models output their reasoning in `<thinking>` tags (or custom tags), it's automatically moved to the `reasoning` field. Enabled by default, configurable via `thinkingExtraction` settings.
+**Cloud Providers:**
+- OpenAI (GPT-4.1, o4-mini)
+- Anthropic (Claude 4, Claude 3.x)
+- Google Gemini (2.5 Pro, 2.5 Flash)
+- Mistral (Codestral, Devstral)
 
-**Recent: Unified Prompt Creation API (2025-07)** - Added `createMessages()` method to LLMService that combines template rendering, model context injection, and role tag parsing into a single API. Removed deprecated `prepareMessage()` and `buildMessagesFromTemplate()` functions.
+**Local Providers:**
+- llama.cpp - Run any GGUF model locally with no API keys required. Includes `LlamaCppClientAdapter` for chat completions and `LlamaCppServerClient` for server utilities (tokenization, embeddings, health checks, metrics).
 
-**Recent: Self-Contained Templates (2025-07)** - Templates can now include their own settings via `<META>` blocks containing JSON. The `createMessages()` method extracts and returns these settings, making templates truly portable and self-contained. Added `parseTemplateWithMetadata()` parser function and `TemplateMetadata` type.
+### Key Capabilities
+
+**Prompt Engineering:**
+- **Template Engine** - Dynamic prompts with variable substitution, conditionals, and logical operators
+- **Model-Aware Templates** - Access model capabilities (reasoning support, provider ID, etc.) in templates
+- **Self-Contained Templates** - Templates can include their own settings via `<META>` blocks
+- **Unified Prompt Creation** - `createMessages()` method combines template rendering, model context injection, and role tag parsing
+
+**Advanced Reasoning:**
+- **Native Reasoning Support** - Unified `reasoning` field for models with built-in thinking capabilities (Claude 4, Claude 3.7, Gemini 2.5 Pro, o4-mini)
+- **Thinking Extraction** - Automatic extraction of reasoning from `<thinking>` tags (or custom tags) for models without native support
+- **Smart Enforcement** - Auto mode intelligently decides when to require thinking tags based on model capabilities
+
+**Response Processing:**
+- **Structured Content Parsing** - Extract sections from LLM responses using custom XML tags
+- **Role Tag Parsing** - Convert `<SYSTEM>`, `<USER>`, `<ASSISTANT>` tags to message format
+- **Token Counting** - Count tokens using OpenAI's tiktoken library
+- **Smart Text Previews** - Generate context-aware previews of large text blocks
 
 ### Core Architecture Principles
 
 **Adapter Pattern Implementation:**
-- Each AI provider (OpenAI, Anthropic, Gemini, Mistral) has a dedicated client adapter
+- Each AI provider (OpenAI, Anthropic, Gemini, Mistral, llama.cpp) has a dedicated client adapter
 - All adapters implement the `ILLMClientAdapter` interface in `src/llm/clients/types.ts`
 - Adapters handle provider-specific API quirks and normalize responses
 
@@ -51,6 +73,7 @@ genai-lite is a lightweight, standalone Node.js/TypeScript library providing a u
 - `src/llm/config.ts` centralizes all provider and model definitions
 - Each model has default settings (max tokens, temperature ranges)
 - New providers/models are registered here
+- Supports flexible model validation: llama.cpp and mock providers allow arbitrary model IDs; cloud providers (OpenAI, Anthropic, etc.) warn but proceed with unknown models
 
 ### API Key Management
 
@@ -108,10 +131,24 @@ const { messages, modelContext, settings } = await service.createMessages({
   presetId: 'anthropic-claude-3-7-sonnet-20250219-thinking'
 });
 
-const response = await service.sendMessage({ 
-  presetId: 'anthropic-claude-3-7-sonnet-20250219-thinking', 
+const response = await service.sendMessage({
+  presetId: 'anthropic-claude-3-7-sonnet-20250219-thinking',
   messages,
   settings // Includes settings from template metadata
+});
+```
+
+**Using llama.cpp for Local Models:**
+```typescript
+import { LLMService } from 'genai-lite';
+
+// Start llama.cpp server first: llama-server -m model.gguf --port 8080
+const service = new LLMService(async () => 'not-needed');
+
+const response = await service.sendMessage({
+  providerId: 'llamacpp',
+  modelId: 'llama-3-8b-instruct',  // Any model name you've loaded
+  messages: [{ role: 'user', content: 'Hello!' }]
 });
 ```
 
@@ -152,11 +189,15 @@ const response = await service.sendMessage({
   - `LLMService` - Main service class with `createMessages()` method
   - `CreateMessagesResult` - Return type for createMessages
   - `fromEnvironment` - Built-in environment variable provider
+  - `LlamaCppClientAdapter` - Adapter for llama.cpp chat completions
+  - `LlamaCppServerClient` - Client for llama.cpp server utilities (tokenization, embeddings, etc.)
+  - `createFallbackModelInfo` - Helper for unknown model IDs
   - `renderTemplate` - Template engine for dynamic prompt generation
   - `parseRoleTags`, `parseStructuredContent`, `extractInitialTaggedContent`, `parseTemplateWithMetadata` - Parser utilities
   - `TemplateMetadata` - Type for template metadata structure
   - All types from `src/llm/types.ts` and `src/llm/clients/types.ts`
   - `ApiKeyProvider` type from `src/types.ts`
+  - llama.cpp types: `LlamaCppClientConfig`, `LlamaCppHealthResponse`, `LlamaCppTokenizeResponse`, etc.
 
 **Key Files:**
 - `src/types.ts` - Global types (ApiKeyProvider)
@@ -224,6 +265,14 @@ const response = await service.sendMessage({
 **Mistral:**
 - Similar to OpenAI but with some parameter differences
 - Limited model selection
+
+**llama.cpp:**
+- Local inference server - no API keys needed
+- OpenAI-compatible API (uses OpenAI SDK with custom baseURL)
+- Accepts arbitrary model IDs (users load their own GGUF models)
+- Additional endpoints: tokenization, embeddings, health checks, server metrics
+- Hybrid architecture: `LlamaCppClientAdapter` for chat, `LlamaCppServerClient` for utilities
+- Configure via `LLAMACPP_API_BASE_URL` environment variable (default: http://localhost:8080)
 
 ### Error Handling
 
@@ -318,7 +367,7 @@ These summary files provide hierarchical context throughout the project:
 
 The summaries enable efficient navigation and understanding of the codebase without processing every file. They include cross-references, usage examples, and architectural decisions at each level.
 
-Last Context Build: 2025-07-09
+Last Context Build: 2025-10-12
 
 ## Commit Guidelines
 
