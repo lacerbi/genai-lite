@@ -97,13 +97,27 @@ llamacppRouter.post('/embedding', async (req, res) => {
     });
   } catch (error) {
     console.error('Error generating embedding:', error);
-    res.status(500).json({
-      success: false,
-      error: {
-        message: error instanceof Error ? error.message : 'llama.cpp server not available',
-        code: 'LLAMACPP_ERROR'
-      }
-    });
+
+    // Check for 501 Not Implemented (embeddings not enabled)
+    const errorMessage = error instanceof Error ? error.message : 'llama.cpp server not available';
+    if (errorMessage.includes('501') || errorMessage.includes('not supported') || errorMessage.includes('--embeddings')) {
+      res.status(501).json({
+        success: false,
+        error: {
+          message: 'Embeddings not enabled. Restart llama-server with --embeddings flag',
+          code: 'EMBEDDINGS_NOT_ENABLED',
+          hint: 'llama-server -m /path/to/model.gguf --embeddings'
+        }
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        error: {
+          message: errorMessage,
+          code: 'LLAMACPP_ERROR'
+        }
+      });
+    }
   }
 });
 

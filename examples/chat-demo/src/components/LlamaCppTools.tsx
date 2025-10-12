@@ -74,10 +74,28 @@ export function LlamaCppTools() {
           dimension: response.dimension
         });
       } else {
-        setEmbeddingError(response.error?.message || 'Failed to generate embedding');
+        // Check for 501 Not Implemented error (embeddings not enabled)
+        const errorMsg = response.error?.message || '';
+        if (errorMsg.includes('501') || errorMsg.includes('not supported') || errorMsg.includes('--embeddings')) {
+          setEmbeddingError(
+            'Embeddings not enabled on the server. Restart llama-server with the --embeddings flag:\n\n' +
+            'llama-server -m /path/to/model.gguf --embeddings'
+          );
+        } else {
+          setEmbeddingError(errorMsg || 'Failed to generate embedding');
+        }
       }
     } catch (err) {
-      setEmbeddingError(`Error: ${err instanceof Error ? err.message : 'llama.cpp server not available'}`);
+      const errorMsg = err instanceof Error ? err.message : 'llama.cpp server not available';
+      // Check for 501 error in caught exception too
+      if (errorMsg.includes('501') || errorMsg.includes('not supported') || errorMsg.includes('--embeddings')) {
+        setEmbeddingError(
+          'Embeddings not enabled on the server. Restart llama-server with the --embeddings flag:\n\n' +
+          'llama-server -m /path/to/model.gguf --embeddings'
+        );
+      } else {
+        setEmbeddingError(`Error: ${errorMsg}`);
+      }
     } finally {
       setEmbeddingLoading(false);
     }
@@ -177,8 +195,10 @@ export function LlamaCppTools() {
           {healthResult && (
             <div className="tool-result">
               <p><strong>Status:</strong> {healthResult.status}</p>
-              <p><strong>Idle Slots:</strong> {healthResult.slotsIdle}</p>
-              <p><strong>Processing Slots:</strong> {healthResult.slotsProcessing}</p>
+              <p className="tool-note">
+                ℹ️ Note: The /health endpoint only returns status. For detailed slot information,
+                start the server with <code>--slots</code> flag and use the /slots endpoint.
+              </p>
             </div>
           )}
         </div>
