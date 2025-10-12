@@ -3,40 +3,7 @@
 import { useState } from 'react';
 import { renderTemplate, getPresets } from '../api/client';
 import type { Preset } from '../types';
-
-// Example templates to demonstrate genai-lite's template engine
-const EXAMPLE_TEMPLATES = [
-  {
-    id: 'basic',
-    name: 'Basic Variable Substitution',
-    template: '<SYSTEM>You are a helpful assistant.</SYSTEM>\n<USER>Tell me about {{topic}}.</USER>',
-    variables: { topic: 'TypeScript' },
-    description: 'Simple template with variable substitution'
-  },
-  {
-    id: 'conditional',
-    name: 'Conditional Logic',
-    template: '<SYSTEM>You are a {{formal ? "professional" : "casual"}} assistant.</SYSTEM>\n<USER>{{question}}</USER>',
-    variables: { formal: true, question: 'What is AI?' },
-    description: 'Template with ternary conditional'
-  },
-  {
-    id: 'model-aware',
-    name: 'Model-Aware Template',
-    template: `<META>
-{
-  "settings": {
-    "temperature": 0.8,
-    "maxTokens": 500
-  }
-}
-</META>
-<SYSTEM>You are an AI assistant. {{ thinking_enabled ? "Please think step-by-step." : "Provide concise answers." }}</SYSTEM>
-<USER>{{query}}</USER>`,
-    variables: { query: 'Explain quantum computing' },
-    description: 'Template that adapts to model capabilities'
-  }
-];
+import { exampleTemplates, getCategories, type ExampleTemplate } from '../data/exampleTemplates';
 
 interface TemplateExamplesProps {
   presets: Preset[];
@@ -45,17 +12,23 @@ interface TemplateExamplesProps {
 }
 
 export function TemplateExamples({ presets, selectedPresetId, onSelectPreset }: TemplateExamplesProps) {
-  const [selectedTemplate, setSelectedTemplate] = useState(EXAMPLE_TEMPLATES[0]);
-  const [variables, setVariables] = useState<Record<string, any>>(selectedTemplate.variables);
+  const [selectedTemplate, setSelectedTemplate] = useState<ExampleTemplate>(exampleTemplates[0]);
+  const [variables, setVariables] = useState<Record<string, any>>(selectedTemplate.defaultVariables);
   const [renderedResult, setRenderedResult] = useState<any>(null);
   const [isRendering, setIsRendering] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selectedCategory, setSelectedCategory] = useState<string>('all');
+
+  const categories = getCategories();
+  const filteredTemplates = selectedCategory === 'all'
+    ? exampleTemplates
+    : exampleTemplates.filter(t => t.category === selectedCategory);
 
   const handleTemplateChange = (templateId: string) => {
-    const template = EXAMPLE_TEMPLATES.find(t => t.id === templateId);
+    const template = exampleTemplates.find(t => t.id === templateId);
     if (template) {
       setSelectedTemplate(template);
-      setVariables(template.variables);
+      setVariables(template.defaultVariables);
       setRenderedResult(null);
       setError(null);
     }
@@ -124,6 +97,24 @@ export function TemplateExamples({ presets, selectedPresetId, onSelectPreset }: 
         </select>
       </div>
 
+      {/* Category Filter */}
+      <div className="category-filter">
+        <label htmlFor="category-select">Category:</label>
+        <select
+          id="category-select"
+          value={selectedCategory}
+          onChange={(e) => setSelectedCategory(e.target.value)}
+          className="category-select"
+        >
+          <option value="all">All Templates ({exampleTemplates.length})</option>
+          {categories.map(cat => (
+            <option key={cat} value={cat}>
+              {cat.charAt(0).toUpperCase() + cat.slice(1)} ({exampleTemplates.filter(t => t.category === cat).length})
+            </option>
+          ))}
+        </select>
+      </div>
+
       {/* Template Selector */}
       <div className="template-selector">
         <label htmlFor="template-select">Template:</label>
@@ -133,13 +124,18 @@ export function TemplateExamples({ presets, selectedPresetId, onSelectPreset }: 
           onChange={(e) => handleTemplateChange(e.target.value)}
           className="template-select"
         >
-          {EXAMPLE_TEMPLATES.map(template => (
+          {filteredTemplates.map(template => (
             <option key={template.id} value={template.id}>
               {template.name}
             </option>
           ))}
         </select>
         <p className="template-description">{selectedTemplate.description}</p>
+        <div className="template-tags">
+          {selectedTemplate.tags.map(tag => (
+            <span key={tag} className="template-tag">{tag}</span>
+          ))}
+        </div>
       </div>
 
       {/* Template Display */}

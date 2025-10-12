@@ -6,10 +6,11 @@ import type { LLMSettings } from '../types';
 interface SettingsPanelProps {
   settings: LLMSettings;
   onSettingsChange: (settings: LLMSettings) => void;
+  onResetSettings: () => void;
   disabled?: boolean;
 }
 
-export function SettingsPanel({ settings, onSettingsChange, disabled = false }: SettingsPanelProps) {
+export function SettingsPanel({ settings, onSettingsChange, onResetSettings, disabled = false }: SettingsPanelProps) {
   const [isExpanded, setIsExpanded] = useState(false);
 
   const updateSetting = <K extends keyof LLMSettings>(key: K, value: LLMSettings[K]) => {
@@ -134,15 +135,7 @@ export function SettingsPanel({ settings, onSettingsChange, disabled = false }: 
 
           <button
             className="reset-settings"
-            onClick={() =>
-              onSettingsChange({
-                temperature: 0.7,
-                maxTokens: undefined,
-                topP: 1,
-                reasoning: { enabled: false },
-                thinkingExtraction: { enabled: false },
-              })
-            }
+            onClick={onResetSettings}
             disabled={disabled}
           >
             Reset to Defaults

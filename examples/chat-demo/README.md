@@ -2,27 +2,32 @@
 
 An interactive web application demonstrating the capabilities of the genai-lite library.
 
-## Current Status: Phase 4 Complete ✅
+## Current Status: Phase 5 Complete ✅
 
-Phase 4 (Advanced Features) is complete. The application now showcases all genai-lite capabilities:
-- ✅ Express backend with health check endpoint
-- ✅ React frontend with Vite
-- ✅ TypeScript configuration
-- ✅ Development environment setup
-- ✅ genai-lite LLMService integration
-- ✅ Provider and model listing endpoints
-- ✅ Chat completion endpoint with full validation
-- ✅ Support for OpenAI, Anthropic, Gemini, and llama.cpp
+**Production-ready!** All phases are complete. The application now showcases all genai-lite capabilities with full polish and documentation:
+
+**Core Features:**
+- ✅ Express backend with comprehensive API
+- ✅ React frontend with Vite + TypeScript
+- ✅ Multi-provider support (OpenAI, Anthropic, Gemini, llama.cpp)
 - ✅ Full chat interface with message history
-- ✅ Provider and model selection UI
-- ✅ Advanced settings panel (temperature, reasoning, etc.)
-- ✅ Responsive design and styling
-- ✅ **Template rendering with `createMessages()`**
-- ✅ **Model preset selection**
-- ✅ **llama.cpp utilities (tokenization, health check, embeddings)**
-- ✅ **Advanced features panel with expandable sections**
+- ✅ Advanced settings panel (temperature, reasoning, thinking extraction)
+- ✅ Responsive design for desktop and mobile
 
-**Next:** Phase 5 - Polish & Documentation (optional)
+**Phase 4 - Advanced Features:**
+- ✅ Template rendering with 10+ example templates across 4 categories
+- ✅ Model preset selection from genai-lite's built-in presets
+- ✅ llama.cpp utilities (tokenization, health, embeddings)
+- ✅ Advanced features panel with tabbed interface
+
+**Phase 5 - Polish & Production-Ready:**
+- ✅ **Settings Persistence**: Automatic save/restore of provider, model, and settings
+- ✅ **Export Conversations**: Download as JSON with full metadata
+- ✅ **Copy Features**: Copy entire conversation as Markdown or individual messages
+- ✅ **Enhanced Error Messages**: Actionable hints for common issues
+- ✅ **Loading Animations**: Smooth spinner and transitions
+- ✅ **UX Polish**: Button animations, focus states, visual feedback
+- ✅ **Comprehensive Documentation**: Complete setup and usage guides
 
 ## Features
 
@@ -38,23 +43,34 @@ Phase 4 (Advanced Features) is complete. The application now showcases all genai
 - ✅ **Provider Selection**: Switch between AI providers on the fly
 - ✅ **Model Selection**: Choose from available models for each provider
 - ✅ **Settings Control**: Collapsible panel for adjusting LLM parameters (temperature, maxTokens, topP)
+- ✅ **Settings Persistence**: Auto-save/restore preferences to localStorage
 - ✅ **Chat Interface**: Interactive message list with auto-scroll and timestamps
 - ✅ **Message Input**: Text area with Enter to send, Shift+Enter for newline
+- ✅ **Copy Individual Messages**: Quick-copy button on each message
 - ✅ **Reasoning Display**: Collapsible sections for reasoning/thinking output
-- ✅ **Error Handling**: User-friendly error messages
-- ✅ **Loading States**: Visual feedback during API calls
+- ✅ **Error Handling**: Actionable error messages with troubleshooting hints
+- ✅ **Loading States**: Animated spinner with smooth transitions
 - ✅ **Responsive Design**: Works on desktop and mobile devices
 
-**Advanced Features (Implemented in Phase 4):**
+**Advanced Features:**
+- ✅ **10 Example Templates**: Categorized templates (general, code, creative, analysis)
+  - Basic greetings, code review, creative writing, problem-solving
+  - Translation with few-shot examples, technical docs, data analysis
+  - Debugging helper, interview prep, adaptive learning tutor
+  - Category filter and template tags for easy discovery
 - ✅ **Template Rendering**: Demonstrate genai-lite's template engine with `createMessages()`
-  - 3 example templates (basic, conditional, model-aware)
-  - Variable substitution and editing
+  - Variable substitution and type-aware editing (string, boolean, number)
   - Shows rendered messages, model context, and settings from `<META>` blocks
 - ✅ **Model Presets**: Select from built-in genai-lite presets
 - ✅ **llama.cpp Utilities**: Local model tools (no API keys needed)
   - Tokenization with token counts
   - Server health checks and slot monitoring
   - Embedding generation for semantic search
+
+**Export & Sharing:**
+- ✅ **Export as JSON**: Download full conversation with metadata
+- ✅ **Copy as Markdown**: Copy formatted conversation to clipboard
+- ✅ **Copy Individual Messages**: Quick-copy any message with reasoning
 
 ## Prerequisites
 
@@ -120,13 +136,15 @@ examples/chat-demo/
 │   ├── api/              # API client
 │   │   └── client.ts     # Backend API communication
 │   ├── components/       # React components
-│   │   ├── ChatInterface.tsx    # Main chat orchestrator
-│   │   ├── MessageList.tsx      # Message display
+│   │   ├── ChatInterface.tsx    # Main chat orchestrator with persistence
+│   │   ├── MessageList.tsx      # Message display with copy buttons
 │   │   ├── MessageInput.tsx     # Input field
 │   │   ├── ProviderSelector.tsx # Provider/model selection
-│   │   ├── SettingsPanel.tsx    # Settings controls
-│   │   ├── TemplateExamples.tsx # Template rendering demo (Phase 4)
-│   │   └── LlamaCppTools.tsx    # llama.cpp utilities (Phase 4)
+│   │   ├── SettingsPanel.tsx    # Settings controls with reset
+│   │   ├── TemplateExamples.tsx # Template rendering with 10 examples
+│   │   └── LlamaCppTools.tsx    # llama.cpp utilities
+│   ├── data/             # Static data (Phase 5)
+│   │   └── exampleTemplates.ts  # 10 categorized example templates
 │   └── types/            # TypeScript types
 │       └── index.ts      # Type definitions
 ├── package.json          # Dependencies and scripts
@@ -167,11 +185,14 @@ examples/chat-demo/
 - ✅ Advanced features panel with tabs
 - ✅ Full integration with ChatInterface
 
-### Phase 5: Polish & Documentation (Planned)
-- Comprehensive documentation
-- Example templates
-- Settings persistence
-- Export/import features
+### Phase 5: Polish & Documentation ✅ (Complete)
+- ✅ 10 example templates across 4 categories
+- ✅ Settings persistence with localStorage
+- ✅ Export as JSON / Copy as Markdown
+- ✅ Copy individual messages
+- ✅ Enhanced error messages with actionable hints
+- ✅ Loading animations and UX polish
+- ✅ Comprehensive documentation
 
 ## Backend API Endpoints
 
@@ -251,20 +272,65 @@ To use local models via llama.cpp:
    ```
 3. No API key needed - llama.cpp will be available as a provider
 
+## Using the Application
+
+### Chat Interface
+1. **Select Provider and Model**: Choose from available AI providers in the top selector
+2. **Configure Settings**: Click "⚙️ Settings" to adjust temperature, reasoning, etc.
+3. **Send Messages**: Type in the input area and press Enter (Shift+Enter for newline)
+4. **View Reasoning**: Click on collapsed reasoning sections to see model's thinking
+5. **Copy Messages**: Click the 📋 button on any message to copy it
+
+### Export & Persistence
+- **Export JSON**: Click "💾 Export" to download conversation with full metadata
+- **Copy Markdown**: Click "📋 Copy" to copy formatted conversation to clipboard
+- **Auto-Save Settings**: Your provider, model, and settings are automatically saved
+- **Reset Settings**: Use "Reset to Defaults" button in the Settings panel
+
+### Template Examples
+1. **Open Advanced Features**: Click "🎯 Advanced Features" at the top
+2. **Select Templates Tab**: Browse 10 example templates across 4 categories
+3. **Filter by Category**: Use the category dropdown to find specific templates
+4. **Edit Variables**: Modify template variables (supports strings, booleans, numbers)
+5. **Render Template**: Click "Render Template" to see the result with model context
+
+### llama.cpp Tools
+1. **Start llama.cpp Server**: `llama-server -m /path/to/model.gguf --port 8080`
+2. **Open Advanced Features**: Click "🎯 Advanced Features"
+3. **Select llama.cpp Tools Tab**: Access tokenization, health checks, and embeddings
+4. **No API Keys Needed**: All features work locally without cloud API keys
+
 ## Troubleshooting
 
 ### Backend Not Starting
-- Make sure port 3000 is not in use
+- Make sure port 3000 is not in use: `lsof -i :3000`
 - Check that all dependencies are installed: `npm install`
+- Verify .env file exists with API keys
 
 ### Frontend Not Loading
 - Verify the backend is running on port 3000
-- Check browser console for errors
-- Try clearing browser cache
+- Check browser console for errors (F12)
+- Try clearing browser cache and localStorage
+- Ensure you're accessing http://localhost:5173
 
 ### CORS Errors
 - The Vite dev server proxies API requests to avoid CORS issues
 - Make sure you're accessing via http://localhost:5173, not a different port
+- Check that backend is running on port 3000
+
+### API Key Errors
+The app provides enhanced error messages:
+- **Missing API Key**: "Missing or invalid API key for openai. Add your API key to the .env file..."
+- **Solution**: Add `OPENAI_API_KEY=your-key` to `.env` and restart server
+
+### llama.cpp Not Working
+- **Error**: "llama.cpp server not running..."
+- **Solution**: Start server with `llama-server -m /path/to/model.gguf --port 8080`
+- Verify server is running: `curl http://localhost:8080/health`
+
+### Rate Limits
+- **Error**: "Rate limit exceeded..."
+- **Solution**: Wait a few moments or switch to llama.cpp for unlimited local inference
 
 ## Contributing
 

@@ -379,3 +379,199 @@ Open http://localhost:5173 - should see:
 - [ ] Template rendering error handling
 - [ ] llama.cpp server unavailable handling
 
+## Phase 5 Testing
+
+### Test 27: Settings Persistence - Save
+
+**Expected:** Settings are automatically saved to localStorage
+
+1. Open http://localhost:5173
+2. Select a provider and model (e.g., OpenAI, gpt-4.1-mini)
+3. Open Settings panel
+4. Change temperature to 0.9
+5. Enable reasoning
+6. Refresh the page (F5)
+7. Should see:
+   - Same provider and model selected
+   - Temperature still at 0.9
+   - Reasoning still enabled
+
+### Test 28: Settings Persistence - Reset
+
+**Expected:** Reset to Defaults clears persisted settings
+
+1. With custom settings applied
+2. Click "Reset to Defaults" in Settings panel
+3. Should see:
+   - Temperature back to 0.7
+   - Max Tokens cleared
+   - Top P back to 1
+   - Reasoning disabled
+4. Refresh page
+5. Defaults should still be applied
+
+### Test 29: Export Conversation as JSON
+
+**Expected:** Conversation downloads as JSON file
+
+1. Send a few messages in the chat
+2. Click "💾 Export" button
+3. Should see:
+   - JSON file downloaded (chat-export-YYYY-MM-DD....json)
+   - File contains: exportedAt, provider, model, settings, messages
+   - Messages include content, role, timestamp
+   - Settings match current configuration
+
+### Test 30: Copy Conversation as Markdown
+
+**Expected:** Conversation copies to clipboard in Markdown format
+
+1. Send a few messages in the chat
+2. Click "📋 Copy" button
+3. Paste into a text editor (Ctrl+V)
+4. Should see:
+   - Messages formatted with ## headers
+   - Timestamps in italic
+   - Reasoning sections with ### headers
+   - Separator lines (---) between messages
+
+### Test 31: Copy Individual Message
+
+**Expected:** Single message copies to clipboard
+
+1. Send a message and get a response
+2. Hover over any message
+3. Click the 📋 button
+4. Should see:
+   - Button changes to ✓ briefly
+   - Paste shows: "ROLE: content"
+   - If message has reasoning, includes "REASONING: ..." section
+
+### Test 32: Enhanced Error Messages - Network
+
+**Expected:** Network errors show helpful message
+
+1. Stop the backend server
+2. Try to send a message
+3. Should see error:
+   - "Network error: Cannot connect to the backend server..."
+   - Suggests running `npm run dev`
+
+### Test 33: Enhanced Error Messages - API Key
+
+**Expected:** Missing API key shows setup instructions
+
+1. Select a provider without an API key
+2. Try to send a message
+3. Should see error:
+   - "Missing or invalid API key for [provider]..."
+   - Shows example: OPENAI_API_KEY=your-key-here
+   - Instructs to restart server
+
+### Test 34: Enhanced Error Messages - llama.cpp
+
+**Expected:** llama.cpp errors show startup command
+
+1. Select llamacpp provider (without server running)
+2. Try to send a message
+3. Should see error:
+   - "llama.cpp server not running..."
+   - Shows command: `llama-server -m /path/to/model.gguf --port 8080`
+
+### Test 35: Loading Animation
+
+**Expected:** Smooth loading indicator appears
+
+1. Send a message
+2. Should see:
+   - Loading indicator in bottom-right with spinner
+   - Spinner rotates smoothly
+   - Indicator slides in from bottom
+   - Send button disabled while loading
+   - Input disabled while loading
+
+### Test 36: Button Animations
+
+**Expected:** Buttons have smooth hover and click effects
+
+1. Hover over any button (Send, Copy, Export, Clear)
+2. Should see:
+   - Button lifts slightly (translateY)
+   - Shadow appears
+3. Click button
+4. Should see:
+   - Button presses down (returns to original position)
+   - Shadow disappears
+
+### Test 37: Template Categories and Filtering
+
+**Expected:** 10 templates organized in 4 categories
+
+1. Open Advanced Features → Templates tab
+2. Click category dropdown
+3. Should see:
+   - All Templates (10)
+   - General (3)
+   - Code (3)
+   - Creative (1)
+   - Analysis (3)
+4. Select "Code" category
+5. Should see only code-related templates
+6. Template tags displayed below description
+
+### Test 38: Template Variable Editing
+
+**Expected:** Variables support different types
+
+1. Select "Problem Solver with Reasoning" template
+2. Edit variables:
+   - Change "hasConstraints" to false (boolean)
+   - Modify "problem" text (string)
+3. Should see:
+   - Boolean parses correctly (true/false)
+   - Numbers parse as numbers
+   - Strings remain strings
+4. Click "Render Template"
+5. Should see changes reflected in rendered messages
+
+### Test 39: Empty State Handling
+
+**Expected:** Export/Copy disabled when no messages
+
+1. Open fresh page
+2. Check Export and Copy buttons
+3. Should see:
+   - Both buttons disabled (grayed out)
+4. Send a message
+5. Should see:
+   - Buttons now enabled and clickable
+
+### Test 40: Settings Panel Transitions
+
+**Expected:** Smooth animations when expanding panels
+
+1. Click "⚙️ Settings" to expand
+2. Should see:
+   - Panel slides open smoothly
+   - Content fades in (animation: fadeIn 0.3s)
+3. Click again to collapse
+4. Panel closes smoothly
+5. Repeat with "🎯 Advanced Features"
+6. Same smooth transitions
+
+### Phase 5 Testing (2025-10-12)
+- [ ] Settings persistence - save
+- [ ] Settings persistence - reset
+- [ ] Export conversation as JSON
+- [ ] Copy conversation as Markdown
+- [ ] Copy individual message
+- [ ] Enhanced error messages - network
+- [ ] Enhanced error messages - API key
+- [ ] Enhanced error messages - llama.cpp
+- [ ] Loading animation
+- [ ] Button animations
+- [ ] Template categories and filtering
+- [ ] Template variable editing
+- [ ] Empty state handling
+- [ ] Settings panel transitions
+
