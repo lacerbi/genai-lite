@@ -1,7 +1,6 @@
 import { LLMService } from './LLMService';
 import type { ApiKeyProvider } from '../types';
 import type { LLMChatRequest, LLMResponse, LLMFailureResponse } from './types';
-import { ADAPTER_ERROR_CODES } from './clients/types';
 
 describe('LLMService', () => {
   let service: LLMService;
@@ -58,19 +57,42 @@ describe('LLMService', () => {
         expect(errorResponse.error.message).toContain('Unsupported provider');
       });
 
-      it('should return validation error for unsupported model', async () => {
+      it('should succeed with fallback for unknown model', async () => {
         const request: LLMChatRequest = {
-          providerId: 'openai',
+          providerId: 'mock',  // Use mock provider to avoid real API calls
           modelId: 'unsupported-model',
           messages: [{ role: 'user', content: 'Hello' }]
         };
 
         const response = await service.sendMessage(request);
 
-        expect(response.object).toBe('error');
-        const errorResponse = response as LLMFailureResponse;
-        expect(errorResponse.error.code).toBe('UNSUPPORTED_MODEL');
-        expect(errorResponse.error.message).toContain('Unsupported model');
+        // Should succeed with mock response (not error) even for unknown model
+        expect(response.object).toBe('chat.completion');
+      });
+
+      it('should silently work with flexible providers unknown models (no warning)', async () => {
+        const warnings: string[] = [];
+        const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation((msg) => {
+          warnings.push(msg);
+        });
+
+        // Test with mock provider (which has allowUnknownModels: true)
+        const request: LLMChatRequest = {
+          providerId: 'mock',
+          modelId: 'totally-unknown-model-xyz',
+          messages: [{ role: 'user', content: 'Testing flexible provider' }]
+        };
+
+        const response = await service.sendMessage(request);
+
+        // Should succeed with mock response
+        expect(response.object).toBe('chat.completion');
+
+        // Should NOT warn about unknown model (filter out adapter constructor warnings)
+        const unknownModelWarnings = warnings.filter(w => !w.includes('No adapter constructor'));
+        expect(unknownModelWarnings.length).toBe(0);  // No warnings for flexible providers
+
+        consoleWarnSpy.mockRestore();
       });
 
       it('should return validation error for empty messages', async () => {
@@ -205,8 +227,8 @@ describe('LLMService', () => {
         request.messages = [{ role: 'user', content: 'Second request' }];
         await service.sendMessage(request);
 
-        // API key provider should be called for each request with mock provider
-        expect(mockApiKeyProvider).toHaveBeenCalledTimes(0); // Mock provider doesn't need API keys
+        // API key provider should be called once per unique provider (mock provider now registered)
+        expect(mockApiKeyProvider).toHaveBeenCalledTimes(2);
       });
     });
 
@@ -407,11 +429,13 @@ describe('LLMService', () => {
     it('should return all supported providers', async () => {
       const providers = await service.getProviders();
 
-      expect(providers).toHaveLength(4);
+      expect(providers).toHaveLength(6);
       expect(providers.find(p => p.id === 'openai')).toBeDefined();
       expect(providers.find(p => p.id === 'anthropic')).toBeDefined();
       expect(providers.find(p => p.id === 'gemini')).toBeDefined();
       expect(providers.find(p => p.id === 'mistral')).toBeDefined();
+      expect(providers.find(p => p.id === 'llamacpp')).toBeDefined();
+      expect(providers.find(p => p.id === 'mock')).toBeDefined();
     });
 
     it('should include provider metadata', async () => {

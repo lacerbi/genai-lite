@@ -1,14 +1,16 @@
-import type { 
-  LLMFailureResponse, 
-  LLMSettings, 
+import type {
+  LLMFailureResponse,
+  LLMSettings,
   ModelInfo,
-  ApiProviderId 
+  ApiProviderId
 } from "../types";
 import { PresetManager } from "./PresetManager";
-import { 
-  SUPPORTED_PROVIDERS, 
-  isProviderSupported, 
-  getModelById 
+import {
+  SUPPORTED_PROVIDERS,
+  isProviderSupported,
+  getModelById,
+  getProviderById,
+  createFallbackModelInfo
 } from "../config";
 
 /**
@@ -125,20 +127,22 @@ export class ModelResolver {
       };
     }
 
-    const modelInfo = getModelById(options.modelId, options.providerId);
+    let modelInfo = getModelById(options.modelId, options.providerId);
     if (!modelInfo) {
-      return {
-        error: {
-          provider: options.providerId as any,
-          model: options.modelId,
-          error: {
-            message: `Unsupported model: ${options.modelId} for provider: ${options.providerId}`,
-            code: 'UNSUPPORTED_MODEL',
-            type: 'validation_error',
-          },
-          object: 'error',
-        }
-      };
+      // Check if provider allows unknown models
+      const provider = getProviderById(options.providerId);
+
+      if (provider?.allowUnknownModels) {
+        // Flexible provider (e.g., llamacpp) - silent fallback
+        modelInfo = createFallbackModelInfo(options.modelId, options.providerId);
+      } else {
+        // Strict provider - warn but allow
+        console.warn(
+          `⚠️  Unknown model "${options.modelId}" for provider "${options.providerId}". ` +
+          `Using default settings. This may fail at the provider API if the model doesn't exist.`
+        );
+        modelInfo = createFallbackModelInfo(options.modelId, options.providerId);
+      }
     }
 
     return {

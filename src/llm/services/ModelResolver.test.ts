@@ -143,15 +143,46 @@ describe('ModelResolver', () => {
       expect(result.error?.error.message).toContain('Supported providers:');
     });
 
-    it('should return error for unsupported model', () => {
+    it('should create fallback model info for unknown models (with warning)', () => {
+      const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation();
+
       const result = resolver.resolve({
         providerId: 'openai',
         modelId: 'unsupported-model'
       });
 
-      expect(result.error).toBeDefined();
-      expect(result.error?.error.code).toBe('UNSUPPORTED_MODEL');
-      expect(result.error?.error.message).toContain('Unsupported model: unsupported-model');
+      // Should succeed with fallback, not error
+      expect(result.error).toBeUndefined();
+      expect(result.modelInfo).toBeDefined();
+      expect(result.modelInfo?.id).toBe('unsupported-model');
+      expect(result.modelInfo?.providerId).toBe('openai');
+
+      // Should warn about unknown model
+      expect(consoleWarnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Unknown model "unsupported-model"')
+      );
+
+      consoleWarnSpy.mockRestore();
+    });
+
+    it('should silently create fallback for llamacpp unknown models (no warning)', () => {
+      const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation();
+
+      const result = resolver.resolve({
+        providerId: 'llamacpp',
+        modelId: 'my-custom-gguf-model'
+      });
+
+      // Should succeed with fallback, not error
+      expect(result.error).toBeUndefined();
+      expect(result.modelInfo).toBeDefined();
+      expect(result.modelInfo?.id).toBe('my-custom-gguf-model');
+      expect(result.modelInfo?.providerId).toBe('llamacpp');
+
+      // Should NOT warn (llamacpp allows unknown models silently)
+      expect(consoleWarnSpy).not.toHaveBeenCalled();
+
+      consoleWarnSpy.mockRestore();
     });
 
     it('should pass through user settings for direct resolution', () => {
