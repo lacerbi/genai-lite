@@ -5,8 +5,10 @@ import { ProviderSelector } from './ProviderSelector';
 import { SettingsPanel } from './SettingsPanel';
 import { MessageList } from './MessageList';
 import { MessageInput } from './MessageInput';
-import { getProviders, getModels, sendChatMessage } from '../api/client';
-import type { Message, Provider, Model, LLMSettings } from '../types';
+import { TemplateExamples } from './TemplateExamples';
+import { LlamaCppTools } from './LlamaCppTools';
+import { getProviders, getModels, sendChatMessage, getPresets } from '../api/client';
+import type { Message, Provider, Model, LLMSettings, Preset } from '../types';
 
 export function ChatInterface() {
   // State for providers and models
@@ -29,9 +31,16 @@ export function ChatInterface() {
     thinkingExtraction: { enabled: false },
   });
 
-  // Load providers on mount
+  // State for presets and advanced features
+  const [presets, setPresets] = useState<Preset[]>([]);
+  const [selectedPresetId, setSelectedPresetId] = useState<string>('');
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [advancedTab, setAdvancedTab] = useState<'templates' | 'llamacpp'>('templates');
+
+  // Load providers and presets on mount
   useEffect(() => {
     loadProviders();
+    loadPresets();
   }, []);
 
   // Load models when provider changes
@@ -73,6 +82,16 @@ export function ChatInterface() {
       setError(`Failed to load models: ${err instanceof Error ? err.message : 'Unknown error'}`);
       setModels([]);
       setSelectedModelId('');
+    }
+  };
+
+  const loadPresets = async () => {
+    try {
+      const response = await getPresets();
+      setPresets(response.presets);
+    } catch (err) {
+      console.error('Failed to load presets:', err);
+      // Don't show error to user, presets are optional
     }
   };
 
@@ -150,6 +169,46 @@ export function ChatInterface() {
       />
 
       <SettingsPanel settings={settings} onSettingsChange={setSettings} disabled={isLoading} />
+
+      {/* Advanced Features Section */}
+      <div className="advanced-features-panel">
+        <button
+          className="advanced-toggle"
+          onClick={() => setShowAdvanced(!showAdvanced)}
+          disabled={isLoading}
+        >
+          🎯 Advanced Features {showAdvanced ? '▼' : '▶'}
+        </button>
+
+        {showAdvanced && (
+          <div className="advanced-content">
+            <div className="advanced-tabs">
+              <button
+                className={`advanced-tab ${advancedTab === 'templates' ? 'active' : ''}`}
+                onClick={() => setAdvancedTab('templates')}
+              >
+                Templates
+              </button>
+              <button
+                className={`advanced-tab ${advancedTab === 'llamacpp' ? 'active' : ''}`}
+                onClick={() => setAdvancedTab('llamacpp')}
+              >
+                llama.cpp Tools
+              </button>
+            </div>
+
+            {advancedTab === 'templates' && (
+              <TemplateExamples
+                presets={presets}
+                selectedPresetId={selectedPresetId}
+                onSelectPreset={setSelectedPresetId}
+              />
+            )}
+
+            {advancedTab === 'llamacpp' && <LlamaCppTools />}
+          </div>
+        )}
+      </div>
 
       {error && (
         <div className="error-message">

@@ -255,3 +255,127 @@ Open http://localhost:5173 - should see:
 - [ ] Clear chat functionality
 - [ ] Responsive design
 
+## Phase 4 Testing
+
+### Test 18: Advanced Features Panel
+
+**Expected:** Advanced features panel expands and shows tabs
+
+1. Open http://localhost:5173
+2. Click "🎯 Advanced Features" button
+3. Panel should expand showing:
+   - Two tabs: "Templates" and "llama.cpp Tools"
+   - Templates tab active by default
+4. Click between tabs to verify switching works
+
+### Test 19: Template Rendering - Basic
+
+**Expected:** Can render templates with variable substitution
+
+1. Open Advanced Features panel
+2. Click "Templates" tab
+3. Select a preset from the preset dropdown
+4. Keep default "Basic Variable Substitution" template
+5. Modify the "topic" variable (e.g., change to "Python")
+6. Click "Render Template"
+7. Should see:
+   - Rendered messages with substituted variable
+   - Model context information
+   - Settings (if any in template)
+
+### Test 20: Template Rendering - Conditional
+
+**Expected:** Templates with conditional logic work
+
+1. Select "Conditional Logic" template
+2. Try changing "formal" variable between "true" and "false"
+3. Modify the "question" variable
+4. Click "Render Template"
+5. Should see different system message based on "formal" value
+
+### Test 21: Template Rendering - Model-Aware
+
+**Expected:** Model-aware templates show settings from <META> blocks
+
+1. Select "Model-Aware Template"
+2. Select a preset with thinking/reasoning capabilities
+3. Modify the "query" variable
+4. Click "Render Template"
+5. Should see:
+   - System message adapting to model's thinking capability
+   - Settings from <META> block (temperature: 0.8, maxTokens: 500)
+   - Model context showing thinking_enabled flag
+
+### Test 22: llama.cpp Tokenization
+
+**Expected:** Can tokenize text using llama.cpp server
+
+**Prerequisites:** llama.cpp server running on port 8080
+
+1. Open Advanced Features panel
+2. Click "llama.cpp Tools" tab
+3. Click "Tokenization" sub-tab
+4. Enter some text (e.g., "Hello, world! This is a test.")
+5. Click "Tokenize"
+6. Should see:
+   - Token count
+   - Expandable token array (first 100 tokens)
+
+### Test 23: llama.cpp Health Check
+
+**Expected:** Can check llama.cpp server health
+
+**Prerequisites:** llama.cpp server running on port 8080
+
+1. Go to llama.cpp Tools tab
+2. Click "Health Check" sub-tab
+3. Click "Check Health"
+4. Should see:
+   - Status (e.g., "ok")
+   - Idle slots count
+   - Processing slots count
+
+### Test 24: llama.cpp Embeddings
+
+**Expected:** Can generate embeddings
+
+**Prerequisites:** llama.cpp server running with embedding support
+
+1. Go to llama.cpp Tools tab
+2. Click "Embeddings" sub-tab
+3. Enter text (e.g., "Search query example")
+4. Click "Generate Embedding"
+5. Should see:
+   - Dimension of the embedding vector
+   - Expandable vector preview (first 20 dimensions)
+
+### Test 25: Template Rendering Without Preset
+
+**Expected:** Error message when no preset selected
+
+1. Go to Templates tab
+2. Clear preset selection (select "Choose a preset...")
+3. Click "Render Template"
+4. Should see error: "Please select a preset first"
+
+### Test 26: llama.cpp Tools Without Server
+
+**Expected:** Helpful error messages when server not available
+
+1. Stop llama.cpp server (if running)
+2. Go to llama.cpp Tools tab
+3. Try any tool (Tokenization, Health Check, Embeddings)
+4. Should see error message indicating llama.cpp server is not available
+5. For health check, should see hint about starting server
+
+### Phase 4 Testing (2025-10-12)
+- [ ] Advanced features panel expansion
+- [ ] Template rendering - basic
+- [ ] Template rendering - conditional
+- [ ] Template rendering - model-aware
+- [ ] llama.cpp tokenization
+- [ ] llama.cpp health check
+- [ ] llama.cpp embeddings
+- [ ] Template rendering error handling
+- [ ] llama.cpp server unavailable handling
+

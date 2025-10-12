@@ -2,9 +2,9 @@
 
 An interactive web application demonstrating the capabilities of the genai-lite library.
 
-## Current Status: Phase 3 Complete ✅
+## Current Status: Phase 4 Complete ✅
 
-Phase 3 (Frontend UI) is complete. The application is now fully functional:
+Phase 4 (Advanced Features) is complete. The application now showcases all genai-lite capabilities:
 - ✅ Express backend with health check endpoint
 - ✅ React frontend with Vite
 - ✅ TypeScript configuration
@@ -13,12 +13,16 @@ Phase 3 (Frontend UI) is complete. The application is now fully functional:
 - ✅ Provider and model listing endpoints
 - ✅ Chat completion endpoint with full validation
 - ✅ Support for OpenAI, Anthropic, Gemini, and llama.cpp
-- ✅ **Full chat interface with message history**
-- ✅ **Provider and model selection UI**
-- ✅ **Advanced settings panel (temperature, reasoning, etc.)**
-- ✅ **Responsive design and styling**
+- ✅ Full chat interface with message history
+- ✅ Provider and model selection UI
+- ✅ Advanced settings panel (temperature, reasoning, etc.)
+- ✅ Responsive design and styling
+- ✅ **Template rendering with `createMessages()`**
+- ✅ **Model preset selection**
+- ✅ **llama.cpp utilities (tokenization, health check, embeddings)**
+- ✅ **Advanced features panel with expandable sections**
 
-**Next:** Testing with real API calls, then Phase 4 - Advanced Features (optional)
+**Next:** Phase 5 - Polish & Documentation (optional)
 
 ## Features
 
@@ -41,10 +45,16 @@ Phase 3 (Frontend UI) is complete. The application is now fully functional:
 - ✅ **Loading States**: Visual feedback during API calls
 - ✅ **Responsive Design**: Works on desktop and mobile devices
 
-**Advanced (Planned for Phase 4+):**
-- 🔮 **Template Rendering**: Demonstrate genai-lite's template engine
-- 🔮 **Reasoning Mode**: Toggle reasoning for supported models
-- 🔮 **Thinking Extraction**: Display extracted thinking blocks
+**Advanced Features (Implemented in Phase 4):**
+- ✅ **Template Rendering**: Demonstrate genai-lite's template engine with `createMessages()`
+  - 3 example templates (basic, conditional, model-aware)
+  - Variable substitution and editing
+  - Shows rendered messages, model context, and settings from `<META>` blocks
+- ✅ **Model Presets**: Select from built-in genai-lite presets
+- ✅ **llama.cpp Utilities**: Local model tools (no API keys needed)
+  - Tokenization with token counts
+  - Server health checks and slot monitoring
+  - Embedding generation for semantic search
 
 ## Prerequisites
 
@@ -94,8 +104,15 @@ Visit http://localhost:5173 in your browser.
 examples/chat-demo/
 ├── server/                 # Express backend
 │   ├── index.ts           # Server entry point
-│   ├── services/          # Business logic (Phase 2)
-│   └── routes/            # API endpoints (Phase 2)
+│   ├── services/          # Business logic
+│   │   └── llm.ts         # LLM service with genai-lite
+│   └── routes/            # API endpoints
+│       ├── chat.ts        # Chat completion
+│       ├── providers.ts   # Provider listing
+│       ├── models.ts      # Model listing
+│       ├── presets.ts     # Preset listing (Phase 4)
+│       ├── templates.ts   # Template rendering (Phase 4)
+│       └── llamacpp.ts    # llama.cpp utilities (Phase 4)
 ├── src/                   # React frontend
 │   ├── main.tsx          # React entry point
 │   ├── App.tsx           # Root component
@@ -107,7 +124,9 @@ examples/chat-demo/
 │   │   ├── MessageList.tsx      # Message display
 │   │   ├── MessageInput.tsx     # Input field
 │   │   ├── ProviderSelector.tsx # Provider/model selection
-│   │   └── SettingsPanel.tsx    # Settings controls
+│   │   ├── SettingsPanel.tsx    # Settings controls
+│   │   ├── TemplateExamples.tsx # Template rendering demo (Phase 4)
+│   │   └── LlamaCppTools.tsx    # llama.cpp utilities (Phase 4)
 │   └── types/            # TypeScript types
 │       └── index.ts      # Type definitions
 ├── package.json          # Dependencies and scripts
@@ -141,11 +160,12 @@ examples/chat-demo/
 - ✅ Comprehensive CSS styling
 - ✅ Responsive design
 
-### Phase 4: Advanced Features (Planned)
-- Template examples
-- Reasoning mode controls
-- Thinking extraction demo
-- llama.cpp integration showcase
+### Phase 4: Advanced Features ✅ (Complete)
+- ✅ Template rendering with 3 example templates
+- ✅ Model preset selection
+- ✅ llama.cpp tools (tokenization, health, embeddings)
+- ✅ Advanced features panel with tabs
+- ✅ Full integration with ChatInterface
 
 ### Phase 5: Polish & Documentation (Planned)
 - Comprehensive documentation
@@ -184,6 +204,23 @@ The backend provides the following REST API endpoints:
   }
   ```
 - Returns completion with content, reasoning, and usage stats
+
+**GET /api/presets**
+- Lists all configured model presets
+- Shows available pre-configured model settings
+
+**POST /api/templates/render**
+- Renders a template with variables and model context
+- Demonstrates genai-lite's `createMessages()` functionality
+
+**GET /api/llamacpp/health**
+- Checks llama.cpp server status and slot availability
+
+**POST /api/llamacpp/tokenize**
+- Tokenizes text using llama.cpp's tokenizer
+
+**POST /api/llamacpp/embedding**
+- Generates vector embeddings for semantic search
 
 ## Environment Variables
 

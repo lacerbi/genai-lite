@@ -78,3 +78,81 @@ export interface ProvidersResponse {
 export interface ModelsResponse {
   models: Model[];
 }
+
+// Presets
+export interface Preset {
+  id: string;
+  displayName: string;
+  providerId: string;
+  modelId: string;
+  settings?: LLMSettings;
+  description?: string;
+}
+
+export interface PresetsResponse {
+  presets: Preset[];
+}
+
+// Templates
+export interface TemplateRenderRequest {
+  template: string;
+  variables?: Record<string, any>;
+  providerId?: string;
+  modelId?: string;
+  presetId?: string;
+}
+
+export interface TemplateRenderResponse {
+  success: boolean;
+  result?: {
+    messages: Array<{ role: string; content: string }>;
+    modelContext?: Record<string, any>;
+    settings?: LLMSettings;
+  };
+  error?: {
+    message: string;
+    code: string;
+  };
+}
+
+// llama.cpp utilities
+export interface TokenizeRequest {
+  content: string;
+}
+
+export interface TokenizeResponse {
+  success: boolean;
+  tokens?: number[];
+  tokenCount?: number;
+  error?: {
+    message: string;
+    code: string;
+  };
+}
+
+export interface LlamaCppHealthResponse {
+  success: boolean;
+  health?: {
+    status: string;
+    slotsIdle: number;
+    slotsProcessing: number;
+  };
+  error?: {
+    message: string;
+    code: string;
+  };
+}
+
+export interface EmbeddingRequest {
+  content: string;
+}
+
+export interface EmbeddingResponse {
+  success: boolean;
+  embedding?: number[];
+  dimension?: number;
+  error?: {
+    message: string;
+    code: string;
+  };
+}

@@ -5,6 +5,14 @@ import type {
   ChatResponse,
   ProvidersResponse,
   ModelsResponse,
+  PresetsResponse,
+  TemplateRenderRequest,
+  TemplateRenderResponse,
+  TokenizeRequest,
+  TokenizeResponse,
+  LlamaCppHealthResponse,
+  EmbeddingRequest,
+  EmbeddingResponse,
 } from '../types';
 
 const API_BASE = '/api';
@@ -59,6 +67,89 @@ export async function sendChatMessage(request: ChatRequest): Promise<ChatRespons
  */
 export async function checkHealth(): Promise<{ status: string; message: string; timestamp: string }> {
   const response = await fetch(`${API_BASE}/health`);
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+  }
+
+  return await response.json();
+}
+
+/**
+ * Fetches all configured presets
+ */
+export async function getPresets(): Promise<PresetsResponse> {
+  const response = await fetch(`${API_BASE}/presets`);
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+  }
+
+  return await response.json();
+}
+
+/**
+ * Renders a template with variables and model context
+ */
+export async function renderTemplate(request: TemplateRenderRequest): Promise<TemplateRenderResponse> {
+  const response = await fetch(`${API_BASE}/templates/render`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(request),
+  });
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+  }
+
+  return await response.json();
+}
+
+/**
+ * Tokenizes text using llama.cpp server
+ */
+export async function tokenizeText(request: TokenizeRequest): Promise<TokenizeResponse> {
+  const response = await fetch(`${API_BASE}/llamacpp/tokenize`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(request),
+  });
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+  }
+
+  return await response.json();
+}
+
+/**
+ * Checks llama.cpp server health
+ */
+export async function checkLlamaCppHealth(): Promise<LlamaCppHealthResponse> {
+  const response = await fetch(`${API_BASE}/llamacpp/health`);
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+  }
+
+  return await response.json();
+}
+
+/**
+ * Generates embeddings using llama.cpp server
+ */
+export async function generateEmbedding(request: EmbeddingRequest): Promise<EmbeddingResponse> {
+  const response = await fetch(`${API_BASE}/llamacpp/embedding`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(request),
+  });
 
   if (!response.ok) {
     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
