@@ -249,15 +249,10 @@ None currently.
 2. ✅ ~~Test the application with `npm run dev` to verify frontend/backend communication~~
 3. ✅ ~~Complete Phase 2: Backend API implementation~~
 4. ✅ ~~Complete Phase 3: Frontend UI implementation~~
-5. **Test Phase 3 with real API calls:**
-   - Set up `.env` file with at least one API key
-   - Run `npm run dev` and test the full chat flow
-   - Verify provider selection, model selection, and settings
-   - Test reasoning and thinking extraction features
-   - Verify error handling and loading states
-6. Begin Phase 4: Advanced Features (optional)
-   - Template examples tab/section
-   - Reasoning mode controls
-   - Thinking extraction demo
-   - Preset selection
-   - llama.cpp-specific features
+5. ✅ ~~Test Phase 3 with real API calls (tested with Gemini API)~~
+6. ✅ ~~Complete Phase 4: Advanced Features~~
+7. Optional: Phase 5 - Polish & Documentation
+   - Add more example templates
+   - Add localStorage for settings persistence
+   - Add copy/export conversation features
+   - Browser testing and screenshots
