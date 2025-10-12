@@ -2,26 +2,40 @@
 
 An interactive web application demonstrating the capabilities of the genai-lite library.
 
-## Current Status: Phase 1 Complete ✅
+## Current Status: Phase 2 Complete ✅
 
-Phase 1 (Project Setup) is complete. The basic infrastructure is ready:
+Phase 2 (Backend API) is complete. The backend is fully functional:
 - ✅ Express backend with health check endpoint
 - ✅ React frontend with Vite
 - ✅ TypeScript configuration
 - ✅ Development environment setup
+- ✅ **genai-lite LLMService integration**
+- ✅ **Provider and model listing endpoints**
+- ✅ **Chat completion endpoint with full validation**
+- ✅ **Support for OpenAI, Anthropic, Gemini, and llama.cpp**
 
-**Next:** Phase 2 - Backend API implementation (LLM provider integration)
+**Next:** Phase 3 - Frontend UI implementation (React components, chat interface)
 
-## Features (Planned)
+## Features
 
-- **Multi-Provider Support**: Chat with OpenAI, Anthropic, Google Gemini, Mistral, and llama.cpp
-- **Provider Selection**: Switch between AI providers on the fly
-- **Model Selection**: Choose from available models for each provider
-- **Settings Control**: Adjust temperature, maxTokens, and other parameters
-- **Reasoning Mode**: Enable/disable reasoning for supported models
-- **Thinking Extraction**: Automatically extract thinking blocks from responses
-- **Template Rendering**: Demonstrate genai-lite's template engine
-- **llama.cpp Support**: Run local models without API keys
+**Backend (Implemented):**
+- ✅ **Multi-Provider Support**: Backend APIs for OpenAI, Anthropic, Google Gemini, Mistral, and llama.cpp
+- ✅ **Provider Listing**: API endpoint to list all providers with availability status
+- ✅ **Model Listing**: API endpoint to get models for each provider
+- ✅ **Chat Completion**: Full chat API with message validation and error handling
+- ✅ **Settings Support**: Temperature, maxTokens, topP, reasoning, thinking extraction, and more
+- ✅ **llama.cpp Integration**: Local model support without API keys
+
+**Frontend (Coming in Phase 3):**
+- ⏳ **Provider Selection**: Switch between AI providers on the fly
+- ⏳ **Model Selection**: Choose from available models for each provider
+- ⏳ **Settings Control**: UI for adjusting LLM parameters
+- ⏳ **Chat Interface**: Interactive message list and input
+
+**Advanced (Planned for Phase 4+):**
+- 🔮 **Template Rendering**: Demonstrate genai-lite's template engine
+- 🔮 **Reasoning Mode**: Toggle reasoning for supported models
+- 🔮 **Thinking Extraction**: Display extracted thinking blocks
 
 ## Prerequisites
 
@@ -95,12 +109,14 @@ examples/chat-demo/
 - TypeScript configuration
 - Development environment
 
-### Phase 2: Backend API 🚧 (Next)
-- LLM service integration with genai-lite
-- Provider and model endpoints
-- Chat completion endpoint
+### Phase 2: Backend API ✅ (Complete)
+- ✅ LLM service integration with genai-lite
+- ✅ Provider and model endpoints
+- ✅ Chat completion endpoint
+- ✅ Full request validation
+- ✅ Error handling and logging
 
-### Phase 3: Frontend UI (Planned)
+### Phase 3: Frontend UI 🚧 (Next)
 - Chat interface components
 - Provider/model selectors
 - Settings panel
@@ -117,6 +133,38 @@ examples/chat-demo/
 - Example templates
 - Settings persistence
 - Export/import features
+
+## Backend API Endpoints
+
+The backend provides the following REST API endpoints:
+
+**GET /api/health**
+- Health check endpoint
+- Returns server status and timestamp
+
+**GET /api/providers**
+- Lists all AI providers with availability status
+- Shows which providers have API keys configured
+
+**GET /api/models/:providerId**
+- Lists all models for a specific provider
+- Returns model details (pricing, context window, capabilities)
+
+**POST /api/chat**
+- Sends a message to an LLM
+- Request body:
+  ```json
+  {
+    "providerId": "openai",
+    "modelId": "gpt-4.1-mini",
+    "messages": [{"role": "user", "content": "Hello!"}],
+    "settings": {
+      "temperature": 0.7,
+      "maxTokens": 1000
+    }
+  }
+  ```
+- Returns completion with content, reasoning, and usage stats
 
 ## Environment Variables
 

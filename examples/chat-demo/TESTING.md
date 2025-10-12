@@ -56,12 +56,65 @@ Open http://localhost:5173 - should see:
 3. Visit http://localhost:5173
 4. Should see: "❌ Error: Failed to fetch" or similar
 
-## Phase 2 Testing (Coming Soon)
+## Phase 2 Testing
 
-Tests for:
-- GET /api/providers
-- GET /api/models/:providerId
-- POST /api/chat
+### Test 5: Get Providers
+
+**Expected:** Returns list of all AI providers with availability status
+
+```bash
+curl http://localhost:3000/api/providers
+```
+
+Should return JSON with providers array, each containing:
+- id (string)
+- name (string)
+- available (boolean) - true if API key is set
+
+### Test 6: Get Models for Provider
+
+**Expected:** Returns list of models for a specific provider
+
+```bash
+curl http://localhost:3000/api/models/openai
+curl http://localhost:3000/api/models/anthropic
+curl http://localhost:3000/api/models/gemini
+curl http://localhost:3000/api/models/llamacpp
+```
+
+Should return JSON with models array, each containing model details (id, name, pricing, etc.)
+
+### Test 7: Send Chat Message
+
+**Expected:** Sends message to LLM and returns response
+
+```bash
+curl -X POST http://localhost:3000/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "providerId": "openai",
+    "modelId": "gpt-4.1-mini",
+    "messages": [
+      {"role": "user", "content": "Say hello!"}
+    ]
+  }'
+```
+
+**Note:** Requires valid API key in .env file
+
+Should return JSON with:
+- success: true
+- response object containing content, usage stats, etc.
+
+### Test 8: Use Test Script
+
+Run the automated test script:
+
+```bash
+./server/test-api.sh
+```
+
+This tests all Phase 2 endpoints automatically (requires jq installed)
 
 ## Test Results Log
 
