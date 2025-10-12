@@ -327,6 +327,14 @@
 - ✅ Dynamic version badge from package.json
 - ✅ Improved responsive design for mobile
 
+**llama.cpp Enhancements** (2025-10-12)
+- ✅ Fixed API key handling: fromEnvironment returns 'not-needed' for llamacpp
+- ✅ Dynamic model detection: Queries actual loaded model from running server via /v1/models
+- ✅ Dynamic availability check: Pings /health endpoint (2s timeout)
+- ✅ Shows "(server not running)" instead of "(API key missing)"
+- ✅ New endpoint: GET /api/llamacpp/models returns actual loaded model
+- ✅ llama.cpp Tools UX fixes: Removed undefined slot fields, better embeddings error messages
+
 ---
 
 ## Blockers

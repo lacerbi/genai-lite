@@ -274,6 +274,9 @@ To use local models via llama.cpp:
    ```
 3. No API key needed - llama.cpp will be available as a provider
 
+**Note:** The app automatically detects your loaded model. When you select llama.cpp,
+the model dropdown shows the actual model name from your running server (e.g., "Qwen3-4B-Instruct-2507-IQ4_NL")
+
 ## Using the Application
 
 ### Chat Tab
