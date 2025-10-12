@@ -152,6 +152,9 @@ const response = await service.sendMessage({
 });
 ```
 
+**Interactive Demo Application:**
+For comprehensive usage examples, see `examples/chat-demo` - a full-featured React + Express application showcasing all library capabilities. The demo is kept up-to-date with new features and serves as both a showcase and quick-test environment.
+
 ### Adding New AI Providers
 
 1. Create adapter in `src/llm/clients/[Provider]ClientAdapter.ts`
@@ -219,6 +222,9 @@ const response = await service.sendMessage({
   - **Use sparingly** - only when modifying provider adapters or LLMService
   - Costs real money - uses cheapest models but still incurs API charges
   - Not run in CI by default to avoid costs
+
+**Quick Testing with chat-demo:**
+The `examples/chat-demo` application provides a quick way to test library changes interactively. Run `cd examples/chat-demo && npm install && npm run dev` to start the demo server and test features across all providers.
 
 **GitHub Automation & CI/CD:**
 - **CI runs automatically** on push/PR to main branch
@@ -334,6 +340,11 @@ All adapters should use `adapterErrorUtils.ts` patterns:
 1. Check console logs - adapters log API calls and responses
 2. Verify API key is being retrieved correctly
 3. Check provider-specific error messages in adapter's error handling
+
+**Quick-testing library changes:**
+1. Make your changes to the library and build: `npm run build`
+2. Start the chat-demo: `cd examples/chat-demo && npm run dev`
+3. Test your changes interactively in the browser at http://localhost:5173
 
 **Running CI locally before pushing:**
 1. Run tests: `npm test`

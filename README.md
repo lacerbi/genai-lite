@@ -70,6 +70,16 @@ if (response.object === 'chat.completion') {
 
 See the [llama.cpp Integration](#llamacpp-integration) section for setup details.
 
+## Example Application
+
+For a complete, production-ready example showcasing all genai-lite capabilities, see the **[chat-demo](examples/chat-demo)** interactive web application. The demo includes:
+- Multi-provider chat interface with all supported providers
+- Template rendering and model presets
+- llama.cpp utilities (tokenization, embeddings, health checks)
+- Settings persistence, export/import features
+
+The chat-demo serves as both a comprehensive showcase and a quick-test environment for library changes.
+
 ## API Key Management
 
 genai-lite uses a flexible API key provider pattern. You can use the built-in environment variable provider or create your own:
@@ -1451,6 +1461,10 @@ These utilities enable:
 - **Automatic Thinking Extraction**: Capture reasoning from any model using XML tags
 - **Template Reusability**: Define templates once, use with different variables
 - **Type Safety**: Full TypeScript support with LLMMessage types
+
+## Examples
+
+See the **[chat-demo](examples/chat-demo)** application for a complete working example that demonstrates all library features in a production-ready React + Express application.
 
 ## Contributing
 
