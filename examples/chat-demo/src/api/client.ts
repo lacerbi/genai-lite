@@ -44,6 +44,20 @@ export async function getModels(providerId: string): Promise<ModelsResponse> {
 }
 
 /**
+ * Fetches the currently loaded model from llama.cpp server
+ * This is a special endpoint that queries the actual running server
+ */
+export async function getLlamaCppModels(): Promise<ModelsResponse> {
+  const response = await fetch(`${API_BASE}/llamacpp/models`);
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+  }
+
+  return await response.json();
+}
+
+/**
  * Sends a chat message to the LLM
  */
 export async function sendChatMessage(request: ChatRequest): Promise<ChatResponse> {

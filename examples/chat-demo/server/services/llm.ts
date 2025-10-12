@@ -19,19 +19,34 @@ export const llmService = new LLMService(fromEnvironment);
 export async function getProviders(): Promise<Array<ProviderInfo & { available: boolean }>> {
   const providers = await llmService.getProviders();
 
-  return providers.map(provider => ({
-    ...provider,
-    available: checkApiKeyAvailable(provider.id)
-  }));
+  // Check availability for each provider (some checks are async)
+  const providersWithAvailability = await Promise.all(
+    providers.map(async (provider) => ({
+      ...provider,
+      available: await checkApiKeyAvailable(provider.id)
+    }))
+  );
+
+  return providersWithAvailability;
 }
 
 /**
  * Check if an API key is available for a provider
+ * For llamacpp, check if the server is actually running
  */
-function checkApiKeyAvailable(providerId: string): boolean {
-  // llama.cpp doesn't need an API key
+async function checkApiKeyAvailable(providerId: string): Promise<boolean> {
+  // For llama.cpp, check if the server is running
   if (providerId === 'llamacpp') {
-    return true;
+    try {
+      const baseURL = process.env.LLAMACPP_API_BASE_URL || 'http://localhost:8080';
+      const response = await fetch(`${baseURL}/health`, {
+        signal: AbortSignal.timeout(2000) // 2 second timeout
+      });
+      return response.ok;
+    } catch (error) {
+      // Server not running or not reachable
+      return false;
+    }
   }
 
   // Check for environment variable

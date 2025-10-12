@@ -7,7 +7,7 @@ import { MessageList } from './MessageList';
 import { MessageInput } from './MessageInput';
 import { TemplateExamples } from './TemplateExamples';
 import { LlamaCppTools } from './LlamaCppTools';
-import { getProviders, getModels, sendChatMessage, getPresets } from '../api/client';
+import { getProviders, getModels, getLlamaCppModels, sendChatMessage, getPresets } from '../api/client';
 import type { Message, Provider, Model, LLMSettings, Preset } from '../types';
 import packageJson from '../../package.json';
 
@@ -216,7 +216,12 @@ export function ChatInterface() {
   const loadModels = async (providerId: string) => {
     try {
       setError(null);
-      const response = await getModels(providerId);
+
+      // For llamacpp, use special endpoint that queries the actual running server
+      const response = providerId === 'llamacpp'
+        ? await getLlamaCppModels()
+        : await getModels(providerId);
+
       setModels(response.models);
 
       // Auto-select first model only if no persisted model

@@ -39,7 +39,7 @@ export function ProviderSelector({
               value={provider.id}
               disabled={!provider.available}
             >
-              {provider.name} {!provider.available ? '(API key missing)' : ''}
+              {provider.name} {!provider.available ? (provider.id === 'llamacpp' ? '(server not running)' : '(API key missing)') : ''}
             </option>
           ))}
         </select>

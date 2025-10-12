@@ -50,14 +50,12 @@ llamacppRouter.post('/tokenize', async (req, res) => {
  */
 llamacppRouter.get('/health', async (req, res) => {
   try {
-    const health = await llamacppClient.health();
+    const health = await llamacppClient.getHealth();
 
     res.json({
       success: true,
       health: {
-        status: health.status,
-        slotsIdle: health.slots_idle,
-        slotsProcessing: health.slots_processing
+        status: health.status
       }
     });
   } catch (error) {
@@ -104,6 +102,69 @@ llamacppRouter.post('/embedding', async (req, res) => {
       error: {
         message: error instanceof Error ? error.message : 'llama.cpp server not available',
         code: 'LLAMACPP_ERROR'
+      }
+    });
+  }
+});
+
+/**
+ * GET /api/llamacpp/models
+ * Get the currently loaded model from llama.cpp server
+ */
+llamacppRouter.get('/models', async (req, res) => {
+  try {
+    // Query the OpenAI-compatible /v1/models endpoint
+    const response = await fetch(`${baseURL}/v1/models`);
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch models: ${response.status} ${response.statusText}`);
+    }
+
+    const data = await response.json();
+
+    // Extract model information from the response
+    // llama.cpp returns: { data: [{ id: "model-name", ... }] }
+    if (!data.data || !Array.isArray(data.data) || data.data.length === 0) {
+      return res.status(500).json({
+        success: false,
+        error: {
+          message: 'No models loaded in llama.cpp server',
+          code: 'NO_MODELS_LOADED'
+        }
+      });
+    }
+
+    // Get the first (and typically only) model
+    const model = data.data[0];
+    const modelId = model.id;
+
+    // Strip "models/" prefix if present and remove .gguf extension for cleaner display
+    const cleanModelId = modelId
+      .replace(/^models\//, '')
+      .replace(/\.gguf$/, '');
+
+    res.json({
+      success: true,
+      models: [{
+        id: cleanModelId,
+        name: cleanModelId,
+        providerId: 'llamacpp',
+        contextWindow: 8192, // Default, actual value in model.meta if needed
+        inputPrice: 0,
+        outputPrice: 0,
+        description: 'Currently loaded model from llama.cpp server',
+        maxTokens: 4096,
+        supportsImages: false,
+        supportsPromptCache: false
+      }]
+    });
+  } catch (error) {
+    console.error('Error fetching llama.cpp models:', error);
+    res.status(503).json({
+      success: false,
+      error: {
+        message: 'llama.cpp server not available or cannot fetch models',
+        code: 'LLAMACPP_UNAVAILABLE'
       }
     });
   }
