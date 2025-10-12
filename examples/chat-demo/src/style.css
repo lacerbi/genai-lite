@@ -55,11 +55,60 @@ body {
   padding: 1rem 1.5rem;
   border-bottom: 2px solid var(--border);
   background: var(--background);
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.title-section {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
 }
 
 .chat-header h1 {
   font-size: 1.5rem;
   color: var(--primary-color);
+  margin: 0;
+}
+
+.version-badge {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-light);
+  background: var(--background-alt);
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+}
+
+/* Top-level tabs */
+.app-tabs {
+  display: flex;
+  gap: 0;
+  border-left: 2px solid var(--border);
+  padding-left: 1rem;
+}
+
+.app-tab {
+  padding: 0.5rem 1.5rem;
+  background: transparent;
+  border: none;
+  border-bottom: 3px solid transparent;
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--text-light);
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.app-tab:hover {
+  color: var(--text);
+  background: var(--background-alt);
+}
+
+.app-tab.active {
+  color: var(--primary-color);
+  border-bottom-color: var(--primary-color);
 }
 
 .header-buttons {
@@ -121,14 +170,43 @@ body {
   cursor: not-allowed;
 }
 
-/* Provider Selector */
-.provider-selector {
+/* Chat Tab Layout */
+.chat-tab {
   display: flex;
-  gap: 1rem;
+  flex-direction: column;
+  height: calc(100vh - 80px); /* Adjust based on header height */
+}
+
+.chat-top-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   padding: 1rem 1.5rem;
   background: var(--background-alt);
   border-bottom: 1px solid var(--border);
   flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.chat-with-sidebar {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+.chat-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Provider Selector */
+.provider-selector {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  flex: 1;
 }
 
 .selector-group {
@@ -164,40 +242,62 @@ body {
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
 }
 
-/* Settings Panel */
-.settings-panel {
-  border-bottom: 1px solid var(--border);
-  background: var(--background);
-}
-
-.settings-toggle {
-  width: 100%;
-  padding: 0.75rem 1.5rem;
+/* Settings Sidebar */
+.settings-sidebar {
   background: var(--background-alt);
+  border-right: 2px solid var(--border);
+  transition: width 0.3s ease;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.settings-sidebar.expanded {
+  width: 280px;
+}
+
+.settings-sidebar.collapsed {
+  width: 50px;
+}
+
+.sidebar-toggle {
+  padding: 1rem;
+  background: var(--primary-color);
+  color: white;
   border: none;
-  border-bottom: 1px solid var(--border);
   cursor: pointer;
-  text-align: left;
-  font-weight: 500;
-  color: var(--text);
-  transition: all 0.2s ease;
+  font-size: 1.2rem;
+  font-weight: bold;
+  transition: background 0.2s;
+  flex-shrink: 0;
 }
 
-.settings-toggle:hover:not(:disabled) {
-  background: #f3f4f6;
+.sidebar-toggle:hover:not(:disabled) {
+  background: var(--primary-hover);
 }
 
-.settings-toggle:active:not(:disabled) {
-  background: #e5e7eb;
+.sidebar-toggle:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
-.settings-content {
-  padding: 1rem 1.5rem;
+.sidebar-content {
+  padding: 1.5rem;
   display: flex;
   flex-direction: column;
   gap: 1rem;
-  background: var(--background);
+  overflow-y: auto;
+  flex: 1;
   animation: fadeIn 0.3s ease-out;
+}
+
+.sidebar-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--primary-color);
+  margin: 0 0 1rem 0;
+  padding-bottom: 0.5rem;
+  border-bottom: 2px solid var(--border);
 }
 
 .setting-group {
@@ -518,65 +618,22 @@ body {
   }
 }
 
-/* Advanced Features Panel */
-.advanced-features-panel {
-  border-bottom: 1px solid var(--border);
-  background: var(--background);
+/* Templates Tab */
+.templates-tab {
+  padding: 2rem;
+  overflow-y: auto;
+  height: calc(100vh - 80px);
+  max-width: 1200px;
+  margin: 0 auto;
 }
 
-.advanced-toggle {
-  width: 100%;
-  padding: 0.75rem 1.5rem;
-  background: var(--background-alt);
-  border: none;
-  border-bottom: 1px solid var(--border);
-  cursor: pointer;
-  text-align: left;
-  font-weight: 500;
-  color: var(--text);
-  transition: all 0.2s ease;
-}
-
-.advanced-toggle:hover:not(:disabled) {
-  background: #f3f4f6;
-}
-
-.advanced-toggle:active:not(:disabled) {
-  background: #e5e7eb;
-}
-
-.advanced-content {
-  padding: 1.5rem;
-  background: var(--background);
-  animation: fadeIn 0.3s ease-out;
-}
-
-.advanced-tabs {
-  display: flex;
-  gap: 0.5rem;
-  margin-bottom: 1.5rem;
-  border-bottom: 2px solid var(--border);
-}
-
-.advanced-tab {
-  padding: 0.75rem 1.5rem;
-  background: transparent;
-  border: none;
-  border-bottom: 3px solid transparent;
-  cursor: pointer;
-  font-weight: 500;
-  color: var(--text-light);
-  transition: all 0.2s;
-}
-
-.advanced-tab:hover {
-  color: var(--text);
-  background: var(--background-alt);
-}
-
-.advanced-tab.active {
-  color: var(--primary-color);
-  border-bottom-color: var(--primary-color);
+/* llama.cpp Tools Tab */
+.llamacpp-tab {
+  padding: 2rem;
+  overflow-y: auto;
+  height: calc(100vh - 80px);
+  max-width: 1200px;
+  margin: 0 auto;
 }
 
 /* Template Examples */
@@ -834,12 +891,73 @@ body {
 @media (max-width: 768px) {
   .chat-header {
     flex-direction: column;
-    gap: 1rem;
+    gap: 0.5rem;
     align-items: flex-start;
+  }
+
+  .title-section {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .version-badge {
+    font-size: 0.7rem;
+  }
+
+  .app-tabs {
+    border-left: none;
+    padding-left: 0;
+    width: 100%;
+    border-bottom: 2px solid var(--border);
+  }
+
+  .app-tab {
+    flex: 1;
+    text-align: center;
+    font-size: 0.9rem;
+    padding: 0.5rem;
+  }
+
+  .chat-top-bar {
+    flex-direction: column;
+    align-items: stretch;
   }
 
   .provider-selector {
     flex-direction: column;
+  }
+
+  .header-buttons {
+    justify-content: stretch;
+    width: 100%;
+  }
+
+  .header-buttons button {
+    flex: 1;
+  }
+
+  .chat-with-sidebar {
+    flex-direction: column;
+  }
+
+  .settings-sidebar {
+    width: 100% !important;
+    border-right: none;
+    border-bottom: 2px solid var(--border);
+  }
+
+  .settings-sidebar.collapsed {
+    height: 50px;
+  }
+
+  .settings-sidebar.expanded {
+    height: auto;
+    max-height: 300px;
+  }
+
+  .sidebar-toggle {
+    width: 100%;
+    text-align: center;
   }
 
   .message {
@@ -854,7 +972,6 @@ body {
     align-self: stretch;
   }
 
-  .advanced-tabs,
   .tool-tabs {
     flex-direction: column;
   }
@@ -866,5 +983,10 @@ body {
 
   .variable-key {
     min-width: auto;
+  }
+
+  .templates-tab,
+  .llamacpp-tab {
+    padding: 1rem;
   }
 }

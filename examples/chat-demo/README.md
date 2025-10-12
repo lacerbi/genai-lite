@@ -40,11 +40,12 @@ An interactive web application demonstrating the capabilities of the genai-lite 
 - ✅ **llama.cpp Integration**: Local model support without API keys
 
 **Frontend (Implemented):**
+- ✅ **Tab Navigation**: Three main tabs (Chat, Templates, llama.cpp Tools)
+- ✅ **Settings Sidebar**: Collapsible left sidebar in Chat tab for easy access to all settings
 - ✅ **Provider Selection**: Switch between AI providers on the fly
 - ✅ **Model Selection**: Choose from available models for each provider
-- ✅ **Settings Control**: Collapsible panel for adjusting LLM parameters (temperature, maxTokens, topP)
 - ✅ **System Prompt**: Optional system message to customize AI behavior and personality
-- ✅ **Settings Persistence**: Auto-save/restore preferences to localStorage
+- ✅ **Settings Persistence**: Auto-save/restore preferences including active tab and sidebar state
 - ✅ **Chat Interface**: Interactive message list with auto-scroll and timestamps
 - ✅ **Message Input**: Text area with Enter to send, Shift+Enter for newline
 - ✅ **Copy Individual Messages**: Quick-copy button on each message
@@ -137,11 +138,11 @@ examples/chat-demo/
 │   ├── api/              # API client
 │   │   └── client.ts     # Backend API communication
 │   ├── components/       # React components
-│   │   ├── ChatInterface.tsx    # Main chat orchestrator with persistence
+│   │   ├── ChatInterface.tsx    # Main orchestrator with tab navigation
 │   │   ├── MessageList.tsx      # Message display with copy buttons
 │   │   ├── MessageInput.tsx     # Input field
 │   │   ├── ProviderSelector.tsx # Provider/model selection
-│   │   ├── SettingsPanel.tsx    # Settings controls with reset
+│   │   ├── SettingsPanel.tsx    # Settings sidebar (collapsible)
 │   │   ├── TemplateExamples.tsx # Template rendering with 10 examples
 │   │   └── LlamaCppTools.tsx    # llama.cpp utilities
 │   ├── data/             # Static data (Phase 5)
@@ -275,30 +276,24 @@ To use local models via llama.cpp:
 
 ## Using the Application
 
-### Chat Interface
-1. **Select Provider and Model**: Choose from available AI providers in the top selector
-2. **Configure Settings**: Click "⚙️ Settings" to adjust temperature, reasoning, etc.
+### Chat Tab
+1. **Select Provider and Model**: Choose from available AI providers in the top bar
+2. **Configure Settings**: Click ◀/▶ to toggle the settings sidebar (temperature, reasoning, etc.)
 3. **Send Messages**: Type in the input area and press Enter (Shift+Enter for newline)
 4. **View Reasoning**: Click on collapsed reasoning sections to see model's thinking
-5. **Copy Messages**: Click the 📋 button on any message to copy it
+5. **Copy/Export**: Use 📋 Copy, 💾 Export, or 🗑️ Clear buttons in the top bar
 
-### Export & Persistence
-- **Export JSON**: Click "💾 Export" to download conversation with full metadata
-- **Copy Markdown**: Click "📋 Copy" to copy formatted conversation to clipboard
-- **Auto-Save Settings**: Your provider, model, and settings are automatically saved
-- **Reset Settings**: Use "Reset to Defaults" button in the Settings panel
-
-### Template Examples
-1. **Open Advanced Features**: Click "🎯 Advanced Features" at the top
-2. **Select Templates Tab**: Browse 10 example templates across 4 categories
-3. **Filter by Category**: Use the category dropdown to find specific templates
+### Templates Tab
+1. **Switch to Templates**: Click the "Templates" tab in the header
+2. **Select Preset**: Choose a model preset from the dropdown
+3. **Pick Template**: Browse 10 example templates across 4 categories
 4. **Edit Variables**: Modify template variables (supports strings, booleans, numbers)
-5. **Render Template**: Click "Render Template" to see the result with model context
+5. **Render**: Click "Render Template" to see the result with model context
 
-### llama.cpp Tools
-1. **Start llama.cpp Server**: `llama-server -m /path/to/model.gguf --port 8080`
-2. **Open Advanced Features**: Click "🎯 Advanced Features"
-3. **Select llama.cpp Tools Tab**: Access tokenization, health checks, and embeddings
+### llama.cpp Tools Tab
+1. **Switch to llama.cpp Tools**: Click the "llama.cpp Tools" tab in the header
+2. **Start Server**: `llama-server -m /path/to/model.gguf --port 8080`
+3. **Use Tools**: Access tokenization, health checks, and embeddings
 4. **No API Keys Needed**: All features work locally without cloud API keys
 
 ## Troubleshooting

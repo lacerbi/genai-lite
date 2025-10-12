@@ -319,6 +319,14 @@
 - ✅ Included in JSON exports
 - ✅ Cleared with Reset to Defaults
 
+**UI Restructure** (2025-10-12)
+- ✅ Tab-based navigation: Chat, Templates, llama.cpp Tools
+- ✅ Settings converted to collapsible left sidebar (Chat tab only)
+- ✅ Removed accordion-based Advanced Features panel
+- ✅ Full-width layouts for Templates and llama.cpp tabs
+- ✅ Dynamic version badge from package.json
+- ✅ Improved responsive design for mobile
+
 ---
 
 ## Blockers

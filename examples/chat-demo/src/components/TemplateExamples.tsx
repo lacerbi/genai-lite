@@ -1,7 +1,7 @@
 // TemplateExamples component - Demonstrate template rendering with genai-lite
 
 import { useState } from 'react';
-import { renderTemplate, getPresets } from '../api/client';
+import { renderTemplate } from '../api/client';
 import type { Preset } from '../types';
 import { exampleTemplates, getCategories, type ExampleTemplate } from '../data/exampleTemplates';
 

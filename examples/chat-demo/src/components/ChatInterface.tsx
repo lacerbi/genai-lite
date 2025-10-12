@@ -9,6 +9,7 @@ import { TemplateExamples } from './TemplateExamples';
 import { LlamaCppTools } from './LlamaCppTools';
 import { getProviders, getModels, sendChatMessage, getPresets } from '../api/client';
 import type { Message, Provider, Model, LLMSettings, Preset } from '../types';
+import packageJson from '../../package.json';
 
 // localStorage key for persisted settings
 const STORAGE_KEY = 'genai-lite-chat-demo-settings';
@@ -156,11 +157,15 @@ export function ChatInterface() {
     persisted?.settings || DEFAULT_SETTINGS
   );
 
-  // State for presets and advanced features
+  // State for presets
   const [presets, setPresets] = useState<Preset[]>([]);
   const [selectedPresetId, setSelectedPresetId] = useState<string>(persisted?.presetId || '');
-  const [showAdvanced, setShowAdvanced] = useState(false);
-  const [advancedTab, setAdvancedTab] = useState<'templates' | 'llamacpp'>('templates');
+
+  // State for top-level tabs
+  const [activeTab, setActiveTab] = useState<'chat' | 'templates' | 'llamacpp'>(persisted?.activeTab || 'chat');
+
+  // State for settings sidebar (only in chat tab)
+  const [sidebarExpanded, setSidebarExpanded] = useState(persisted?.sidebarExpanded !== false); // default true
 
   // Load providers and presets on mount
   useEffect(() => {
@@ -186,8 +191,10 @@ export function ChatInterface() {
       presetId: selectedPresetId,
       systemPrompt,
       settings,
+      activeTab,
+      sidebarExpanded,
     });
-  }, [selectedProviderId, selectedModelId, selectedPresetId, systemPrompt, settings]);
+  }, [selectedProviderId, selectedModelId, selectedPresetId, systemPrompt, settings, activeTab, sidebarExpanded]);
 
   const loadProviders = async () => {
     try {
@@ -338,114 +345,131 @@ export function ChatInterface() {
 
   return (
     <div className="chat-interface">
+      {/* Header with title and tabs */}
       <div className="chat-header">
-        <h1>genai-lite Chat Demo</h1>
-        <div className="header-buttons">
+        <div className="title-section">
+          <h1>genai-lite Chat Demo</h1>
+          <span className="version-badge">v{packageJson.version}</span>
+        </div>
+        <div className="app-tabs">
           <button
-            className="export-button"
-            onClick={handleCopyMarkdown}
-            disabled={isLoading || messages.length === 0}
-            title="Copy conversation as Markdown"
+            className={`app-tab ${activeTab === 'chat' ? 'active' : ''}`}
+            onClick={() => setActiveTab('chat')}
           >
-            📋 Copy
+            Chat
           </button>
           <button
-            className="export-button"
-            onClick={handleExportJSON}
-            disabled={isLoading || messages.length === 0}
-            title="Export conversation as JSON"
+            className={`app-tab ${activeTab === 'templates' ? 'active' : ''}`}
+            onClick={() => setActiveTab('templates')}
           >
-            💾 Export
+            Templates
           </button>
-          <button className="clear-button" onClick={handleClearChat} disabled={isLoading}>
-            🗑️ Clear
+          <button
+            className={`app-tab ${activeTab === 'llamacpp' ? 'active' : ''}`}
+            onClick={() => setActiveTab('llamacpp')}
+          >
+            llama.cpp Tools
           </button>
         </div>
       </div>
 
-      <ProviderSelector
-        providers={providers}
-        selectedProviderId={selectedProviderId}
-        onProviderChange={setSelectedProviderId}
-        models={models}
-        selectedModelId={selectedModelId}
-        onModelChange={setSelectedModelId}
-        disabled={isLoading}
-      />
-
-      <SettingsPanel
-        settings={settings}
-        onSettingsChange={setSettings}
-        systemPrompt={systemPrompt}
-        onSystemPromptChange={setSystemPrompt}
-        onResetSettings={handleResetSettings}
-        disabled={isLoading}
-      />
-
-      {/* Advanced Features Section */}
-      <div className="advanced-features-panel">
-        <button
-          className="advanced-toggle"
-          onClick={() => setShowAdvanced(!showAdvanced)}
-          disabled={isLoading}
-        >
-          🎯 Advanced Features {showAdvanced ? '▼' : '▶'}
-        </button>
-
-        {showAdvanced && (
-          <div className="advanced-content">
-            <div className="advanced-tabs">
+      {/* Chat Tab */}
+      {activeTab === 'chat' && (
+        <div className="chat-tab">
+          <div className="chat-top-bar">
+            <ProviderSelector
+              providers={providers}
+              selectedProviderId={selectedProviderId}
+              onProviderChange={setSelectedProviderId}
+              models={models}
+              selectedModelId={selectedModelId}
+              onModelChange={setSelectedModelId}
+              disabled={isLoading}
+            />
+            <div className="header-buttons">
               <button
-                className={`advanced-tab ${advancedTab === 'templates' ? 'active' : ''}`}
-                onClick={() => setAdvancedTab('templates')}
+                className="export-button"
+                onClick={handleCopyMarkdown}
+                disabled={isLoading || messages.length === 0}
+                title="Copy conversation as Markdown"
               >
-                Templates
+                📋 Copy
               </button>
               <button
-                className={`advanced-tab ${advancedTab === 'llamacpp' ? 'active' : ''}`}
-                onClick={() => setAdvancedTab('llamacpp')}
+                className="export-button"
+                onClick={handleExportJSON}
+                disabled={isLoading || messages.length === 0}
+                title="Export conversation as JSON"
               >
-                llama.cpp Tools
+                💾 Export
+              </button>
+              <button className="clear-button" onClick={handleClearChat} disabled={isLoading}>
+                🗑️ Clear
               </button>
             </div>
-
-            {advancedTab === 'templates' && (
-              <TemplateExamples
-                presets={presets}
-                selectedPresetId={selectedPresetId}
-                onSelectPreset={setSelectedPresetId}
-              />
-            )}
-
-            {advancedTab === 'llamacpp' && <LlamaCppTools />}
           </div>
-        )}
-      </div>
 
-      {error && (
-        <div className="error-message">
-          <strong>Error:</strong> {error}
+          <div className="chat-with-sidebar">
+            {/* Settings Sidebar */}
+            <SettingsPanel
+              settings={settings}
+              onSettingsChange={setSettings}
+              systemPrompt={systemPrompt}
+              onSystemPromptChange={setSystemPrompt}
+              onResetSettings={handleResetSettings}
+              disabled={isLoading}
+              isExpanded={sidebarExpanded}
+              onToggle={() => setSidebarExpanded(!sidebarExpanded)}
+            />
+
+            {/* Chat Content */}
+            <div className="chat-main">
+              {error && (
+                <div className="error-message">
+                  <strong>Error:</strong> {error}
+                </div>
+              )}
+
+              <div className="chat-container">
+                <MessageList messages={messages} />
+                <MessageInput
+                  onSendMessage={handleSendMessage}
+                  disabled={isLoading || !selectedProviderId || !selectedModelId}
+                  placeholder={
+                    isLoading
+                      ? 'Waiting for response...'
+                      : !selectedProviderId
+                      ? 'Select a provider first...'
+                      : !selectedModelId
+                      ? 'Select a model first...'
+                      : 'Type a message...'
+                  }
+                />
+              </div>
+
+              {isLoading && <div className="loading-indicator">Loading...</div>}
+            </div>
+          </div>
         </div>
       )}
 
-      <div className="chat-container">
-        <MessageList messages={messages} />
-        <MessageInput
-          onSendMessage={handleSendMessage}
-          disabled={isLoading || !selectedProviderId || !selectedModelId}
-          placeholder={
-            isLoading
-              ? 'Waiting for response...'
-              : !selectedProviderId
-              ? 'Select a provider first...'
-              : !selectedModelId
-              ? 'Select a model first...'
-              : 'Type a message...'
-          }
-        />
-      </div>
+      {/* Templates Tab */}
+      {activeTab === 'templates' && (
+        <div className="templates-tab">
+          <TemplateExamples
+            presets={presets}
+            selectedPresetId={selectedPresetId}
+            onSelectPreset={setSelectedPresetId}
+          />
+        </div>
+      )}
 
-      {isLoading && <div className="loading-indicator">Loading...</div>}
+      {/* llama.cpp Tools Tab */}
+      {activeTab === 'llamacpp' && (
+        <div className="llamacpp-tab">
+          <LlamaCppTools />
+        </div>
+      )}
     </div>
   );
 }

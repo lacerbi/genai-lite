@@ -1,6 +1,5 @@
-// SettingsPanel component - Configure LLM settings
+// SettingsPanel component - Configure LLM settings (Sidebar version)
 
-import { useState } from 'react';
 import type { LLMSettings } from '../types';
 
 interface SettingsPanelProps {
@@ -10,6 +9,8 @@ interface SettingsPanelProps {
   onSystemPromptChange: (value: string) => void;
   onResetSettings: () => void;
   disabled?: boolean;
+  isExpanded: boolean;
+  onToggle: () => void;
 }
 
 export function SettingsPanel({
@@ -18,29 +19,33 @@ export function SettingsPanel({
   systemPrompt,
   onSystemPromptChange,
   onResetSettings,
-  disabled = false
+  disabled = false,
+  isExpanded,
+  onToggle
 }: SettingsPanelProps) {
-  const [isExpanded, setIsExpanded] = useState(false);
 
   const updateSetting = <K extends keyof LLMSettings>(key: K, value: LLMSettings[K]) => {
     onSettingsChange({ ...settings, [key]: value });
   };
 
   return (
-    <div className="settings-panel">
+    <div className={`settings-sidebar ${isExpanded ? 'expanded' : 'collapsed'}`}>
       <button
-        className="settings-toggle"
-        onClick={() => setIsExpanded(!isExpanded)}
+        className="sidebar-toggle"
+        onClick={onToggle}
         disabled={disabled}
+        title={isExpanded ? 'Collapse settings' : 'Expand settings'}
       >
-        ⚙️ Settings {isExpanded ? '▼' : '▶'}
+        {isExpanded ? '◀' : '▶'}
       </button>
 
       {isExpanded && (
-        <div className="settings-content">
+        <div className="sidebar-content">
+          <h3 className="sidebar-title">Settings</h3>
+
           <div className="setting-group">
             <label htmlFor="systemPrompt">
-              System Prompt (optional)
+              System Prompt
             </label>
             <textarea
               id="systemPrompt"
