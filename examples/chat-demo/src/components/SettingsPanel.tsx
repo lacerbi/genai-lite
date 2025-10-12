@@ -6,11 +6,20 @@ import type { LLMSettings } from '../types';
 interface SettingsPanelProps {
   settings: LLMSettings;
   onSettingsChange: (settings: LLMSettings) => void;
+  systemPrompt: string;
+  onSystemPromptChange: (value: string) => void;
   onResetSettings: () => void;
   disabled?: boolean;
 }
 
-export function SettingsPanel({ settings, onSettingsChange, onResetSettings, disabled = false }: SettingsPanelProps) {
+export function SettingsPanel({
+  settings,
+  onSettingsChange,
+  systemPrompt,
+  onSystemPromptChange,
+  onResetSettings,
+  disabled = false
+}: SettingsPanelProps) {
   const [isExpanded, setIsExpanded] = useState(false);
 
   const updateSetting = <K extends keyof LLMSettings>(key: K, value: LLMSettings[K]) => {
@@ -29,6 +38,22 @@ export function SettingsPanel({ settings, onSettingsChange, onResetSettings, dis
 
       {isExpanded && (
         <div className="settings-content">
+          <div className="setting-group">
+            <label htmlFor="systemPrompt">
+              System Prompt (optional)
+            </label>
+            <textarea
+              id="systemPrompt"
+              value={systemPrompt}
+              onChange={(e) => onSystemPromptChange(e.target.value)}
+              placeholder="You are a helpful assistant..."
+              rows={3}
+              disabled={disabled}
+              className="system-prompt-textarea"
+            />
+            <span className="setting-hint">Instructions for the AI's behavior and personality</span>
+          </div>
+
           <div className="setting-group">
             <label htmlFor="temperature">
               Temperature: {settings.temperature?.toFixed(2) ?? '0.70'}

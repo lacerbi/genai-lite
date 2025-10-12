@@ -148,6 +148,9 @@ export function ChatInterface() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // State for system prompt
+  const [systemPrompt, setSystemPrompt] = useState<string>(persisted?.systemPrompt || '');
+
   // State for settings
   const [settings, setSettings] = useState<LLMSettings>(
     persisted?.settings || DEFAULT_SETTINGS
@@ -181,9 +184,10 @@ export function ChatInterface() {
       providerId: selectedProviderId,
       modelId: selectedModelId,
       presetId: selectedPresetId,
+      systemPrompt,
       settings,
     });
-  }, [selectedProviderId, selectedModelId, selectedPresetId, settings]);
+  }, [selectedProviderId, selectedModelId, selectedPresetId, systemPrompt, settings]);
 
   const loadProviders = async () => {
     try {
@@ -247,9 +251,14 @@ export function ChatInterface() {
 
     try {
       // Prepare messages for API (exclude reasoning field)
-      const apiMessages = messages
+      const conversationMessages = messages
         .concat(userMessage)
         .map((m) => ({ role: m.role, content: m.content }));
+
+      // Prepend system message if system prompt is set
+      const apiMessages = systemPrompt
+        ? [{ role: 'system', content: systemPrompt }, ...conversationMessages]
+        : conversationMessages;
 
       // Send to backend
       const response = await sendChatMessage({
@@ -286,6 +295,7 @@ export function ChatInterface() {
   const handleResetSettings = () => {
     setSettings(DEFAULT_SETTINGS);
     setSelectedPresetId('');
+    setSystemPrompt('');
   };
 
   const handleExportJSON = () => {
@@ -298,6 +308,7 @@ export function ChatInterface() {
       exportedAt: new Date().toISOString(),
       provider: selectedProviderId,
       model: selectedModelId,
+      systemPrompt,
       settings,
       messages,
     };
@@ -365,6 +376,8 @@ export function ChatInterface() {
       <SettingsPanel
         settings={settings}
         onSettingsChange={setSettings}
+        systemPrompt={systemPrompt}
+        onSystemPromptChange={setSystemPrompt}
         onResetSettings={handleResetSettings}
         disabled={isLoading}
       />

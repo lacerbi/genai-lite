@@ -43,6 +43,7 @@ An interactive web application demonstrating the capabilities of the genai-lite 
 - ✅ **Provider Selection**: Switch between AI providers on the fly
 - ✅ **Model Selection**: Choose from available models for each provider
 - ✅ **Settings Control**: Collapsible panel for adjusting LLM parameters (temperature, maxTokens, topP)
+- ✅ **System Prompt**: Optional system message to customize AI behavior and personality
 - ✅ **Settings Persistence**: Auto-save/restore preferences to localStorage
 - ✅ **Chat Interface**: Interactive message list with auto-scroll and timestamps
 - ✅ **Message Input**: Text area with Enter to send, Shift+Enter for newline

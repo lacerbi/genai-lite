@@ -310,6 +310,17 @@
 
 ---
 
+## Additional Features
+
+**System Prompt Support** (Added post-Phase 5)
+- ✅ System prompt textarea in Settings panel
+- ✅ Optional message to customize AI behavior and personality
+- ✅ Persisted to localStorage with other settings
+- ✅ Included in JSON exports
+- ✅ Cleared with Reset to Defaults
+
+---
+
 ## Blockers
 
 None currently.
