@@ -51,4 +51,20 @@ describe('fromEnvironment', () => {
     const key = await fromEnvironment('empty');
     expect(key).toBeNull(); // Empty string is falsy, so || null returns null
   });
+
+  it('should return "not-needed" for llamacpp provider', async () => {
+    const key = await fromEnvironment('llamacpp');
+    expect(key).toBe('not-needed');
+  });
+
+  it('should return "not-needed" for mock provider', async () => {
+    const key = await fromEnvironment('mock');
+    expect(key).toBe('not-needed');
+  });
+
+  it('should return "not-needed" for llamacpp even if environment variable exists', async () => {
+    process.env.LLAMACPP_API_KEY = 'should-not-be-used';
+    const key = await fromEnvironment('llamacpp');
+    expect(key).toBe('not-needed');
+  });
 });
