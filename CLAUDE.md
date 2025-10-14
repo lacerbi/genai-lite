@@ -120,13 +120,13 @@ const { messages, modelContext, settings } = await service.createMessages({
     {
       "settings": {
         "temperature": 0.8,
-        "thinkingExtraction": { "enabled": true }
+        "thinkingTagFallback": { "enabled": true }
       }
     }
     </META>
     <SYSTEM>
       You are a helpful assistant.
-      {{ !thinking_enabled ? ' For complex problems, write your reasoning in <thinking> tags before answering.' : '' }}
+      {{ requires_tags_for_thinking ? ' For complex problems, write your reasoning in <thinking> tags before answering.' : '' }}
     </SYSTEM>
     <USER>{{ question }}</USER>
   `,

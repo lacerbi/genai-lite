@@ -314,7 +314,7 @@ const response = await llmService.sendMessage({
     content: 'Please think through this problem step by step before answering: What is 15% of 240?'
   }],
   settings: {
-    thinkingExtraction: { enabled: true } // Must explicitly enable
+    thinkingTagFallback: { enabled: true } // Must explicitly enable
   }
 });
 
@@ -336,10 +336,10 @@ const response = await llmService.sendMessage({
   modelId: 'claude-3-5-haiku-20241022',
   messages: [{ role: 'user', content: 'Solve this step by step...' }],
   settings: {
-    thinkingExtraction: {
+    thinkingTagFallback: {
       enabled: true,     // Must explicitly enable (default: false)
-      tag: 'scratchpad', // Custom tag name (default: 'thinking')
-      onMissing: 'auto'  // Smart enforcement (see below)
+      tagName: 'scratchpad', // Custom tag name (default: 'thinking')
+      enforce: true  // Smart enforcement (see below)
     }
   }
 });
@@ -369,7 +369,7 @@ const response = await llmService.sendMessage({
     content: 'What is 15% of 240?'
   }],
   settings: {
-    thinkingExtraction: { enabled: true } // onMissing: 'auto' is default
+    thinkingTagFallback: { enabled: true } // enforce: true is default
   }
 });
 // Result: ERROR if <thinking> tag is missing (strict enforcement)
@@ -382,7 +382,7 @@ const response = await llmService.sendMessage({
   messages: [/* same prompt */],
   settings: {
     reasoning: { enabled: true },
-    thinkingExtraction: { enabled: true }
+    thinkingTagFallback: { enabled: true }
   }
 });
 // Result: SUCCESS even if <thinking> tag is missing (lenient for native reasoning)
@@ -561,10 +561,10 @@ The method provides:
 
 **Available model context variables:**
 
-- `thinking_enabled`: Whether native reasoning is **currently active** for this request
+- `native_reasoning_active`: Whether native reasoning is **currently active** for this request
   - `true`: The model is using built-in reasoning (e.g., Claude 4, o4-mini, Gemini 2.5 Pro with reasoning enabled)
   - `false`: No native reasoning is active (either because the model doesn't support it, or it's been disabled)
-- `thinking_available`: Whether the model **has the capability** to use native reasoning
+- `native_reasoning_capable`: Whether the model **has the capability** to use native reasoning
   - `true`: Model supports native reasoning (may or may not be enabled)
   - `false`: Model does not support native reasoning
 - `model_id`: The resolved model ID
@@ -573,11 +573,11 @@ The method provides:
 - `reasoning_max_tokens`: The reasoning token budget if specified
 
 **Best Practice for Templates:**
-When adding thinking tag instructions to your templates, **always use `!thinking_enabled`** (the NOT operator). This ensures:
+When adding thinking tag instructions to your templates, **always use `requires_tags_for_thinking`** (the NOT operator). This ensures:
 - Models with active native reasoning get clean, direct prompts
 - Models without native reasoning get explicit instructions to use `<thinking>` tags
 
-Example: `{{ !thinking_enabled ? ' Write your reasoning in <thinking> tags first.' : '' }}`
+Example: `{{ requires_tags_for_thinking ? ' Write your reasoning in <thinking> tags first.' : '' }}`
 
 #### Advanced Features
 
@@ -628,7 +628,7 @@ const response = await llmService.sendMessage({
   modelId: 'gpt-4.1',
   messages,
   settings: {
-    thinkingExtraction: { enabled: true } // Default, but shown for clarity
+    thinkingTagFallback: { enabled: true } // Default, but shown for clarity
   }
 });
 
@@ -651,7 +651,7 @@ const creativeWritingTemplate = `
   "settings": {
     "temperature": 0.9,
     "maxTokens": 3000,
-    "thinkingExtraction": { "enabled": true, "tag": "reasoning" }
+    "thinkingTagFallback": { "enabled": true, "tagName": "reasoning" }
   }
 }
 </META>
@@ -1340,17 +1340,17 @@ const { messages, modelContext } = await llmService.createMessages({
   template: `
     <SYSTEM>
       You are a problem-solving assistant.
-      {{ !thinking_enabled ? ' For complex problems, write your reasoning in <thinking> tags before answering.' : '' }}
+      {{ requires_tags_for_thinking ? ' For complex problems, write your reasoning in <thinking> tags before answering.' : '' }}
     </SYSTEM>
     <USER>{{ question }}</USER>
   `,
-  // Note: Use !thinking_enabled (NOT operator) - only instruct models that don't have active native reasoning
+  // Note: Use requires_tags_for_thinking (NOT operator) - only instruct models that don't have active native reasoning
   variables: { question: 'What causes the seasons on Earth?' },
   presetId: 'anthropic-claude-3-7-sonnet-20250219-thinking'
 });
 
 console.log('Model context:', modelContext);
-// Output: { thinking_enabled: true, thinking_available: true, model_id: 'claude-3-7-sonnet-20250219', ... }
+// Output: { native_reasoning_active: true, native_reasoning_capable: true, model_id: 'claude-3-7-sonnet-20250219', ... }
 // Note: With a reasoning model, the system prompt won't include thinking tag instructions
 ```
 
