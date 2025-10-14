@@ -2,16 +2,22 @@
 
 import { useState } from 'react';
 import { renderTemplate } from '../api/client';
-import type { Preset } from '../types';
+import type { Preset, LLMSettings } from '../types';
 import { exampleTemplates, getCategories, type ExampleTemplate } from '../data/exampleTemplates';
 
 interface TemplateExamplesProps {
   presets: Preset[];
   selectedPresetId?: string;
   onSelectPreset: (presetId: string) => void;
+  onOpenInChat?: (data: {
+    template: string;
+    variables: Record<string, any>;
+    settings?: Partial<LLMSettings>;
+    templateName: string;
+  }) => void;
 }
 
-export function TemplateExamples({ presets, selectedPresetId, onSelectPreset }: TemplateExamplesProps) {
+export function TemplateExamples({ presets, selectedPresetId, onSelectPreset, onOpenInChat }: TemplateExamplesProps) {
   const [selectedTemplate, setSelectedTemplate] = useState<ExampleTemplate>(exampleTemplates[0]);
   const [variables, setVariables] = useState<Record<string, any>>(selectedTemplate.defaultVariables);
   const [renderedResult, setRenderedResult] = useState<any>(null);
@@ -70,6 +76,29 @@ export function TemplateExamples({ presets, selectedPresetId, onSelectPreset }: 
     } finally {
       setIsRendering(false);
     }
+  };
+
+  const handleOpenInChat = () => {
+    if (!onOpenInChat) return;
+
+    // Extract settings from template META block if present
+    let settings: Partial<LLMSettings> | undefined;
+    const metaMatch = selectedTemplate.template.match(/<META>\s*(\{[\s\S]*?\})\s*<\/META>/);
+    if (metaMatch) {
+      try {
+        const metadata = JSON.parse(metaMatch[1]);
+        settings = metadata.settings;
+      } catch (err) {
+        console.warn('Failed to parse template metadata:', err);
+      }
+    }
+
+    onOpenInChat({
+      template: selectedTemplate.template,
+      variables,
+      settings,
+      templateName: selectedTemplate.name,
+    });
   };
 
   return (
@@ -160,14 +189,26 @@ export function TemplateExamples({ presets, selectedPresetId, onSelectPreset }: 
         ))}
       </div>
 
-      {/* Render Button */}
-      <button
-        onClick={handleRender}
-        disabled={isRendering || !selectedPresetId}
-        className="render-button"
-      >
-        {isRendering ? 'Rendering...' : 'Render Template'}
-      </button>
+      {/* Action Buttons */}
+      <div className="template-actions">
+        <button
+          onClick={handleRender}
+          disabled={isRendering || !selectedPresetId}
+          className="render-button"
+        >
+          {isRendering ? 'Rendering...' : 'Render Template'}
+        </button>
+        {onOpenInChat && (
+          <button
+            onClick={handleOpenInChat}
+            disabled={isRendering}
+            className="open-in-chat-button"
+            title="Open this template in the Chat tab"
+          >
+            Open in Chat
+          </button>
+        )}
+      </div>
 
       {/* Error */}
       {error && (

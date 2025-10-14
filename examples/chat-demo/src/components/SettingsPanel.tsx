@@ -158,9 +158,9 @@ export function SettingsPanel({
                 }
                 disabled={disabled}
               />
-              Enable Thinking Extraction
+              Require Thinking
             </label>
-            <span className="setting-hint">Extract thinking from &lt;thinking&gt; tags</span>
+            <span className="setting-hint">Ensures reasoning is produced, either via native reasoning (Claude 4, o4-mini) or &lt;thinking&gt; tags</span>
           </div>
 
           <button

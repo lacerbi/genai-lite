@@ -382,6 +382,67 @@ body {
   border-bottom: 1px solid var(--border);
 }
 
+/* Template Banner */
+.template-banner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 1.5rem;
+  background: #dbeafe;
+  border-bottom: 1px solid #93c5fd;
+  animation: slideDown 0.3s ease-out;
+}
+
+@keyframes slideDown {
+  from {
+    transform: translateY(-20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.template-banner-content {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex: 1;
+}
+
+.template-banner-icon {
+  font-size: 1.5rem;
+}
+
+.template-banner-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  color: #1e40af;
+}
+
+.template-banner-text strong {
+  font-weight: 600;
+}
+
+.template-banner-cancel {
+  padding: 0.25rem 0.5rem;
+  background: transparent;
+  border: 1px solid #93c5fd;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 1rem;
+  font-weight: bold;
+  color: #1e40af;
+  transition: all 0.2s;
+}
+
+.template-banner-cancel:hover {
+  background: #bfdbfe;
+  border-color: #60a5fa;
+}
+
 /* Chat Container */
 .chat-container {
   flex: 1;
@@ -734,7 +795,15 @@ body {
   border-radius: 6px;
 }
 
+.template-actions {
+  display: flex;
+  gap: 1rem;
+  margin: 1rem 0;
+  flex-wrap: wrap;
+}
+
 .render-button,
+.open-in-chat-button,
 .tool-button {
   padding: 0.75rem 1.5rem;
   background: var(--primary-color);
@@ -743,19 +812,34 @@ body {
   border-radius: 6px;
   cursor: pointer;
   font-weight: 600;
-  margin: 1rem 0;
   transition: background 0.2s;
+  flex: 1;
+  min-width: 150px;
+}
+
+.open-in-chat-button {
+  background: var(--success);
 }
 
 .render-button:hover:not(:disabled),
+.open-in-chat-button:hover:not(:disabled),
 .tool-button:hover:not(:disabled) {
   background: var(--primary-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px var(--shadow);
+}
+
+.open-in-chat-button:hover:not(:disabled) {
+  background: #059669;
 }
 
 .render-button:disabled,
+.open-in-chat-button:disabled,
 .tool-button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
 }
 
 .template-error,
@@ -825,6 +909,8 @@ body {
 
 .message-content-preview {
   color: var(--text);
+  white-space: pre-wrap;
+  word-wrap: break-word;
 }
 
 .model-context,

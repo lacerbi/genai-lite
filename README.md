@@ -295,9 +295,9 @@ if (response.object === 'chat.completion' && response.choices[0].reasoning) {
 - Not all models support reasoning - check the [supported models](#models-with-reasoning-support) list
 - The `reasoning` field in the response contains the model's thought process (when available)
 
-### Automatic Thinking Extraction
+### Thinking Extraction and Enforcement
 
-genai-lite can capture reasoning from any model by automatically extracting content wrapped in XML tags. When models output their thinking process in tags like `<thinking>`, the library automatically moves this content to the standardized `reasoning` field. This works with all models, providing a consistent interface for accessing model reasoning:
+genai-lite can extract and enforce reasoning from any model using XML tags. You prompt the model to output reasoning in tags like `<thinking>`, and the library parses these tags, moving the content to the standardized `reasoning` field. The feature also enforces that reasoning happens—either through native model capabilities or through explicit thinking tags—providing a consistent interface for accessing model reasoning:
 
 ```typescript
 // Prompt the model to think step-by-step in a <thinking> tag

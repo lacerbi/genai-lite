@@ -3,18 +3,24 @@
 import { useState, KeyboardEvent } from 'react';
 
 interface MessageInputProps {
-  onSendMessage: (content: string) => void;
+  onSendMessage: (content?: string) => void;
   disabled?: boolean;
   placeholder?: string;
+  buttonLabel?: string;
+  requireInput?: boolean;
 }
 
-export function MessageInput({ onSendMessage, disabled = false, placeholder = 'Type a message...' }: MessageInputProps) {
+export function MessageInput({ onSendMessage, disabled = false, placeholder = 'Type a message...', buttonLabel = 'Send', requireInput = true }: MessageInputProps) {
   const [input, setInput] = useState('');
 
   const handleSend = () => {
-    if (input.trim() && !disabled) {
-      onSendMessage(input.trim());
-      setInput('');
+    if (!disabled) {
+      if (requireInput && input.trim()) {
+        onSendMessage(input.trim());
+        setInput('');
+      } else if (!requireInput) {
+        onSendMessage();
+      }
     }
   };
 
@@ -39,10 +45,10 @@ export function MessageInput({ onSendMessage, disabled = false, placeholder = 'T
       />
       <button
         onClick={handleSend}
-        disabled={disabled || !input.trim()}
+        disabled={disabled || (requireInput && !input.trim())}
         className="send-button"
       >
-        Send
+        {buttonLabel}
       </button>
     </div>
   );

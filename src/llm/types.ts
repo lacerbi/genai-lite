@@ -64,11 +64,15 @@ export interface LLMReasoningSettings {
 }
 
 /**
- * Settings for extracting 'thinking' content from the start of a response
+ * Settings for extracting and enforcing 'thinking' content from responses.
+ * This feature both extracts content from XML tags and enforces that reasoning happens
+ * (either via native reasoning capabilities or explicit thinking tags).
  */
 export interface LLMThinkingExtractionSettings {
   /**
-   * If true, enables the automatic extraction of content from a specified XML tag.
+   * If true, enables extraction of content from XML tags and enforces that reasoning happens.
+   * With 'auto' mode (default), enforces thinking tags for non-reasoning models but is lenient
+   * for models with native reasoning capabilities.
    * @default false
    */
   enabled?: boolean;
@@ -115,8 +119,8 @@ export interface LLMSettings {
   /** Universal reasoning/thinking configuration */
   reasoning?: LLMReasoningSettings;
   /**
-   * Configuration for automatically extracting 'thinking' blocks from responses.
-   * Enabled by default.
+   * Configuration for extracting and enforcing 'thinking' blocks from responses.
+   * Requires explicit prompting to use thinking tags for non-reasoning models.
    */
   thinkingExtraction?: LLMThinkingExtractionSettings;
 }
