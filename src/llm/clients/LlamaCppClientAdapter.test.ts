@@ -56,10 +56,10 @@ describe('LlamaCppClientAdapter', () => {
           enabled: false,
           exclude: false,
         },
-        thinkingExtraction: {
+        thinkingTagFallback: {
           enabled: false,
-          tag: 'thinking',
-          onMissing: 'auto',
+          tagName: 'thinking',
+          enforce: true,
         },
       },
     };

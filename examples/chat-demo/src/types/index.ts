@@ -24,7 +24,6 @@ export interface Model {
   };
   capabilities?: {
     reasoning?: boolean;
-    thinkingExtraction?: boolean;
   };
   pricing?: {
     inputTokensPerMillion?: number;
@@ -40,10 +39,10 @@ export interface LLMSettings {
     enabled: boolean;
     effort?: 'low' | 'medium' | 'high';
   };
-  thinkingExtraction?: {
-    enabled: boolean;
-    onMissing?: 'ignore' | 'warn' | 'error';
-    tags?: string[];
+  thinkingTagFallback?: {
+    enabled?: boolean;
+    tagName?: string;
+    enforce?: boolean;
   };
 }
 
@@ -100,6 +99,7 @@ export interface TemplateRenderRequest {
   providerId?: string;
   modelId?: string;
   presetId?: string;
+  settings?: LLMSettings;
 }
 
 export interface TemplateRenderResponse {
@@ -156,3 +156,7 @@ export interface EmbeddingResponse {
     code: string;
   };
 }
+
+// Variables
+export type UserVariables = Record<string, string>;
+export type AutomaticVariables = Record<string, any>;

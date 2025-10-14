@@ -7,9 +7,17 @@ import { MessageList } from './MessageList';
 import { MessageInput } from './MessageInput';
 import { TemplateExamples } from './TemplateExamples';
 import { LlamaCppTools } from './LlamaCppTools';
-import { getProviders, getModels, getLlamaCppModels, sendChatMessage, getPresets } from '../api/client';
-import type { Message, Provider, Model, LLMSettings, Preset } from '../types';
+import { ErrorDisplay } from './ErrorDisplay';
+import { getProviders, getModels, getLlamaCppModels, sendChatMessage, getPresets, renderTemplate as renderTemplateAPI } from '../api/client';
+import { renderTemplate } from '../../../../src/prompting/template';
+import type { Message, Provider, Model, LLMSettings, Preset, UserVariables, AutomaticVariables } from '../types';
 import packageJson from '../../package.json';
+
+// Error data structure
+interface ErrorInfo {
+  userMessage: string;
+  rawError?: any;
+}
 
 // localStorage key for persisted settings
 const STORAGE_KEY = 'genai-lite-chat-demo-settings';
@@ -20,7 +28,7 @@ const DEFAULT_SETTINGS: LLMSettings = {
   maxTokens: undefined,
   topP: 1,
   reasoning: { enabled: false },
-  thinkingExtraction: { enabled: false },
+  thinkingTagFallback: { enabled: true, enforce: false },
 };
 
 // Format messages as Markdown
@@ -63,7 +71,22 @@ async function copyToClipboard(text: string): Promise<boolean> {
 
 // Enhance error messages with actionable hints
 function enhanceErrorMessage(error: any, context?: { providerId?: string; modelId?: string }): string {
-  const errorStr = error instanceof Error ? error.message : String(error);
+  // Extract error string from different error formats
+  let errorStr: string;
+
+  if (error instanceof Error) {
+    // JavaScript Error object
+    errorStr = error.message;
+  } else if (typeof error === 'object' && error !== null && error.message) {
+    // Object with message property (from backend)
+    errorStr = error.message;
+  } else if (typeof error === 'string') {
+    // Already a string
+    errorStr = error;
+  } else {
+    // Fallback for other types
+    errorStr = String(error);
+  }
 
   // Network errors
   if (errorStr.includes('fetch') || errorStr.includes('Network') || errorStr.includes('Failed to fetch')) {
@@ -109,7 +132,22 @@ function enhanceErrorMessage(error: any, context?: { providerId?: string; modelI
   }
 
   // Generic error with original message
-  return `Error: ${errorStr}`;
+  return errorStr;
+}
+
+// Create error info object from error
+function createErrorInfo(error: any, context?: { providerId?: string; modelId?: string }): ErrorInfo {
+  return {
+    userMessage: enhanceErrorMessage(error, context),
+    rawError: error
+  };
+}
+
+// Create simple error info (no raw error)
+function createSimpleError(message: string): ErrorInfo {
+  return {
+    userMessage: message
+  };
 }
 
 // Load settings from localStorage
@@ -134,6 +172,21 @@ function savePersistedSettings(data: any) {
   }
 }
 
+// Extract raw role content from template (without variable substitution)
+function extractRawRoleContent(template: string): { system: string; user: string } {
+  // Remove META block
+  const cleanTemplate = template.replace(/<META>[\s\S]*?<\/META>/g, '').trim();
+
+  // Extract SYSTEM and USER content (keep variables intact)
+  const systemMatch = cleanTemplate.match(/<SYSTEM>([\s\S]*?)<\/SYSTEM>/);
+  const userMatch = cleanTemplate.match(/<USER>([\s\S]*?)<\/USER>/);
+
+  return {
+    system: systemMatch?.[1].trim() || '',
+    user: userMatch?.[1].trim() || ''
+  };
+}
+
 export function ChatInterface() {
   // Load persisted settings or use defaults
   const persisted = loadPersistedSettings();
@@ -147,7 +200,7 @@ export function ChatInterface() {
   // State for chat
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<ErrorInfo | null>(null);
 
   // State for system prompt
   const [systemPrompt, setSystemPrompt] = useState<string>(persisted?.systemPrompt || '');
@@ -166,6 +219,13 @@ export function ChatInterface() {
 
   // State for settings sidebar (only in chat tab)
   const [sidebarExpanded, setSidebarExpanded] = useState(persisted?.sidebarExpanded !== false); // default true
+
+  // State for message input (controlled)
+  const [messageInputValue, setMessageInputValue] = useState<string>('');
+
+  // State for variables
+  const [userVariables, setUserVariables] = useState<UserVariables>(persisted?.userVariables || {});
+  const [automaticVariables, setAutomaticVariables] = useState<AutomaticVariables>({});
 
   // Load providers and presets on mount
   useEffect(() => {
@@ -193,8 +253,41 @@ export function ChatInterface() {
       settings,
       activeTab,
       sidebarExpanded,
+      userVariables,
     });
-  }, [selectedProviderId, selectedModelId, selectedPresetId, systemPrompt, settings, activeTab, sidebarExpanded]);
+  }, [selectedProviderId, selectedModelId, selectedPresetId, systemPrompt, settings, activeTab, sidebarExpanded, userVariables]);
+
+  // Load automatic variables when provider/model/settings change
+  useEffect(() => {
+    const loadAutomaticVariables = async () => {
+      if (!selectedProviderId || !selectedModelId) {
+        setAutomaticVariables({});
+        return;
+      }
+
+      try {
+        // Use the template rendering API to get model context
+        const response = await renderTemplateAPI({
+          template: '<USER>dummy</USER>', // Minimal template just to get context
+          variables: {},
+          providerId: selectedProviderId,
+          modelId: selectedModelId,
+          settings,
+        });
+
+        if (response.success && response.result?.modelContext) {
+          setAutomaticVariables(response.result.modelContext);
+        } else {
+          setAutomaticVariables({});
+        }
+      } catch (err) {
+        console.warn('Failed to load automatic variables:', err);
+        setAutomaticVariables({});
+      }
+    };
+
+    loadAutomaticVariables();
+  }, [selectedProviderId, selectedModelId, settings]);
 
   const loadProviders = async () => {
     try {
@@ -209,7 +302,7 @@ export function ChatInterface() {
         }
       }
     } catch (err) {
-      setError(enhanceErrorMessage(err));
+      setError(createErrorInfo(err));
     }
   };
 
@@ -229,7 +322,7 @@ export function ChatInterface() {
         setSelectedModelId(response.models[0].id);
       }
     } catch (err) {
-      setError(enhanceErrorMessage(err, { providerId }));
+      setError(createErrorInfo(err, { providerId }));
       setModels([]);
       setSelectedModelId('');
     }
@@ -247,14 +340,20 @@ export function ChatInterface() {
 
   const handleSendMessage = async (content: string) => {
     if (!selectedProviderId || !selectedModelId) {
-      setError('Please select a provider and model first');
+      setError(createSimpleError('Please select a provider and model first'));
       return;
     }
 
-    // Add user message to the list
+    // Merge automatic and user variables
+    const allVariables = { ...automaticVariables, ...userVariables };
+
+    // Apply variable substitution to the user message
+    const processedContent = renderTemplate(content, allVariables);
+
+    // Add user message to the list (with processed content)
     const userMessage: Message = {
       role: 'user',
-      content,
+      content: processedContent,
       timestamp: Date.now(),
     };
     setMessages((prev) => [...prev, userMessage]);
@@ -267,9 +366,14 @@ export function ChatInterface() {
         .concat(userMessage)
         .map((m) => ({ role: m.role, content: m.content }));
 
+      // Apply variable substitution to system prompt if set
+      const processedSystemPrompt = systemPrompt
+        ? renderTemplate(systemPrompt, allVariables)
+        : '';
+
       // Prepend system message if system prompt is set
-      const apiMessages = systemPrompt
-        ? [{ role: 'system', content: systemPrompt }, ...conversationMessages]
+      const apiMessages = processedSystemPrompt
+        ? [{ role: 'system', content: processedSystemPrompt }, ...conversationMessages]
         : conversationMessages;
 
       // Send to backend
@@ -289,11 +393,14 @@ export function ChatInterface() {
           timestamp: Date.now(),
         };
         setMessages((prev) => [...prev, assistantMessage]);
+
+        // Clear input after successful send
+        setMessageInputValue('');
       } else if (response.error) {
-        setError(enhanceErrorMessage(response.error.message, { providerId: selectedProviderId, modelId: selectedModelId }));
+        setError(createErrorInfo(response.error, { providerId: selectedProviderId, modelId: selectedModelId }));
       }
     } catch (err) {
-      setError(enhanceErrorMessage(err, { providerId: selectedProviderId, modelId: selectedModelId }));
+      setError(createErrorInfo(err, { providerId: selectedProviderId, modelId: selectedModelId }));
     } finally {
       setIsLoading(false);
     }
@@ -308,11 +415,12 @@ export function ChatInterface() {
     setSettings(DEFAULT_SETTINGS);
     setSelectedPresetId('');
     setSystemPrompt('');
+    setUserVariables({});
   };
 
   const handleExportJSON = () => {
     if (messages.length === 0) {
-      setError('No messages to export');
+      setError(createSimpleError('No messages to export'));
       return;
     }
 
@@ -331,7 +439,7 @@ export function ChatInterface() {
 
   const handleCopyMarkdown = async () => {
     if (messages.length === 0) {
-      setError('No messages to copy');
+      setError(createSimpleError('No messages to copy'));
       return;
     }
 
@@ -344,8 +452,44 @@ export function ChatInterface() {
       setError(null);
       setTimeout(() => setError(originalError), 2000);
     } else {
-      setError('Failed to copy to clipboard');
+      setError(createSimpleError('Failed to copy to clipboard'));
     }
+  };
+
+  const handleOpenInChat = (data: {
+    template: string;
+    variables: Record<string, any>;
+    settings?: Partial<LLMSettings>;
+    templateName: string;
+  }) => {
+    // Extract raw role content from template (without variable substitution)
+    const { system, user } = extractRawRoleContent(data.template);
+
+    // Populate fields with RAW content (variables intact)
+    if (system) {
+      setSystemPrompt(system);
+    }
+    if (user) {
+      setMessageInputValue(user);
+    }
+
+    // Set variables
+    setUserVariables(data.variables);
+
+    // Reset settings to defaults first to avoid conflicts
+    setSettings(DEFAULT_SETTINGS);
+
+    // Then apply template settings from META if provided
+    if (data.settings) {
+      setSettings(prev => ({ ...prev, ...data.settings }));
+    }
+
+    // Clear existing chat
+    setMessages([]);
+    setError(null);
+
+    // Switch to chat tab
+    setActiveTab('chat');
   };
 
   return (
@@ -425,19 +569,22 @@ export function ChatInterface() {
               disabled={isLoading}
               isExpanded={sidebarExpanded}
               onToggle={() => setSidebarExpanded(!sidebarExpanded)}
+              userVariables={userVariables}
+              onUserVariablesChange={setUserVariables}
+              automaticVariables={automaticVariables}
             />
 
             {/* Chat Content */}
             <div className="chat-main">
               {error && (
-                <div className="error-message">
-                  <strong>Error:</strong> {error}
-                </div>
+                <ErrorDisplay userMessage={error.userMessage} rawError={error.rawError} />
               )}
 
               <div className="chat-container">
                 <MessageList messages={messages} />
                 <MessageInput
+                  value={messageInputValue}
+                  onChange={setMessageInputValue}
                   onSendMessage={handleSendMessage}
                   disabled={isLoading || !selectedProviderId || !selectedModelId}
                   placeholder={
@@ -465,6 +612,7 @@ export function ChatInterface() {
             presets={presets}
             selectedPresetId={selectedPresetId}
             onSelectPreset={setSelectedPresetId}
+            onOpenInChat={handleOpenInChat}
           />
         </div>
       )}

@@ -120,11 +120,14 @@ const { messages, modelContext, settings } = await service.createMessages({
     {
       "settings": {
         "temperature": 0.8,
-        "thinkingExtraction": { "enabled": true }
+        "thinkingTagFallback": { "enabled": true }
       }
     }
     </META>
-    <SYSTEM>You are a {{ thinking_enabled ? "thoughtful" : "quick" }} assistant.</SYSTEM>
+    <SYSTEM>
+      You are a helpful assistant.
+      {{ requires_tags_for_thinking ? ' For complex problems, write your reasoning in <thinking> tags before answering.' : '' }}
+    </SYSTEM>
     <USER>{{ question }}</USER>
   `,
   variables: { question: 'Explain recursion' },
@@ -178,7 +181,7 @@ For comprehensive usage examples, see `examples/chat-demo` - a full-featured Rea
   - `ProviderInfo` - Provider information
   - `ModelInfo` - Model capabilities and settings
   - `LLMSettings` - Configuration options
-  - `LLMThinkingExtractionSettings` - Settings for automatic thinking extraction
+  - `LLMThinkingTagFallbackSettings` - Settings for thinking tag fallback extraction
 
 **Always maintain type safety:**
 - Use strict TypeScript settings

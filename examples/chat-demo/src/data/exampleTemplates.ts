@@ -43,11 +43,11 @@ export const exampleTemplates: ExampleTemplate[] = [
   "settings": {
     "temperature": 0.3,
     "maxTokens": 2000,
-    "thinkingExtraction": { "enabled": true }
+    "thinkingTagFallback": { "enabled": true }
   }
 }
 </META>
-<SYSTEM>You are an expert code reviewer. When reviewing code, first write your analysis inside <thinking> tags, then provide actionable feedback.</SYSTEM>
+<SYSTEM>You are an expert code reviewer.{{ requires_tags_for_thinking ? ' When reviewing code, first write your analysis inside <thinking> tags, then provide actionable feedback.' : ' Analyze the code carefully and provide actionable feedback.' }}</SYSTEM>
 <USER>Review this {{ language }} code:
 
 \`\`\`{{ language }}
@@ -78,7 +78,7 @@ Focus on: {{ focus_areas }}</USER>`,
 }
 </META>
 <SYSTEM>You are a creative writing assistant. Help users craft engaging stories with vivid details and compelling narratives.</SYSTEM>
-<USER>Write a {{ length }} story about {{ topic }}.{{ hasStyle ? ' Use a ' + style + ' style.' : '' }}</USER>`,
+<USER>Write a {{ length }} story about {{ topic }}.{{ hasStyle ? \` Use a {{style}} style.\` : \`\` }}</USER>`,
     defaultVariables: {
       length: 'short',
       topic: 'a robot discovering music for the first time',
@@ -93,13 +93,19 @@ Focus on: {{ focus_areas }}</USER>`,
     id: 'problem-solving',
     name: 'Problem Solver with Reasoning',
     description: 'Model-aware template that adapts to reasoning capabilities',
-    template: `<SYSTEM>You are a {{ thinking_enabled ? 'thoughtful problem solver who thinks step-by-step' : 'helpful problem-solving assistant' }}.
-{{ thinking_available && !thinking_enabled ? 'Note: You have advanced reasoning capabilities available for complex problems.' : '' }}</SYSTEM>
-<USER>{{ thinking_enabled ? 'Please solve this step-by-step:' : 'Please solve this problem:' }}
+    template: `<META>
+{
+  "settings": {
+    "thinkingTagFallback": { "enabled": true }
+  }
+}
+</META>
+<SYSTEM>You are a helpful problem-solving assistant.{{ requires_tags_for_thinking ? ' Write your step-by-step reasoning inside <thinking> tags first, then provide your final answer.' : '' }}</SYSTEM>
+<USER>Solve this problem:
 
 {{ problem }}
 
-{{ hasConstraints ? 'Constraints: ' + constraints : '' }}</USER>`,
+{{ hasConstraints ? \`Constraints: {{constraints}}\` : \`\` }}</USER>`,
     defaultVariables: {
       problem: 'If a train travels 120 km in 2 hours, what is its average speed in meters per second?',
       hasConstraints: true,
@@ -150,8 +156,8 @@ English: "{{ text_to_translate }}"
 <SYSTEM>You are a technical documentation specialist. Create clear, comprehensive documentation with examples.</SYSTEM>
 <USER>Write {{ doc_type }} documentation for: {{ subject }}
 
-{{ hasAudience ? 'Target audience: ' + audience : '' }}
-{{ hasFormat ? 'Required format: ' + format : '' }}
+{{ hasAudience ? \`Target audience: {{audience}}\` : \`\` }}
+{{ hasFormat ? \`Required format: {{format}}\` : \`\` }}
 
 {{ includeExamples ? 'Include practical code examples.' : '' }}</USER>`,
     defaultVariables: {
@@ -171,15 +177,23 @@ English: "{{ text_to_translate }}"
     id: 'data-analysis',
     name: 'Data Analysis Assistant',
     description: 'Analytical thinking with conditional detail level',
-    template: `<SYSTEM>You are a data analysis expert. {{ detail_level === 'detailed' ? 'Provide comprehensive analysis with statistical insights.' : 'Provide concise, actionable insights.' }}</SYSTEM>
+    template: `<META>
+{
+  "settings": {
+    "thinkingTagFallback": { "enabled": true }
+  }
+}
+</META>
+<SYSTEM>You are a data analysis expert. {{ detail_level_is_detailed ? \`Provide comprehensive analysis with statistical insights.\` : \`Provide concise, actionable insights.\` }}{{ requires_tags_for_thinking ? ' Write your analytical reasoning inside <thinking> tags first.' : '' }}</SYSTEM>
 <USER>Analyze this {{ data_type }} data:
 
 {{ data }}
 
-{{ hasQuestions ? 'Answer these questions:\n' + questions : 'Provide key insights and patterns.' }}</USER>`,
+{{ hasQuestions ? \`Answer these questions:\n{{questions}}\` : \`Provide key insights and patterns.\` }}</USER>`,
     defaultVariables: {
       data_type: 'sales',
       detail_level: 'detailed',
+      detail_level_is_detailed: true,
       data: 'Q1: $45k, Q2: $52k, Q3: $48k, Q4: $61k',
       hasQuestions: true,
       questions: '1. What is the growth trend?\n2. Which quarter performed best?'
@@ -192,16 +206,23 @@ English: "{{ text_to_translate }}"
     id: 'debugging-helper',
     name: 'Debugging Assistant',
     description: 'Context-aware debugging with optional stack trace',
-    template: `<SYSTEM>You are a debugging expert specializing in {{ language }}. {{ includeStackTrace ? 'Analyze the stack trace carefully to identify the root cause.' : 'Focus on the error message and code context.' }}</SYSTEM>
+    template: `<META>
+{
+  "settings": {
+    "thinkingTagFallback": { "enabled": true }
+  }
+}
+</META>
+<SYSTEM>You are a debugging expert specializing in {{ language }}. {{ includeStackTrace ? 'Analyze the stack trace carefully to identify the root cause.' : 'Focus on the error message and code context.' }}{{ requires_tags_for_thinking ? ' Write your debugging analysis inside <thinking> tags first.' : '' }}</SYSTEM>
 <USER>I'm getting this error:
 {{ error_message }}
 
-{{ includeStackTrace ? 'Stack trace:\n' + stack_trace + '\n\n' : '' }}Code context:
+{{ includeStackTrace ? \`Stack trace:\n{{stack_trace}}\n\n\` : \`\` }}Code context:
 \`\`\`{{ language }}
 {{ code }}
 \`\`\`
 
-{{ hasAttempts ? 'What I\'ve tried:\n' + attempts : '' }}
+{{ hasAttempts ? \`What I've tried:\n{{attempts}}\` : \`\` }}
 
 Help me fix this issue.</USER>`,
     defaultVariables: {
@@ -226,16 +247,16 @@ Help me fix this issue.</USER>`,
   "settings": {
     "temperature": 0.5,
     "maxTokens": 2000,
-    "thinkingExtraction": { "enabled": true }
+    "thinkingTagFallback": { "enabled": true }
   }
 }
 </META>
-<SYSTEM>You are an interview preparation coach. When analyzing questions, first think through the best approach in <thinking> tags, then provide a structured answer.</SYSTEM>
+<SYSTEM>You are an interview preparation coach.{{ requires_tags_for_thinking ? ' When analyzing questions, first think through the best approach in <thinking> tags, then provide a structured answer.' : ' Analyze the question carefully and provide a structured answer.' }}</SYSTEM>
 <USER>Interview question for {{ position }} role:
 
 "{{ question }}"
 
-{{ hasContext ? 'Context: ' + context : '' }}
+{{ hasContext ? \`Context: {{context}}\` : \`\` }}
 
 Help me prepare a strong answer{{ includeTips ? ' and provide tips for delivery' : '' }}.</USER>`,
     defaultVariables: {
@@ -253,14 +274,16 @@ Help me prepare a strong answer{{ includeTips ? ' and provide tips for delivery'
     id: 'learning-tutor',
     name: 'Adaptive Learning Tutor',
     description: 'Adjusts explanation style based on experience level',
-    template: `<SYSTEM>You are a patient tutor{{ experience === 'beginner' ? ' who explains concepts in simple terms with analogies' : experience === 'intermediate' ? ' who provides balanced explanations with practical examples' : ' who dives deep into technical details and edge cases' }}.</SYSTEM>
+    template: `<SYSTEM>You are a patient tutor{{ experience_is_beginner ? \` who explains concepts in simple terms with analogies\` : experience_is_intermediate ? \` who provides balanced explanations with practical examples\` : \` who dives deep into technical details and edge cases\` }}.</SYSTEM>
 <USER>Explain {{ concept }} to someone with {{ experience }} experience in {{ field }}.
 
-{{ hasExample ? 'Use this example: ' + example : '' }}
-{{ hasComparison ? 'Compare it to: ' + comparison : '' }}</USER>`,
+{{ hasExample ? \`Use this example: {{example}}\` : \`\` }}
+{{ hasComparison ? \`Compare it to: {{comparison}}\` : \`\` }}</USER>`,
     defaultVariables: {
       concept: 'closures in JavaScript',
       experience: 'beginner',
+      experience_is_beginner: true,
+      experience_is_intermediate: false,
       field: 'programming',
       hasExample: true,
       example: 'a counter function that remembers its count',

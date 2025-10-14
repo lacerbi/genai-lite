@@ -64,30 +64,47 @@ export interface LLMReasoningSettings {
 }
 
 /**
- * Settings for extracting 'thinking' content from the start of a response
+ * Settings for extracting reasoning from XML tags when native reasoning is not active.
+ *
+ * This is a fallback mechanism for getting reasoning from:
+ * 1. Models without native reasoning support (e.g., GPT-4, Claude 3.5)
+ * 2. Models with native reasoning disabled (to see the full reasoning trace)
+ *
+ * **Key use case:** Disable native reasoning on capable models to avoid obfuscation
+ * by providers, then prompt the model to use <thinking> tags for full visibility.
+ *
+ * **Important:** You must explicitly prompt the model to use thinking tags in your prompt.
+ * The library only extracts them - it doesn't generate them automatically.
  */
-export interface LLMThinkingExtractionSettings {
+export interface LLMThinkingTagFallbackSettings {
   /**
-   * If true, enables the automatic extraction of content from a specified XML tag.
-   * @default false
+   * Enable tag extraction fallback.
+   * When this object exists, extraction is enabled by default (enabled: true).
+   * Set to false to explicitly disable (useful for overriding inherited settings).
+   * @default true (when thinkingTagFallback object exists)
    */
   enabled?: boolean;
 
   /**
-   * The XML tag name to look for (e.g., 'thinking', 'reasoning', 'scratchpad').
+   * Name of the XML tag to extract.
    * @default 'thinking'
+   * @example tagName: 'scratchpad' will extract <scratchpad>...</scratchpad>
    */
-  tag?: string;
+  tagName?: string;
 
   /**
-   * Defines behavior when the tag is not found. 'auto' is the recommended default.
-   * - 'ignore': Silently continue without a warning or error.
-   * - 'warn': Log a console warning but return the response as-is.
-   * - 'error': Return an LLMFailureResponse, treating it as a failed request.
-   * - 'auto': Becomes 'error' unless the model has active native reasoning. If native reasoning is active, this becomes 'ignore'.
-   * @default 'auto'
+   * Enforce that thinking tags are present when native reasoning is not active.
+   *
+   * When true:
+   * - If native reasoning is active: No enforcement (model using native)
+   * - If native reasoning is NOT active: Error if tags missing (fallback required)
+   *
+   * This is always "smart" - it automatically detects whether native reasoning
+   * is active and only enforces when the model needs to use tags as a fallback.
+   *
+   * @default false
    */
-  onMissing?: 'ignore' | 'warn' | 'error' | 'auto';
+  enforce?: boolean;
 }
 
 /**
@@ -115,10 +132,19 @@ export interface LLMSettings {
   /** Universal reasoning/thinking configuration */
   reasoning?: LLMReasoningSettings;
   /**
-   * Configuration for automatically extracting 'thinking' blocks from responses.
-   * Enabled by default.
+   * Extract reasoning from XML tags when native reasoning is not active.
+   *
+   * This is a fallback mechanism for getting reasoning from:
+   * 1. Models without native reasoning support (e.g., GPT-4, Claude 3.5)
+   * 2. Models with native reasoning disabled (to see the full reasoning trace)
+   *
+   * Key use case: Disable native reasoning on capable models to avoid obfuscation
+   * by providers, then prompt the model to use <thinking> tags for full visibility.
+   *
+   * Note: You must explicitly prompt the model to use thinking tags in your prompt.
+   * The library only extracts them - it doesn't generate them automatically.
    */
-  thinkingExtraction?: LLMThinkingExtractionSettings;
+  thinkingTagFallback?: LLMThinkingTagFallbackSettings;
 }
 
 /**
@@ -290,18 +316,54 @@ export type LLMIPCChannelName =
   (typeof LLM_IPC_CHANNELS)[keyof typeof LLM_IPC_CHANNELS];
 
 /**
- * Model context variables injected into templates
+ * Model context variables injected into templates during createMessages()
+ *
+ * These variables enable templates to adapt based on the model's reasoning capabilities.
+ *
+ * **Key Usage Pattern:**
+ * When adding thinking tag instructions, use requires_tags_for_thinking:
+ * ```
+ * {{ requires_tags_for_thinking ? 'Write your reasoning in <thinking> tags first.' : '' }}
+ * ```
+ *
+ * This ensures:
+ * - Models with active native reasoning get clean prompts
+ * - Models without native reasoning get explicit tag instructions
  */
 export interface ModelContext {
-  /** Whether reasoning/thinking is enabled for this request */
-  thinking_enabled: boolean;
-  /** Whether the model supports reasoning/thinking */
-  thinking_available: boolean;
+  /**
+   * Whether native reasoning is CURRENTLY ACTIVE for this request.
+   * - true: Model is using built-in reasoning (Claude 4, o4-mini, Gemini with reasoning enabled)
+   * - false: No native reasoning is active (model doesn't support it OR it's been disabled)
+   *
+   * Use in templates when adapting behavior based on whether native reasoning is happening.
+   */
+  native_reasoning_active: boolean;
+
+  /**
+   * Whether the model HAS THE CAPABILITY to use native reasoning.
+   * - true: Model supports native reasoning (may or may not be enabled)
+   * - false: Model does not support native reasoning
+   *
+   * Use in templates to check if native reasoning is possible (not necessarily active).
+   */
+  native_reasoning_capable: boolean;
+
+  /**
+   * Whether this model/request requires thinking tags to produce reasoning.
+   * - true: Native reasoning is not active, model needs prompting to use <thinking> tags
+   * - false: Native reasoning is active, no need for thinking tags
+   *
+   * Use in templates for conditional thinking tag instructions:
+   * {{ requires_tags_for_thinking ? 'Write your reasoning in <thinking> tags first.' : '' }}
+   */
+  requires_tags_for_thinking: boolean;
+
   /** The resolved model ID */
   model_id: string;
   /** The resolved provider ID */
   provider_id: string;
-  /** Reasoning effort level if specified */
+  /** Reasoning effort level if specified ('low', 'medium', or 'high') */
   reasoning_effort?: string;
   /** Reasoning max tokens if specified */
   reasoning_max_tokens?: number;

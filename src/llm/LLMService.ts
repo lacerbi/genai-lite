@@ -242,37 +242,33 @@ export class LLMService {
         );
         const result = await clientAdapter.sendMessage(internalRequest, apiKey);
 
-        // Post-process for thinking extraction
-        if (result.object === 'chat.completion' && internalRequest.settings.thinkingExtraction?.enabled) {
-          const settings = internalRequest.settings.thinkingExtraction;
-          const tagName = settings.tag || 'thinking';
-          
-          // Step 1: Resolve the effective onMissing strategy
-          let effectiveOnMissing = settings.onMissing || 'auto';
-          if (effectiveOnMissing === 'auto') {
-            // Check if native reasoning is active
-            const isNativeReasoningActive = 
-              modelInfo!.reasoning?.supported === true &&
-              (internalRequest.settings.reasoning?.enabled === true ||
-               (modelInfo!.reasoning?.enabledByDefault === true &&
-                internalRequest.settings.reasoning?.enabled !== false) || // Only if not explicitly disabled
-               modelInfo!.reasoning?.canDisable === false); // Always-on models
+        // Post-process for thinking tag fallback
+        // This feature extracts reasoning from XML tags when native reasoning is not active.
+        // It's a fallback mechanism for models without native reasoning or when native is disabled.
+        const fallbackSettings = internalRequest.settings.thinkingTagFallback;
+        if (result.object === 'chat.completion' && fallbackSettings && fallbackSettings.enabled !== false) {
+          const tagName = fallbackSettings.tagName || 'thinking';
 
-            effectiveOnMissing = isNativeReasoningActive ? 'ignore' : 'error';
-          }
+          // Check if native reasoning is active for this request
+          const isNativeReasoningActive =
+            modelInfo!.reasoning?.supported === true &&
+            (internalRequest.settings.reasoning?.enabled === true ||
+             (modelInfo!.reasoning?.enabledByDefault === true &&
+              internalRequest.settings.reasoning?.enabled !== false) ||
+             modelInfo!.reasoning?.canDisable === false);
 
-          // Step 2: Process the response
+          // Process the response - extract thinking tags if present
           const choice = result.choices[0];
           if (choice?.message?.content) {
             const { extracted, remaining } = extractInitialTaggedContent(choice.message.content, tagName);
 
             if (extracted !== null) {
+              // Success: thinking tag found
               console.log(`Extracted <${tagName}> block from response.`);
 
-              // Handle the edge case: append to existing reasoning if present.
+              // Handle the edge case: append to existing reasoning if present (e.g., native reasoning + thinking tags)
               const existingReasoning = choice.reasoning || '';
-              
-              // Only add a separator when appending to existing reasoning
+
               if (existingReasoning) {
                 // Use a neutral markdown header that works for any consumer (human or AI)
                 choice.reasoning = `${existingReasoning}\n\n#### Additional Reasoning\n\n${extracted}`;
@@ -282,17 +278,25 @@ export class LLMService {
               }
               choice.message.content = remaining;
             } else {
-              // Tag was not found, enforce the effective strategy
-              if (effectiveOnMissing === 'error') {
+              // Tag was not found
+              // Enforce only if: (1) enforce: true AND (2) native reasoning is NOT active
+              if (fallbackSettings.enforce === true && !isNativeReasoningActive) {
+                const nativeReasoningCapable = modelInfo!.reasoning?.supported === true;
+
                 return {
                   provider: providerId!,
                   model: modelId!,
                   error: {
-                    message: `The model (${modelId}) response was expected to start with a <${tagName}> tag but it was not found. ` +
-                             `This is enforced because the model does not have native reasoning active. ` +
-                             `Either ensure your prompt instructs the model to use <${tagName}> tags, or enable native reasoning if supported.`,
-                    code: "MISSING_EXPECTED_TAG",
+                    message: `Model response missing required <${tagName}> tags.`,
+                    code: "THINKING_TAGS_MISSING",
                     type: "validation_error",
+                    param: nativeReasoningCapable && !isNativeReasoningActive
+                      ? `You disabled native reasoning for this model (${modelId}). ` +
+                        `To see its reasoning, you must prompt it to use <${tagName}> tags. ` +
+                        `Example: "Write your step-by-step reasoning in <${tagName}> tags before answering."`
+                      : `This model (${modelId}) does not support native reasoning. ` +
+                        `To get reasoning, you must prompt it to use <${tagName}> tags. ` +
+                        `Example: "Write your step-by-step reasoning in <${tagName}> tags before answering."`,
                   },
                   object: "error",
                   partialResponse: {
@@ -304,10 +308,8 @@ export class LLMService {
                     usage: result.usage
                   }
                 };
-              } else if (effectiveOnMissing === 'warn') {
-                console.warn(`Expected <${tagName}> tag was not found in the response from model ${modelId}.`);
               }
-              // If 'ignore', do nothing
+              // If enforce: false or native reasoning is active, do nothing
             }
           }
         }
@@ -364,23 +366,49 @@ export class LLMService {
 
   /**
    * Creates messages from a template with role tags and model-aware variable substitution
-   * 
+   *
    * This unified method combines the functionality of template rendering, model context
    * injection, and role tag parsing into a single, intuitive API. It replaces the need
    * to chain prepareMessage and buildMessagesFromTemplate for model-aware multi-turn prompts.
-   * 
+   *
+   * **Model Context Injection:**
+   * When a presetId or providerId/modelId is provided, this method automatically injects
+   * model context variables into your templates:
+   * - `native_reasoning_active`: Whether native reasoning is currently active
+   * - `native_reasoning_capable`: Whether the model supports native reasoning
+   * - `requires_tags_for_thinking`: Whether thinking tags are needed (true when native reasoning not active)
+   * - `model_id`, `provider_id`, `reasoning_effort`, `reasoning_max_tokens`
+   *
+   * **Best Practice for Thinking Tags:**
+   * When adding thinking tag instructions, use requires_tags_for_thinking:
+   * `{{ requires_tags_for_thinking ? 'Write your reasoning in <thinking> tags first.' : '' }}`
+   *
    * @param options Options for creating messages
-   * @returns Promise resolving to parsed messages and model context
-   * 
+   * @returns Promise resolving to parsed messages, model context, and template settings
+   *
    * @example
    * ```typescript
+   * // Basic usage
    * const { messages } = await llm.createMessages({
    *   template: `
-   *     <SYSTEM>You are a {{ thinking_enabled ? "thoughtful" : "helpful" }} assistant.</SYSTEM>
+   *     <SYSTEM>You are a helpful assistant.</SYSTEM>
    *     <USER>Help me with {{ task }}</USER>
    *   `,
    *   variables: { task: 'understanding async/await' },
    *   presetId: 'openai-gpt-4.1-default'
+   * });
+   *
+   * // Model-aware template with thinking tags
+   * const { messages, modelContext } = await llm.createMessages({
+   *   template: `
+   *     <SYSTEM>
+   *       You are a problem-solving assistant.
+   *       {{ requires_tags_for_thinking ? 'For complex problems, write your reasoning in <thinking> tags first.' : '' }}
+   *     </SYSTEM>
+   *     <USER>{{ question }}</USER>
+   *   `,
+   *   variables: { question: 'Explain recursion' },
+   *   presetId: 'anthropic-claude-3-7-sonnet-20250219-thinking'
    * });
    * ```
    */
@@ -390,6 +418,7 @@ export class LLMService {
     presetId?: string;
     providerId?: string;
     modelId?: string;
+    settings?: Partial<LLMSettings>;
   }): Promise<CreateMessagesResult> {
     console.log('LLMService.createMessages called');
 
@@ -406,7 +435,8 @@ export class LLMService {
       const resolved = this.modelResolver.resolve({
         presetId: options.presetId,
         providerId: options.providerId as ApiProviderId,
-        modelId: options.modelId
+        modelId: options.modelId,
+        settings: options.settings
       });
       
       if (resolved.error) {
@@ -422,12 +452,16 @@ export class LLMService {
           settings || {}
         );
         
-        // Create model context
+        // Calculate native reasoning status
+        const nativeReasoningActive = !!(modelInfo!.reasoning?.supported &&
+                                        (mergedSettings.reasoning?.enabled === true ||
+                                         (modelInfo!.reasoning?.enabledByDefault && mergedSettings.reasoning?.enabled !== false)));
+
+        // Create model context with new property names
         modelContext = {
-          thinking_enabled: !!(modelInfo!.reasoning?.supported && 
-                              (mergedSettings.reasoning?.enabled === true ||
-                               (modelInfo!.reasoning?.enabledByDefault && mergedSettings.reasoning?.enabled !== false))),
-          thinking_available: !!modelInfo!.reasoning?.supported,
+          native_reasoning_active: nativeReasoningActive,
+          native_reasoning_capable: !!modelInfo!.reasoning?.supported,
+          requires_tags_for_thinking: !nativeReasoningActive,
           model_id: modelId!,
           provider_id: providerId!,
           reasoning_effort: mergedSettings.reasoning?.effort,

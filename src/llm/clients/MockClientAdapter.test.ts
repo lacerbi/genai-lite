@@ -29,9 +29,9 @@ describe('MockClientAdapter', () => {
           maxTokens: undefined as any,
           exclude: false
         },
-        thinkingExtraction: {
+        thinkingTagFallback: {
           enabled: true,
-          tag: 'thinking'
+          tagName: 'thinking'
         }
       }
     };

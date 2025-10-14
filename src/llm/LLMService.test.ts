@@ -482,9 +482,9 @@ describe('LLMService', () => {
         modelId: 'codestral-2501',
         messages: [{ role: 'user', content: 'test_thinking:<thinking>I am thinking about this problem.</thinking>Here is the answer.' }],
         settings: {
-          thinkingExtraction: {
+          thinkingTagFallback: {
             enabled: true,
-            tag: 'thinking'
+            tagName: 'thinking'
           }
         }
       };
@@ -503,9 +503,9 @@ describe('LLMService', () => {
         modelId: 'codestral-2501',
         messages: [{ role: 'user', content: 'test_thinking:<thinking>I am thinking about this problem.</thinking>Here is the answer.' }],
         settings: {
-          thinkingExtraction: {
+          thinkingTagFallback: {
             enabled: false,
-            tag: 'thinking'
+            tagName: 'thinking'
           }
         }
       };
@@ -524,9 +524,9 @@ describe('LLMService', () => {
         modelId: 'codestral-2501',
         messages: [{ role: 'user', content: 'test_thinking:<scratchpad>Working through the logic...</scratchpad>Final answer is 42.' }],
         settings: {
-          thinkingExtraction: {
+          thinkingTagFallback: {
             enabled: true,
-            tag: 'scratchpad'
+            tagName: 'scratchpad'
           }
         }
       };
@@ -546,9 +546,9 @@ describe('LLMService', () => {
         modelId: 'codestral-2501',
         messages: [{ role: 'user', content: 'test_reasoning:<thinking>Additional thoughts here.</thinking>The analysis is complete.' }],
         settings: {
-          thinkingExtraction: {
+          thinkingTagFallback: {
             enabled: true,
-            tag: 'thinking'
+            tagName: 'thinking'
           }
         }
       };
@@ -571,10 +571,10 @@ describe('LLMService', () => {
         modelId: 'codestral-2501',
         messages: [{ role: 'user', content: 'test_thinking:This response has no thinking tag.' }],
         settings: {
-          thinkingExtraction: {
+          thinkingTagFallback: {
             enabled: true,
-            tag: 'thinking',
-            onMissing: 'ignore' // Explicitly set to ignore
+            tagName: 'thinking',
+            enforce: false // Explicitly set to ignore
           }
         }
       };
@@ -604,16 +604,16 @@ describe('LLMService', () => {
       expect(successResponse.choices[0].message.content).toBe('<thinking>Default extraction test.</thinking>Result here.');
     });
 
-    describe('onMissing behavior', () => {
-      it('should use auto mode by default with error for non-native models', async () => {
+    describe('enforce behavior', () => {
+      it('should enforce tags when explicitly requested for non-native models', async () => {
         const request: LLMChatRequest = {
           providerId: 'mistral',
           modelId: 'codestral-2501', // Non-native reasoning model (using mock)
           messages: [{ role: 'user', content: 'test_thinking:Response without thinking tag.' }],
           settings: {
-            thinkingExtraction: {
+            thinkingTagFallback: {
               enabled: true,
-              // onMissing defaults to 'auto'
+              enforce: true  // Explicitly enforce tags
             }
           }
         };
@@ -622,27 +622,25 @@ describe('LLMService', () => {
 
         expect(response.object).toBe('error');
         const errorResponse = response as LLMFailureResponse;
-        expect(errorResponse.error.code).toBe('MISSING_EXPECTED_TAG');
+        expect(errorResponse.error.code).toBe('THINKING_TAGS_MISSING');
         expect(errorResponse.error.type).toBe('validation_error');
-        expect(errorResponse.error.message).toContain('response was expected to start with a <thinking> tag');
-        expect(errorResponse.error.message).toContain('does not have native reasoning active');
-        
+        expect(errorResponse.error.message).toContain('missing required <thinking> tags');
+        expect(errorResponse.error.param).toContain('does not support native reasoning');
+
         // Check that partial response is included
         expect(errorResponse.partialResponse).toBeDefined();
         expect(errorResponse.partialResponse!.choices[0].message.content).toBe('Response without thinking tag.');
       });
 
-      it('should handle missing tag for non-reasoning model with warn', async () => {
-        const consoleSpy = jest.spyOn(console, 'warn').mockImplementation();
-        
+      it('should not error when enforce is false even if tags are missing', async () => {
         const request: LLMChatRequest = {
           providerId: 'mistral',
           modelId: 'codestral-2501',
           messages: [{ role: 'user', content: 'test_thinking:Response without thinking tag.' }],
           settings: {
-            thinkingExtraction: {
+            thinkingTagFallback: {
               enabled: true,
-              onMissing: 'warn'
+              enforce: false  // Don't error on missing tags
             }
           }
         };
@@ -652,9 +650,8 @@ describe('LLMService', () => {
         expect(response.object).toBe('chat.completion');
         const successResponse = response as LLMResponse;
         expect(successResponse.choices[0].message.content).toBe('Response without thinking tag.');
-        expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Expected <thinking> tag was not found'));
-        
-        consoleSpy.mockRestore();
+        // No reasoning field should be set since tags weren't found
+        expect(successResponse.choices[0].reasoning).toBeUndefined();
       });
 
       it('should handle missing tag with explicit error mode', async () => {
@@ -663,9 +660,9 @@ describe('LLMService', () => {
           modelId: 'codestral-2501',
           messages: [{ role: 'user', content: 'test_thinking:Response without thinking tag.' }],
           settings: {
-            thinkingExtraction: {
+            thinkingTagFallback: {
               enabled: true,
-              onMissing: 'error' // Explicitly set to error
+              enforce: true // Explicitly set to error
             }
           }
         };
@@ -674,8 +671,8 @@ describe('LLMService', () => {
 
         expect(response.object).toBe('error');
         const errorResponse = response as LLMFailureResponse;
-        expect(errorResponse.error.code).toBe('MISSING_EXPECTED_TAG');
-        expect(errorResponse.error.message).toContain('response was expected to start with a <thinking> tag');
+        expect(errorResponse.error.code).toBe('THINKING_TAGS_MISSING');
+        expect(errorResponse.error.message).toContain('missing required <thinking> tags');
         
         // Check that partial response is included
         expect(errorResponse.partialResponse).toBeDefined();
@@ -688,9 +685,9 @@ describe('LLMService', () => {
           modelId: 'codestral-2501',
           messages: [{ role: 'user', content: 'test_thinking:Response without thinking tag.' }],
           settings: {
-            thinkingExtraction: {
+            thinkingTagFallback: {
               enabled: true,
-              onMissing: 'ignore'
+              enforce: false
             }
           }
         };
@@ -708,10 +705,10 @@ describe('LLMService', () => {
           modelId: 'codestral-2501',
           messages: [{ role: 'user', content: 'test_thinking:Response without custom tag.' }],
           settings: {
-            thinkingExtraction: {
+            thinkingTagFallback: {
               enabled: true,
-              tag: 'reasoning',
-              onMissing: 'error'
+              tagName: 'reasoning',
+              enforce: true
             }
           }
         };
@@ -720,7 +717,7 @@ describe('LLMService', () => {
 
         expect(response.object).toBe('error');
         const errorResponse = response as LLMFailureResponse;
-        expect(errorResponse.error.message).toContain('expected to start with a <reasoning> tag');
+        expect(errorResponse.error.message).toContain('missing required <reasoning> tags');
         expect(errorResponse.partialResponse).toBeDefined();
         expect(errorResponse.partialResponse!.choices[0].message.content).toBe('Response without custom tag.');
       });
@@ -733,9 +730,9 @@ describe('LLMService', () => {
             modelId: 'codestral-2501',
             messages: [{ role: 'user', content: 'test_thinking:Response without thinking tag.' }],
             settings: {
-              thinkingExtraction: {
+              thinkingTagFallback: {
                 enabled: true,
-                onMissing: 'auto'
+                enforce: true
               }
             }
           };
@@ -745,8 +742,8 @@ describe('LLMService', () => {
           // Should error because model doesn't have native reasoning
           expect(response.object).toBe('error');
           const errorResponse = response as LLMFailureResponse;
-          expect(errorResponse.error.code).toBe('MISSING_EXPECTED_TAG');
-          expect(errorResponse.error.message).toContain('does not have native reasoning active');
+          expect(errorResponse.error.code).toBe('THINKING_TAGS_MISSING');
+          expect(errorResponse.error.param).toContain('does not support native reasoning');
           expect(errorResponse.partialResponse).toBeDefined();
           expect(errorResponse.partialResponse!.choices[0].message.content).toBe('Response without thinking tag.');
         });
@@ -759,9 +756,9 @@ describe('LLMService', () => {
             messages: [{ role: 'user', content: 'test_thinking:Response without thinking tag.' }],
             settings: {
               reasoning: { enabled: false }, // Explicitly disabled
-              thinkingExtraction: {
+              thinkingTagFallback: {
                 enabled: true,
-                onMissing: 'auto'
+                enforce: true
               }
             }
           };
@@ -771,7 +768,7 @@ describe('LLMService', () => {
           // Should error because reasoning is explicitly disabled
           expect(response.object).toBe('error');
           const errorResponse = response as LLMFailureResponse;
-          expect(errorResponse.error.code).toBe('MISSING_EXPECTED_TAG');
+          expect(errorResponse.error.code).toBe('THINKING_TAGS_MISSING');
           expect(errorResponse.partialResponse).toBeDefined();
         });
       });

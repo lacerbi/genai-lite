@@ -2,16 +2,22 @@
 
 import { useState } from 'react';
 import { renderTemplate } from '../api/client';
-import type { Preset } from '../types';
+import type { Preset, LLMSettings } from '../types';
 import { exampleTemplates, getCategories, type ExampleTemplate } from '../data/exampleTemplates';
 
 interface TemplateExamplesProps {
   presets: Preset[];
   selectedPresetId?: string;
   onSelectPreset: (presetId: string) => void;
+  onOpenInChat?: (data: {
+    template: string;
+    variables: Record<string, any>;
+    settings?: Partial<LLMSettings>;
+    templateName: string;
+  }) => void;
 }
 
-export function TemplateExamples({ presets, selectedPresetId, onSelectPreset }: TemplateExamplesProps) {
+export function TemplateExamples({ presets, selectedPresetId, onSelectPreset, onOpenInChat }: TemplateExamplesProps) {
   const [selectedTemplate, setSelectedTemplate] = useState<ExampleTemplate>(exampleTemplates[0]);
   const [variables, setVariables] = useState<Record<string, any>>(selectedTemplate.defaultVariables);
   const [renderedResult, setRenderedResult] = useState<any>(null);
@@ -72,6 +78,29 @@ export function TemplateExamples({ presets, selectedPresetId, onSelectPreset }: 
     }
   };
 
+  const handleOpenInChat = () => {
+    if (!onOpenInChat) return;
+
+    // Extract settings from template META block if present
+    let settings: Partial<LLMSettings> | undefined;
+    const metaMatch = selectedTemplate.template.match(/<META>\s*(\{[\s\S]*?\})\s*<\/META>/);
+    if (metaMatch) {
+      try {
+        const metadata = JSON.parse(metaMatch[1]);
+        settings = metadata.settings;
+      } catch (err) {
+        console.warn('Failed to parse template metadata:', err);
+      }
+    }
+
+    onOpenInChat({
+      template: selectedTemplate.template,
+      variables,
+      settings,
+      templateName: selectedTemplate.name,
+    });
+  };
+
   return (
     <div className="template-examples">
       <h3>Template Examples</h3>
@@ -79,62 +108,63 @@ export function TemplateExamples({ presets, selectedPresetId, onSelectPreset }: 
         Demonstrate genai-lite's template engine with variable substitution, conditional logic, and model-aware prompts.
       </p>
 
-      {/* Preset Selector */}
-      <div className="preset-selector-section">
-        <label htmlFor="preset-select">Select Preset:</label>
-        <select
-          id="preset-select"
-          value={selectedPresetId || ''}
-          onChange={(e) => onSelectPreset(e.target.value)}
-          className="preset-select"
-        >
-          <option value="">Choose a preset...</option>
-          {presets.map(preset => (
-            <option key={preset.id} value={preset.id}>
-              {preset.displayName}
-            </option>
-          ))}
-        </select>
-      </div>
+      {/* Category and Template Selector Row */}
+      <div className="selector-row">
+        {/* Category Filter */}
+        <div className="category-filter">
+          <label htmlFor="category-select">Category:</label>
+          <select
+            id="category-select"
+            value={selectedCategory}
+            onChange={(e) => setSelectedCategory(e.target.value)}
+            className="category-select"
+          >
+            <option value="all">All Templates ({exampleTemplates.length})</option>
+            {categories.map(cat => (
+              <option key={cat} value={cat}>
+                {cat.charAt(0).toUpperCase() + cat.slice(1)} ({exampleTemplates.filter(t => t.category === cat).length})
+              </option>
+            ))}
+          </select>
 
-      {/* Category Filter */}
-      <div className="category-filter">
-        <label htmlFor="category-select">Category:</label>
-        <select
-          id="category-select"
-          value={selectedCategory}
-          onChange={(e) => setSelectedCategory(e.target.value)}
-          className="category-select"
-        >
-          <option value="all">All Templates ({exampleTemplates.length})</option>
-          {categories.map(cat => (
-            <option key={cat} value={cat}>
-              {cat.charAt(0).toUpperCase() + cat.slice(1)} ({exampleTemplates.filter(t => t.category === cat).length})
-            </option>
-          ))}
-        </select>
-      </div>
+          {/* Preset Selector */}
+          <label htmlFor="preset-select">Select Preset:</label>
+          <select
+            id="preset-select"
+            value={selectedPresetId || ''}
+            onChange={(e) => onSelectPreset(e.target.value)}
+            className="preset-select"
+          >
+            <option value="">Choose a preset...</option>
+            {presets.map(preset => (
+              <option key={preset.id} value={preset.id}>
+                {preset.displayName}
+              </option>
+            ))}
+          </select>
+        </div>
 
-      {/* Template Selector */}
-      <div className="template-selector">
-        <label htmlFor="template-select">Template:</label>
-        <select
-          id="template-select"
-          value={selectedTemplate.id}
-          onChange={(e) => handleTemplateChange(e.target.value)}
-          className="template-select"
-        >
-          {filteredTemplates.map(template => (
-            <option key={template.id} value={template.id}>
-              {template.name}
-            </option>
-          ))}
-        </select>
-        <p className="template-description">{selectedTemplate.description}</p>
-        <div className="template-tags">
-          {selectedTemplate.tags.map(tag => (
-            <span key={tag} className="template-tag">{tag}</span>
-          ))}
+        {/* Template Selector */}
+        <div className="template-selector">
+          <label htmlFor="template-select">Template:</label>
+          <select
+            id="template-select"
+            value={selectedTemplate.id}
+            onChange={(e) => handleTemplateChange(e.target.value)}
+            className="template-select"
+          >
+            {filteredTemplates.map(template => (
+              <option key={template.id} value={template.id}>
+                {template.name}
+              </option>
+            ))}
+          </select>
+          <p className="template-description">{selectedTemplate.description}</p>
+          <div className="template-tags">
+            {selectedTemplate.tags.map(tag => (
+              <span key={tag} className="template-tag">{tag}</span>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -160,14 +190,26 @@ export function TemplateExamples({ presets, selectedPresetId, onSelectPreset }: 
         ))}
       </div>
 
-      {/* Render Button */}
-      <button
-        onClick={handleRender}
-        disabled={isRendering || !selectedPresetId}
-        className="render-button"
-      >
-        {isRendering ? 'Rendering...' : 'Render Template'}
-      </button>
+      {/* Action Buttons */}
+      <div className="template-actions">
+        <button
+          onClick={handleRender}
+          disabled={isRendering || !selectedPresetId}
+          className="render-button"
+        >
+          {isRendering ? 'Rendering...' : 'Render Template'}
+        </button>
+        {onOpenInChat && (
+          <button
+            onClick={handleOpenInChat}
+            disabled={isRendering}
+            className="open-in-chat-button"
+            title="Open this template in the Chat tab"
+          >
+            Open in Chat
+          </button>
+        )}
+      </div>
 
       {/* Error */}
       {error && (

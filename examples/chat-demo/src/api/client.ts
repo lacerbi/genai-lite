@@ -69,11 +69,14 @@ export async function sendChatMessage(request: ChatRequest): Promise<ChatRespons
     body: JSON.stringify(request),
   });
 
-  if (!response.ok) {
+  // Always parse JSON to get detailed error information
+  // The backend returns structured error details even on error status codes
+  try {
+    return await response.json();
+  } catch (parseError) {
+    // If JSON parsing fails, throw a generic error with the status
     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
   }
-
-  return await response.json();
 }
 
 /**
@@ -114,11 +117,14 @@ export async function renderTemplate(request: TemplateRenderRequest): Promise<Te
     body: JSON.stringify(request),
   });
 
-  if (!response.ok) {
+  // Always parse JSON to get detailed error information
+  // The backend returns structured error details even on error status codes
+  try {
+    return await response.json();
+  } catch (parseError) {
+    // If JSON parsing fails, throw a generic error with the status
     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
   }
-
-  return await response.json();
 }
 
 /**
@@ -133,11 +139,12 @@ export async function tokenizeText(request: TokenizeRequest): Promise<TokenizeRe
     body: JSON.stringify(request),
   });
 
-  if (!response.ok) {
+  // Always parse JSON to get detailed error information
+  try {
+    return await response.json();
+  } catch (parseError) {
     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
   }
-
-  return await response.json();
 }
 
 /**
@@ -146,11 +153,12 @@ export async function tokenizeText(request: TokenizeRequest): Promise<TokenizeRe
 export async function checkLlamaCppHealth(): Promise<LlamaCppHealthResponse> {
   const response = await fetch(`${API_BASE}/llamacpp/health`);
 
-  if (!response.ok) {
+  // Always parse JSON to get detailed error information
+  try {
+    return await response.json();
+  } catch (parseError) {
     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
   }
-
-  return await response.json();
 }
 
 /**
@@ -165,9 +173,10 @@ export async function generateEmbedding(request: EmbeddingRequest): Promise<Embe
     body: JSON.stringify(request),
   });
 
-  if (!response.ok) {
+  // Always parse JSON to get detailed error information
+  try {
+    return await response.json();
+  } catch (parseError) {
     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
   }
-
-  return await response.json();
 }

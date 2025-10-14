@@ -295,9 +295,11 @@ if (response.object === 'chat.completion' && response.choices[0].reasoning) {
 - Not all models support reasoning - check the [supported models](#models-with-reasoning-support) list
 - The `reasoning` field in the response contains the model's thought process (when available)
 
-### Automatic Thinking Extraction
+### Thinking Extraction and Enforcement
 
-genai-lite can capture reasoning from any model by automatically extracting content wrapped in XML tags. When models output their thinking process in tags like `<thinking>`, the library automatically moves this content to the standardized `reasoning` field. This works with all models, providing a consistent interface for accessing model reasoning:
+For models without native reasoning, you can prompt them to output reasoning in XML tags like `<thinking>`. The library then extracts these tags and moves the content to the standardized `reasoning` field, providing a consistent interface across all models.
+
+**Key point:** The library doesn't make models think automatically—you must explicitly instruct non-reasoning models to use thinking tags in your prompt. The library then enforces that these tags are present (for non-reasoning models) or accepts native reasoning (for reasoning models).
 
 ```typescript
 // Prompt the model to think step-by-step in a <thinking> tag
@@ -312,7 +314,7 @@ const response = await llmService.sendMessage({
     content: 'Please think through this problem step by step before answering: What is 15% of 240?'
   }],
   settings: {
-    thinkingExtraction: { enabled: true } // Must explicitly enable
+    thinkingTagFallback: { enabled: true } // Must explicitly enable
   }
 });
 
@@ -334,25 +336,25 @@ const response = await llmService.sendMessage({
   modelId: 'claude-3-5-haiku-20241022',
   messages: [{ role: 'user', content: 'Solve this step by step...' }],
   settings: {
-    thinkingExtraction: {
+    thinkingTagFallback: {
       enabled: true,     // Must explicitly enable (default: false)
-      tag: 'scratchpad', // Custom tag name (default: 'thinking')
-      onMissing: 'auto'  // Smart enforcement (see below)
+      tagName: 'scratchpad', // Custom tag name (default: 'thinking')
+      enforce: true  // Smart enforcement (see below)
     }
   }
 });
 ```
 
-**The `onMissing` Property:**
+**The `enforce` Property:**
 
-The `onMissing` property controls what happens when the expected thinking tag is not found:
+The `enforce` boolean controls whether thinking tags are required when native reasoning is not active:
 
-- `'ignore'`: Silently continue without the tag
-- `'warn'`: Log a warning but continue processing
-- `'error'`: Return an error response with the original response preserved in `partialResponse`
-- `'auto'` (default): Intelligently decide based on the model's native reasoning capabilities
+- `enforce: true` - Error if tags missing AND native reasoning not active (smart enforcement)
+- `enforce: false` (default) - Extract tags if present, never error
 
-**How `'auto'` Mode Works:**
+The enforcement is **always smart** - it automatically checks if native reasoning is active and only enforces when the model needs tags as a fallback.
+
+**How Smart Enforcement Works:**
 
 ```typescript
 // With non-native reasoning models (e.g., GPT-4)
@@ -367,10 +369,10 @@ const response = await llmService.sendMessage({
     content: 'What is 15% of 240?'
   }],
   settings: {
-    thinkingExtraction: { enabled: true } // onMissing: 'auto' is default
+    thinkingTagFallback: { enabled: true, enforce: true }
   }
 });
-// Result: ERROR if <thinking> tag is missing (strict enforcement)
+// Result: ERROR if <thinking> tag is missing (native reasoning not active)
 // The response is still accessible via errorResponse.partialResponse
 
 // With native reasoning models (e.g., Claude with reasoning enabled)
@@ -380,10 +382,10 @@ const response = await llmService.sendMessage({
   messages: [/* same prompt */],
   settings: {
     reasoning: { enabled: true },
-    thinkingExtraction: { enabled: true }
+    thinkingTagFallback: { enabled: true, enforce: true }
   }
 });
-// Result: SUCCESS even if <thinking> tag is missing (lenient for native reasoning)
+// Result: SUCCESS even if <thinking> tag is missing (native reasoning is active)
 ```
 
 This intelligent enforcement ensures that:
@@ -510,13 +512,10 @@ The library provides a powerful `createMessages` method that combines template r
 // Basic example: Create model-aware messages
 const { messages, modelContext } = await llmService.createMessages({
   template: `
-    <SYSTEM>
-      You are a {{ thinking_enabled ? "thoughtful" : "helpful" }} assistant.
-      {{ thinking_available && !thinking_enabled ? "Note: Reasoning mode is available for complex problems." : "" }}
-    </SYSTEM>
+    <SYSTEM>You are a helpful assistant.</SYSTEM>
     <USER>{{ question }}</USER>
   `,
-  variables: { 
+  variables: {
     question: 'What is the optimal algorithm for finding the shortest path in a weighted graph?'
   },
   presetId: 'anthropic-claude-3-7-sonnet-20250219-thinking'
@@ -560,13 +559,25 @@ The method provides:
 - **Template Rendering**: Full support for conditionals and variable substitution
 - **Role Tag Parsing**: Converts `<SYSTEM>`, `<USER>`, and `<ASSISTANT>` tags to messages
 
-Available model context variables:
-- `thinking_enabled`: Whether reasoning/thinking is enabled for this request
-- `thinking_available`: Whether the model supports reasoning/thinking
+**Available model context variables:**
+
+- `native_reasoning_active`: Whether native reasoning is **currently active** for this request
+  - `true`: The model is using built-in reasoning (e.g., Claude 4, o4-mini, Gemini 2.5 Pro with reasoning enabled)
+  - `false`: No native reasoning is active (either because the model doesn't support it, or it's been disabled)
+- `native_reasoning_capable`: Whether the model **has the capability** to use native reasoning
+  - `true`: Model supports native reasoning (may or may not be enabled)
+  - `false`: Model does not support native reasoning
 - `model_id`: The resolved model ID
 - `provider_id`: The resolved provider ID
 - `reasoning_effort`: The reasoning effort level if specified
 - `reasoning_max_tokens`: The reasoning token budget if specified
+
+**Best Practice for Templates:**
+When adding thinking tag instructions to your templates, **always use `requires_tags_for_thinking`** (the NOT operator). This ensures:
+- Models with active native reasoning get clean, direct prompts
+- Models without native reasoning get explicit instructions to use `<thinking>` tags
+
+Example: `{{ requires_tags_for_thinking ? ' Write your reasoning in <thinking> tags first.' : '' }}`
 
 #### Advanced Features
 
@@ -617,7 +628,7 @@ const response = await llmService.sendMessage({
   modelId: 'gpt-4.1',
   messages,
   settings: {
-    thinkingExtraction: { enabled: true } // Default, but shown for clarity
+    thinkingTagFallback: { enabled: true } // Default, but shown for clarity
   }
 });
 
@@ -640,7 +651,7 @@ const creativeWritingTemplate = `
   "settings": {
     "temperature": 0.9,
     "maxTokens": 3000,
-    "thinkingExtraction": { "enabled": true, "tag": "reasoning" }
+    "thinkingTagFallback": { "enabled": true, "tagName": "reasoning" }
   }
 }
 </META>
@@ -1045,14 +1056,14 @@ const llmService = new LLMService(electronKeyProvider);
 genai-lite is written in TypeScript and provides comprehensive type definitions:
 
 ```typescript
-import type { 
+import type {
   LLMChatRequest,
   LLMChatRequestWithPreset,
   LLMResponse,
   LLMFailureResponse,
   LLMSettings,
   LLMReasoningSettings,
-  LLMThinkingExtractionSettings,
+  LLMThinkingTagFallbackSettings,
   ApiKeyProvider,
   ModelPreset,
   LLMServiceOptions,
@@ -1324,24 +1335,23 @@ const { messages } = await llmService.createMessages({
   presetId: 'openai-gpt-4.1-default' // Optional: adds model context
 });
 
-// Advanced: Leverage model context for adaptive prompts
+// Advanced: Adaptive prompts based on model capabilities
 const { messages, modelContext } = await llmService.createMessages({
   template: `
     <SYSTEM>
-      You are a {{ thinking_enabled ? 'analytical problem solver' : 'quick helper' }}.
-      {{ model_id.includes('claude') ? 'Use your advanced reasoning capabilities.' : '' }}
+      You are a problem-solving assistant.
+      {{ requires_tags_for_thinking ? ' For complex problems, write your reasoning in <thinking> tags before answering.' : '' }}
     </SYSTEM>
-    <USER>
-      {{ thinking_enabled ? 'Please solve this step-by-step:' : 'Please answer:' }}
-      {{ question }}
-    </USER>
+    <USER>{{ question }}</USER>
   `,
+  // Note: Use requires_tags_for_thinking (NOT operator) - only instruct models that don't have active native reasoning
   variables: { question: 'What causes the seasons on Earth?' },
   presetId: 'anthropic-claude-3-7-sonnet-20250219-thinking'
 });
 
 console.log('Model context:', modelContext);
-// Output: { thinking_enabled: true, thinking_available: true, model_id: 'claude-3-7-sonnet-20250219', ... }
+// Output: { native_reasoning_active: true, native_reasoning_capable: true, model_id: 'claude-3-7-sonnet-20250219', ... }
+// Note: With a reasoning model, the system prompt won't include thinking tag instructions
 ```
 
 **Low-Level Utilities:**

@@ -173,16 +173,16 @@ export function parseRoleTags(template: string): Array<{ role: string; content: 
  * {
  *   "settings": {
  *     "temperature": 0.9,
- *     "thinkingExtraction": { "enabled": true, "tag": "reasoning" }
+ *     "thinkingTagFallback": { "enabled": true, "tagName": "reasoning" }
  *   }
  * }
  * </META>
  * <SYSTEM>You are a creative writer...</SYSTEM>
  * <USER>Write a story</USER>
  * `;
- * 
+ *
  * const { metadata, content } = parseTemplateWithMetadata(template);
- * // metadata.settings will contain the temperature and thinkingExtraction settings
+ * // metadata.settings will contain the temperature and thinkingTagFallback settings
  * // content will contain the SYSTEM and USER tags
  */
 export function parseTemplateWithMetadata(template: string): { 

@@ -1,6 +1,7 @@
 // SettingsPanel component - Configure LLM settings (Sidebar version)
 
-import type { LLMSettings } from '../types';
+import { useState } from 'react';
+import type { LLMSettings, UserVariables, AutomaticVariables } from '../types';
 
 interface SettingsPanelProps {
   settings: LLMSettings;
@@ -11,6 +12,9 @@ interface SettingsPanelProps {
   disabled?: boolean;
   isExpanded: boolean;
   onToggle: () => void;
+  userVariables: UserVariables;
+  onUserVariablesChange: (variables: UserVariables) => void;
+  automaticVariables: AutomaticVariables;
 }
 
 export function SettingsPanel({
@@ -21,11 +25,47 @@ export function SettingsPanel({
   onResetSettings,
   disabled = false,
   isExpanded,
-  onToggle
+  onToggle,
+  userVariables,
+  onUserVariablesChange,
+  automaticVariables
 }: SettingsPanelProps) {
+
+  const [newVarKey, setNewVarKey] = useState('');
+  const [newVarValue, setNewVarValue] = useState('');
 
   const updateSetting = <K extends keyof LLMSettings>(key: K, value: LLMSettings[K]) => {
     onSettingsChange({ ...settings, [key]: value });
+  };
+
+  const handleAddVariable = () => {
+    if (!newVarKey.trim()) return;
+
+    // Validate variable name (alphanumeric + underscore only)
+    if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(newVarKey.trim())) {
+      alert('Variable name must start with a letter or underscore and contain only letters, numbers, and underscores.');
+      return;
+    }
+
+    onUserVariablesChange({
+      ...userVariables,
+      [newVarKey.trim()]: newVarValue
+    });
+    setNewVarKey('');
+    setNewVarValue('');
+  };
+
+  const handleDeleteVariable = (key: string) => {
+    const updated = { ...userVariables };
+    delete updated[key];
+    onUserVariablesChange(updated);
+  };
+
+  const handleUpdateVariable = (key: string, value: string) => {
+    onUserVariablesChange({
+      ...userVariables,
+      [key]: value
+    });
   };
 
   return (
@@ -150,17 +190,144 @@ export function SettingsPanel({
             <label>
               <input
                 type="checkbox"
-                checked={settings.thinkingExtraction?.enabled ?? false}
+                checked={settings.thinkingTagFallback?.enabled ?? true}
                 onChange={(e) =>
-                  updateSetting('thinkingExtraction', {
+                  updateSetting('thinkingTagFallback', {
                     enabled: e.target.checked,
+                    enforce: e.target.checked ? (settings.thinkingTagFallback?.enforce ?? false) : false,
                   })
                 }
                 disabled={disabled}
               />
-              Enable Thinking Extraction
+              Enable Thinking Tag Extraction
             </label>
-            <span className="setting-hint">Extract thinking from &lt;thinking&gt; tags</span>
+            <span className="setting-hint">Extract reasoning from &lt;thinking&gt; tags for models without native reasoning</span>
+
+            {settings.thinkingTagFallback?.enabled && (
+              <div style={{ marginLeft: '1.5rem', marginTop: '0.5rem' }}>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={settings.thinkingTagFallback?.enforce ?? false}
+                    onChange={(e) =>
+                      updateSetting('thinkingTagFallback', {
+                        enabled: true,
+                        enforce: e.target.checked,
+                      })
+                    }
+                    disabled={disabled}
+                  />
+                  Require Thinking Tags
+                </label>
+                <span className="setting-hint">Enforce thinking tags when native reasoning is not active</span>
+              </div>
+            )}
+          </div>
+
+          {/* Variables Section */}
+          <div className="variables-section">
+            <h4 style={{ margin: '0 0 0.5rem 0', fontSize: '1rem', color: 'var(--text)' }}>Variables</h4>
+            <span className="setting-hint" style={{ marginBottom: '0.75rem', display: 'block' }}>
+              Use {'{{variableName}}'} in messages and system prompt
+            </span>
+
+            {/* Automatic Variables */}
+            <div className="variables-subsection">
+              <div className="variables-subsection-title">Automatic (computed)</div>
+              <span className="setting-hint" style={{ fontSize: '0.8rem', display: 'block', marginTop: '-0.25rem', marginBottom: '0.5rem' }}>
+                Based on model capabilities and settings above
+              </span>
+              <div className="variable-list">
+                {Object.keys(automaticVariables).length === 0 ? (
+                  <div className="variables-empty">No automatic variables available</div>
+                ) : (
+                  Object.entries(automaticVariables).map(([key, value]) => (
+                    <div key={key} className="variable-item variable-item-readonly">
+                      <div className="variable-item-header">
+                        <span className="variable-icon">🔒</span>
+                        <span className="variable-key">{key}</span>
+                      </div>
+                      <div className="variable-value">{String(value)}</div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            {/* Custom Variables */}
+            <div className="variables-subsection">
+              <div className="variables-subsection-title">Custom</div>
+              <div className="variable-list">
+                {Object.keys(userVariables).length === 0 ? (
+                  <div className="variables-empty">No custom variables defined</div>
+                ) : (
+                  Object.entries(userVariables).map(([key, value]) => (
+                    <div key={key} className="variable-item variable-item-editable">
+                      <div className="variable-key">{key}</div>
+                      <input
+                        type="text"
+                        className="variable-value-input"
+                        value={value}
+                        onChange={(e) => handleUpdateVariable(key, e.target.value)}
+                        disabled={disabled}
+                        placeholder="Value"
+                      />
+                      <div className="variable-actions">
+                        <button
+                          className="variable-delete-btn"
+                          onClick={() => handleDeleteVariable(key)}
+                          disabled={disabled}
+                          title="Delete variable"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              {/* Add Variable Form */}
+              <div className="add-variable-form">
+                <div className="add-variable-inputs">
+                  <input
+                    type="text"
+                    className="add-variable-input"
+                    placeholder="Variable name"
+                    value={newVarKey}
+                    onChange={(e) => setNewVarKey(e.target.value)}
+                    disabled={disabled}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleAddVariable();
+                      }
+                    }}
+                  />
+                  <input
+                    type="text"
+                    className="add-variable-input"
+                    placeholder="Value"
+                    value={newVarValue}
+                    onChange={(e) => setNewVarValue(e.target.value)}
+                    disabled={disabled}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleAddVariable();
+                      }
+                    }}
+                  />
+                </div>
+                <button
+                  className="add-variable-btn"
+                  onClick={handleAddVariable}
+                  disabled={disabled || !newVarKey.trim()}
+                >
+                  Add Variable
+                </button>
+              </div>
+            </div>
           </div>
 
           <button

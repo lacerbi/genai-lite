@@ -19,9 +19,9 @@ jest.mock('../config', () => ({
       maxTokens: undefined,
       exclude: false,
     },
-    thinkingExtraction: {
+    thinkingTagFallback: {
       enabled: true,
-      tag: 'thinking',
+      tagName: 'thinking',
     },
   }),
 }));
@@ -55,9 +55,9 @@ describe('SettingsManager', () => {
           maxTokens: undefined,
           exclude: false,
         },
-        thinkingExtraction: {
+        thinkingTagFallback: {
           enabled: true,
-          tag: 'thinking',
+          tagName: 'thinking',
         },
       });
     });
@@ -130,9 +130,9 @@ describe('SettingsManager', () => {
           maxTokens: 5000,
           exclude: true,
         },
-        thinkingExtraction: {
+        thinkingTagFallback: {
           enabled: false,
-          tag: 'scratchpad',
+          tagName: 'scratchpad',
         },
       };
 
@@ -159,9 +159,9 @@ describe('SettingsManager', () => {
         maxTokens: undefined,
         exclude: false,
       },
-      thinkingExtraction: {
+      thinkingTagFallback: {
         enabled: true,
-        tag: 'thinking',
+        tagName: 'thinking',
       },
     };
 

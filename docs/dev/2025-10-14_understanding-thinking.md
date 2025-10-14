@@ -1,0 +1,330 @@
+# Understanding Thinking Extraction in genai-lite
+
+This document explains how thinking extraction works in genai-lite, common misconceptions, and correct usage patterns.
+
+## What is Thinking Extraction?
+
+**Thinking extraction is NOT an automatic thinking generator.** It's a two-part feature:
+
+1. **Parser**: Extracts content from `<thinking>` tags in model responses
+2. **Enforcer**: Ensures reasoning happens (either natively OR via explicit tags)
+
+### Key Point: YOU Must Prompt the Model
+
+The library doesn't automatically make models think. For non-reasoning models, YOU must explicitly instruct them to use `<thinking>` tags in your prompt. The library then:
+- Parses those tags from the response
+- Moves the content to the standardized `reasoning` field
+- Enforces that the tags were present (with `enforce: true` and smart detection)
+
+## Model Context Variables
+
+When using `createMessages()`, the library injects these variables based on the selected model and settings:
+
+### `native_reasoning_capable`
+- **Meaning**: Does this model SUPPORT native reasoning capabilities?
+- **Examples**:
+  - `true`: Claude 4, Claude 3.7, o4-mini, Gemini 2.5 Pro, DeepSeek R1, QwQ
+  - `false`: GPT-4, Claude 3.5, Llama 3, Mistral
+
+### `native_reasoning_active`
+- **Meaning**: Is reasoning CURRENTLY ACTIVE for this request?
+- **Depends on**:
+  1. Model has native reasoning (`native_reasoning_capable = true`)
+  2. AND reasoning is enabled in settings (`reasoning.enabled = true`)
+  3. OR reasoning is enabled by default and not explicitly disabled
+
+### Examples:
+
+```typescript
+// Claude 4 with reasoning enabled
+native_reasoning_capable: true
+native_reasoning_active: true
+// → Model will think automatically, NO <thinking> tags needed
+
+// Claude 4 with reasoning disabled
+native_reasoning_capable: true
+native_reasoning_active: false
+// → Model won't think unless you prompt it with <thinking> tags
+
+// GPT-4 (no native reasoning)
+native_reasoning_capable: false
+native_reasoning_active: false
+// → Model won't think unless you prompt it with <thinking> tags
+```
+
+**Key Insight:** Notice that both scenarios above have `native_reasoning_active: false`. This is intentional:
+- The variable doesn't distinguish between "model can't" vs "model is disabled"
+- Both mean: native reasoning is NOT currently active
+- Both require: explicit `<thinking>` tag instructions in your prompt
+- This is why the `requires_tags_for_thinking` pattern works universally
+
+## The Two Ways Reasoning Happens
+
+### 1. Native Reasoning (Automatic)
+**When**: `native_reasoning_active = true`
+- Model: Claude 4, o4-mini, Gemini 2.5 Pro, etc.
+- Behavior: Model thinks automatically via API
+- Prompting: Just give the problem, DON'T ask for step-by-step
+- Result: Reasoning appears in `response.choices[0].reasoning`
+
+### 2. Explicit Thinking Tags (Prompted)
+**When**: `native_reasoning_active = false` (native reasoning not active - either unsupported OR disabled)
+- Model: Any model (GPT-4, Claude 3.5, Llama 3, etc.)
+- Behavior: Model thinks ONLY if you prompt it to
+- Prompting: "Write your reasoning in `<thinking>` tags first"
+- Result: Library extracts tags → moves to `response.choices[0].reasoning`
+
+## Common Mistakes
+
+### ❌ MISTAKE #1: Backwards Conditionals
+
+```typescript
+// WRONG - Asks reasoning models to work step-by-step!
+<USER>
+  {{ native_reasoning_active ? 'Please solve this step-by-step:' : 'Please answer:' }}
+  {{ problem }}
+</USER>
+```
+
+**Why wrong**: When `native_reasoning_active = true`, the model ALREADY thinks automatically. Asking it to work "step-by-step" is redundant and confusing.
+
+**Correct version**:
+```typescript
+// RIGHT - Asks NON-reasoning models to work step-by-step
+<USER>
+  {{ requires_tags_for_thinking ? 'Write your reasoning in <thinking> tags, then solve:' : 'Please solve:' }}
+  {{ problem }}
+</USER>
+```
+
+### ❌ MISTAKE #2: Always Asking for Thinking Tags
+
+```typescript
+// WRONG - Reasoning models don't need <thinking> tags!
+<SYSTEM>
+  Always write your reasoning inside <thinking> tags before answering.
+</SYSTEM>
+```
+
+**Why wrong**: Reasoning models (Claude 4, o4-mini) have their own internal reasoning mechanism. Asking them to use `<thinking>` tags might confuse them or produce redundant output.
+
+**Correct version**:
+```typescript
+// RIGHT - Conditional thinking instruction
+<SYSTEM>
+  You are a helpful assistant.
+  {{ requires_tags_for_thinking ? ' When solving complex problems, write your reasoning inside <thinking> tags first.' : '' }}
+</SYSTEM>
+```
+
+### ❌ MISTAKE #3: Not Understanding thinkingTagFallback
+
+```typescript
+// WRONG ASSUMPTION: "thinkingTagFallback makes models think"
+settings: {
+  thinkingTagFallback: { enabled: true }
+}
+// This doesn't automatically generate thinking!
+```
+
+**Reality**: `thinkingTagFallback.enabled: true` means:
+1. Parse `<thinking>` tags from responses (if present)
+2. WITH `enforce: true`: Enforce that reasoning happened
+   - For non-reasoning models → ERROR if no `<thinking>` tags found
+   - For reasoning models → OK, they used native reasoning instead (smart enforcement)
+
+## Correct Patterns
+
+### Pattern 1: Complex Task (Requires Reasoning)
+
+```typescript
+const template = `
+<META>
+{
+  "settings": {
+    "thinkingTagFallback": { "enabled": true }
+  }
+}
+</META>
+<SYSTEM>
+  You are an expert code reviewer.
+  {{ requires_tags_for_thinking ? ' When reviewing, write your analysis in <thinking> tags first.' : '' }}
+</SYSTEM>
+<USER>Review this code: {{ code }}</USER>
+`;
+```
+
+**What this does**:
+- Reasoning model (`native_reasoning_active = true`): Just review, no tag instruction
+- Non-reasoning model (`native_reasoning_active = false`): Instructs to use `<thinking>` tags
+- `thinkingTagFallback` ensures reasoning happens either way
+
+### Pattern 2: Simple Task (No Reasoning Needed)
+
+```typescript
+const template = `
+<SYSTEM>You are a friendly translator.</SYSTEM>
+<USER>Translate "{{ text }}" to {{ language }}.</USER>
+`;
+```
+
+**What this does**:
+- No `thinkingTagFallback` setting → no enforcement
+- No conditional logic → works the same for all models
+- Simple tasks don't need reasoning
+
+### Pattern 3: Adaptive Complexity
+
+```typescript
+const template = `
+<SYSTEM>
+  You are a {{ native_reasoning_active ? 'thoughtful problem solver' : 'helpful assistant' }}.
+  {{ requires_tags_for_thinking ? ' For complex problems, show your reasoning in <thinking> tags.' : '' }}
+</SYSTEM>
+<USER>{{ problem }}</USER>
+`;
+```
+
+**What this does**:
+- Adapts system prompt based on capabilities
+- Only asks for `<thinking>` tags when needed
+- Acknowledges reasoning models' native capabilities
+
+## Settings Hierarchy
+
+Understanding how settings interact:
+
+### Scenario 1: Non-Reasoning Model + Thinking Extraction
+```typescript
+// GPT-4 (no native reasoning)
+native_reasoning_capable: false
+native_reasoning_active: false
+settings: { thinkingTagFallback: { enabled: true, enforce: true } }
+```
+**Result**: Model MUST include `<thinking>` tags or request fails (smart enforcement)
+
+### Scenario 2: Reasoning Model + Reasoning Enabled
+```typescript
+// Claude 4 with reasoning
+native_reasoning_capable: true
+native_reasoning_active: true
+settings: { reasoning: { enabled: true } }
+```
+**Result**: Model uses native reasoning, no `<thinking>` tags needed
+
+### Scenario 3: Reasoning Model + Reasoning Disabled + Thinking Extraction
+```typescript
+// Claude 4 with reasoning OFF
+native_reasoning_capable: true
+native_reasoning_active: false
+settings: {
+  reasoning: { enabled: false },
+  thinkingTagFallback: { enabled: true }
+}
+```
+**Result**: Model MUST use `<thinking>` tags (native reasoning disabled)
+
+### Scenario 4: Reasoning Model + Both Enabled
+```typescript
+// Claude 4 with both
+native_reasoning_capable: true
+native_reasoning_active: true
+settings: {
+  reasoning: { enabled: true },
+  thinkingTagFallback: { enabled: true, enforce: true }
+}
+```
+**Result**: Uses native reasoning, `thinkingTagFallback` is lenient (smart enforcement)
+
+## The `enforce` Property
+
+Controls behavior when `<thinking>` tags are missing:
+
+- `enforce: false`: Extract tags if present, never error
+- `enforce: true` (recommended): Smart enforcement based on native reasoning status
+  - Non-reasoning model OR reasoning disabled → ERROR (strict)
+  - Reasoning model with reasoning enabled → OK (lenient)
+
+**Why `enforce: true` is smart**:
+```typescript
+settings: { thinkingTagFallback: { enabled: true, enforce: true } }
+
+// GPT-4 without <thinking> tags → ERROR (you said to require thinking!)
+// Claude 4 with reasoning → OK (it used native reasoning instead)
+```
+
+The enforcement is **always smart** - it automatically detects whether native reasoning is active and only enforces when the model needs to use tags as a fallback.
+
+## Quick Reference
+
+### When to Use Thinking Tags in Prompts
+
+| Scenario | Use Thinking Tags? | Pattern |
+|----------|-------------------|---------|
+| Reasoning model + reasoning ON | ❌ No | Just give the task |
+| Reasoning model + reasoning OFF | ✅ Yes | `{{ requires_tags_for_thinking ? '<thinking> tags' : '' }}` |
+| Non-reasoning model | ✅ Yes | `{{ requires_tags_for_thinking ? '<thinking> tags' : '' }}` |
+| Simple task (any model) | ❌ No | No reasoning needed |
+
+### Template Checklist
+
+✅ **Do**:
+- Use `requires_tags_for_thinking` when instructing to use `<thinking>` tags
+- Keep prompts simple for reasoning models
+- Set `thinkingTagFallback: { enabled: true }` for complex tasks
+- Test templates with both reasoning and non-reasoning models
+
+❌ **Don't**:
+- Use `native_reasoning_active` when instructing to use `<thinking>` tags (backwards!)
+- Always ask for `<thinking>` tags (redundant for reasoning models)
+- Assume `thinkingTagFallback` automatically generates thinking
+- Tell reasoning models to "think step-by-step" (they already do)
+
+## Examples: Good vs Bad
+
+### ❌ Bad Example
+```typescript
+const template = `
+<SYSTEM>Always think step-by-step and write your reasoning in <thinking> tags.</SYSTEM>
+<USER>
+  {{ native_reasoning_active ? 'Please solve this carefully:' : 'Please solve this:' }}
+  {{ problem }}
+</USER>
+`;
+```
+**Problems**:
+- Asks ALL models for `<thinking>` tags (confuses reasoning models)
+- Backwards conditional (makes reasoning models do extra work)
+
+### ✅ Good Example
+```typescript
+const template = `
+<META>
+{
+  "settings": {
+    "thinkingTagFallback": { "enabled": true }
+  }
+}
+</META>
+<SYSTEM>
+  You are a problem-solving assistant.
+  {{ requires_tags_for_thinking ? ' For complex problems, write your reasoning in <thinking> tags before answering.' : '' }}
+</SYSTEM>
+<USER>Solve this: {{ problem }}</USER>
+`;
+```
+**Why good**:
+- Only asks non-reasoning models for `<thinking>` tags
+- Simple, direct prompt for reasoning models
+- Enforces that reasoning happens either way
+
+## Summary
+
+1. **Thinking extraction = parser + enforcer**, not automatic thinking generator
+2. **`native_reasoning_active = true`** means native reasoning is active → DON'T ask for step-by-step
+3. **`native_reasoning_active = false`** means no native reasoning active (unsupported OR disabled) → DO ask for `<thinking>` tags
+4. **Use `requires_tags_for_thinking`** when adding thinking tag instructions to templates
+5. **`thinkingTagFallback.enabled: true`** enables extraction and optional enforcement
+6. **`enforce: true`** provides smart enforcement: strict for non-reasoning models, lenient for reasoning models
+
+Remember: The goal is to ensure reasoning happens while respecting each model's capabilities!
