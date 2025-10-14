@@ -429,7 +429,7 @@ describe('parseTemplateWithMetadata', () => {
 {
   "settings": {
     "temperature": 0.9,
-    "thinkingExtraction": { "enabled": true, "tag": "reasoning" }
+    "thinkingTagFallback": { "enabled": true, "tagName": "reasoning" }
   }
 }
 </META>
@@ -441,7 +441,7 @@ describe('parseTemplateWithMetadata', () => {
     expect(result.metadata).toEqual({
       settings: {
         temperature: 0.9,
-        thinkingExtraction: { enabled: true, tag: "reasoning" }
+        thinkingTagFallback: { enabled: true, tagName: "reasoning" }
       }
     });
     expect(result.content).toBe('<SYSTEM>You are a creative writer.</SYSTEM>\n<USER>Write a story</USER>');
@@ -551,7 +551,7 @@ describe('parseTemplateWithMetadata', () => {
       "effort": "high",
       "maxTokens": 5000
     },
-    "thinkingExtraction": {
+    "thinkingTagFallback": {
       "enabled": false
     }
   }
@@ -570,7 +570,7 @@ describe('parseTemplateWithMetadata', () => {
         effort: "high",
         maxTokens: 5000
       },
-      thinkingExtraction: {
+      thinkingTagFallback: {
         enabled: false
       }
     });

@@ -43,9 +43,9 @@ export class SettingsManager {
         ...modelDefaults.reasoning,
         ...requestSettings?.reasoning,
       },
-      thinkingExtraction: {
-        ...modelDefaults.thinkingExtraction,
-        ...requestSettings?.thinkingExtraction,
+      thinkingTagFallback: {
+        ...modelDefaults.thinkingTagFallback,
+        ...requestSettings?.thinkingTagFallback,
       },
     };
 
@@ -160,7 +160,7 @@ export class SettingsManager {
       'supportsSystemMessage',
       'geminiSafetySettings',
       'reasoning',
-      'thinkingExtraction'
+      'thinkingTagFallback'
     ];
 
     // Check each setting field
@@ -251,23 +251,29 @@ export class SettingsManager {
         continue;
       }
 
-      if (key === 'thinkingExtraction' && typeof value === 'object' && value !== null) {
+      if (key === 'thinkingTagFallback' && typeof value === 'object' && value !== null) {
         const thinkingValidated: any = {};
-        
+
         if ('enabled' in value && typeof value.enabled !== 'boolean') {
-          console.warn(`Invalid thinkingExtraction.enabled value in template. Must be a boolean.`);
+          console.warn(`Invalid thinkingTagFallback.enabled value in template. Must be a boolean.`);
         } else if ('enabled' in value) {
           thinkingValidated.enabled = value.enabled;
         }
 
-        if ('tag' in value && typeof value.tag !== 'string') {
-          console.warn(`Invalid thinkingExtraction.tag value in template. Must be a string.`);
-        } else if ('tag' in value) {
-          thinkingValidated.tag = value.tag;
+        if ('tagName' in value && typeof value.tagName !== 'string') {
+          console.warn(`Invalid thinkingTagFallback.tagName value in template. Must be a string.`);
+        } else if ('tagName' in value) {
+          thinkingValidated.tagName = value.tagName;
+        }
+
+        if ('enforce' in value && typeof value.enforce !== 'boolean') {
+          console.warn(`Invalid thinkingTagFallback.enforce value in template. Must be a boolean.`);
+        } else if ('enforce' in value) {
+          thinkingValidated.enforce = value.enforce;
         }
 
         if (Object.keys(thinkingValidated).length > 0) {
-          validated.thinkingExtraction = thinkingValidated;
+          validated.thinkingTagFallback = thinkingValidated;
         }
         continue;
       }

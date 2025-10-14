@@ -79,10 +79,10 @@ export const DEFAULT_LLM_SETTINGS: Required<LLMSettings> = {
     maxTokens: undefined as any,
     exclude: false,
   },
-  thinkingExtraction: {
-    enabled: false, // Now requires explicit opt-in, works with onMissing: 'auto'
-    tag: 'thinking',
-    onMissing: 'auto' // Smart enforcement based on native reasoning status
+  thinkingTagFallback: {
+    enabled: false,
+    tagName: 'thinking',
+    enforce: false
   },
 };
 

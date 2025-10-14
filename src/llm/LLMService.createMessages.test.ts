@@ -53,7 +53,7 @@ describe('LLMService.createMessages', () => {
     it('should inject model context for valid preset', async () => {
       const result = await service.createMessages({
         template: `
-          <SYSTEM>You are a {{ thinking_enabled ? "thoughtful" : "standard" }} assistant.</SYSTEM>
+          <SYSTEM>You are a {{ native_reasoning_active ? "thoughtful" : "standard" }} assistant.</SYSTEM>
           <USER>Help me understand {{concept}}</USER>
         `,
         variables: { concept: 'recursion' },
@@ -61,8 +61,9 @@ describe('LLMService.createMessages', () => {
       });
 
       expect(result.modelContext).not.toBeNull();
-      expect(result.modelContext?.thinking_enabled).toBe(true);
-      expect(result.modelContext?.thinking_available).toBe(true);
+      expect(result.modelContext?.native_reasoning_active).toBe(true);
+      expect(result.modelContext?.native_reasoning_capable).toBe(true);
+      expect(result.modelContext?.requires_tags_for_thinking).toBe(false);
       expect(result.modelContext?.model_id).toBe('claude-3-7-sonnet-20250219');
       expect(result.modelContext?.provider_id).toBe('anthropic');
 
@@ -90,12 +91,13 @@ describe('LLMService.createMessages', () => {
 
     it('should handle model without reasoning support', async () => {
       const result = await service.createMessages({
-        template: 'Thinking available: {{thinking_available}}, enabled: {{thinking_enabled}}',
+        template: 'Capable: {{native_reasoning_capable}}, active: {{native_reasoning_active}}, requires tags: {{requires_tags_for_thinking}}',
         presetId: 'openai-gpt-4.1-default'
       });
 
-      expect(result.modelContext?.thinking_available).toBe(false);
-      expect(result.modelContext?.thinking_enabled).toBe(false);
+      expect(result.modelContext?.native_reasoning_capable).toBe(false);
+      expect(result.modelContext?.native_reasoning_active).toBe(false);
+      expect(result.modelContext?.requires_tags_for_thinking).toBe(true);
     });
   });
 
@@ -123,7 +125,7 @@ describe('LLMService.createMessages', () => {
     it('should handle conditional role injection based on model context', async () => {
       const result = await service.createMessages({
         template: `
-          {{ !thinking_enabled ? '<SYSTEM>Write your reasoning in <thinking> tags before answering.</SYSTEM>' : '' }}
+          {{ requires_tags_for_thinking ? '<SYSTEM>Write your reasoning in <thinking> tags before answering.</SYSTEM>' : '' }}
           <USER>Solve: {{problem}}</USER>
         `,
         variables: { problem: 'What is 15% of 240?' },
@@ -141,7 +143,7 @@ describe('LLMService.createMessages', () => {
         template: `
           <SYSTEM>
             You are using {{ model_id || "no model" }}.
-            {{ thinking_available ? 'You have reasoning capabilities.' : 'Standard model.' }}
+            {{ native_reasoning_capable ? 'You have reasoning capabilities.' : 'Standard model.' }}
           </SYSTEM>
           <USER>Hello</USER>
         `,
@@ -154,7 +156,7 @@ describe('LLMService.createMessages', () => {
       expect(result.modelContext).not.toBeNull();
       if (result.modelContext) {
         expect(result.modelContext.model_id).toBe('claude-3-5-haiku-20241022');
-        expect(result.modelContext.thinking_available).toBe(false);
+        expect(result.modelContext.native_reasoning_capable).toBe(false);
       }
     });
   });
@@ -207,17 +209,20 @@ describe('LLMService.createMessages', () => {
     it('should handle reasoning settings in model context', async () => {
       const result = await service.createMessages({
         template: `
-          Thinking enabled: {{thinking_enabled}}
-          Thinking available: {{thinking_available}}
+          Reasoning active: {{native_reasoning_active}}
+          Reasoning capable: {{native_reasoning_capable}}
+          Requires tags: {{requires_tags_for_thinking}}
           Model: {{model_id}}
         `,
         presetId: 'anthropic-claude-3-7-sonnet-20250219-thinking'
       });
 
-      expect(result.modelContext?.thinking_enabled).toBe(true);
-      expect(result.modelContext?.thinking_available).toBe(true);
-      expect(result.messages[0].content).toContain('Thinking enabled: true');
-      expect(result.messages[0].content).toContain('Thinking available: true');
+      expect(result.modelContext?.native_reasoning_active).toBe(true);
+      expect(result.modelContext?.native_reasoning_capable).toBe(true);
+      expect(result.modelContext?.requires_tags_for_thinking).toBe(false);
+      expect(result.messages[0].content).toContain('Reasoning active: true');
+      expect(result.messages[0].content).toContain('Reasoning capable: true');
+      expect(result.messages[0].content).toContain('Requires tags: false');
     });
 
     it('should handle models with always-on reasoning', async () => {
@@ -248,12 +253,12 @@ describe('LLMService.createMessages', () => {
 
     it('should merge variables correctly', async () => {
       const result = await service.createMessages({
-        template: 'Model: {{model_id}}, Task: {{task}}, Thinking: {{thinking_enabled}}',
+        template: 'Model: {{model_id}}, Task: {{task}}, Reasoning active: {{native_reasoning_active}}',
         variables: { task: 'code review' },
         presetId: 'anthropic-claude-3-7-sonnet-20250219-thinking'
       });
 
-      expect(result.messages[0].content).toBe('Model: claude-3-7-sonnet-20250219, Task: code review, Thinking: true');
+      expect(result.messages[0].content).toBe('Model: claude-3-7-sonnet-20250219, Task: code review, Reasoning active: true');
     });
   });
 
@@ -264,7 +269,7 @@ describe('LLMService.createMessages', () => {
 {
   "settings": {
     "temperature": 0.9,
-    "thinkingExtraction": { "enabled": true, "tag": "reasoning" }
+    "thinkingTagFallback": { "enabled": true, "tagName": "reasoning" }
   }
 }
 </META>
@@ -279,7 +284,7 @@ describe('LLMService.createMessages', () => {
       ]);
       expect(result.settings).toEqual({
         temperature: 0.9,
-        thinkingExtraction: { enabled: true, tag: 'reasoning' }
+        thinkingTagFallback: { enabled: true, tagName: 'reasoning' }
       });
     });
 
@@ -338,7 +343,7 @@ describe('LLMService.createMessages', () => {
   }
 }
 </META>
-<SYSTEM>You are a {{ thinking_enabled ? "thoughtful" : "quick" }} assistant.</SYSTEM>
+<SYSTEM>You are a {{ native_reasoning_active ? "thoughtful" : "quick" }} assistant.</SYSTEM>
 <USER>Help me understand {{concept}}</USER>`,
         variables: { concept: 'recursion' },
         presetId: 'anthropic-claude-3-7-sonnet-20250219-thinking'
@@ -353,7 +358,7 @@ describe('LLMService.createMessages', () => {
         maxTokens: 2000
       });
       expect(result.modelContext).not.toBeNull();
-      expect(result.modelContext?.thinking_enabled).toBe(true);
+      expect(result.modelContext?.native_reasoning_active).toBe(true);
     });
 
     it('should validate complex nested settings', async () => {
