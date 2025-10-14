@@ -40,10 +40,10 @@ export interface LLMSettings {
     enabled: boolean;
     effort?: 'low' | 'medium' | 'high';
   };
-  thinkingExtraction?: {
-    enabled: boolean;
-    onMissing?: 'ignore' | 'warn' | 'error';
-    tags?: string[];
+  thinkingTagFallback?: {
+    enabled?: boolean;
+    tagName?: string;
+    enforce?: boolean;
   };
 }
 

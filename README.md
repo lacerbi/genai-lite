@@ -345,16 +345,16 @@ const response = await llmService.sendMessage({
 });
 ```
 
-**The `onMissing` Property:**
+**The `enforce` Property:**
 
-The `onMissing` property controls what happens when the expected thinking tag is not found:
+The `enforce` boolean controls whether thinking tags are required when native reasoning is not active:
 
-- `'ignore'`: Silently continue without the tag
-- `'warn'`: Log a warning but continue processing
-- `'error'`: Return an error response with the original response preserved in `partialResponse`
-- `'auto'` (default): Intelligently decide based on the model's native reasoning capabilities
+- `enforce: true` - Error if tags missing AND native reasoning not active (smart enforcement)
+- `enforce: false` (default) - Extract tags if present, never error
 
-**How `'auto'` Mode Works:**
+The enforcement is **always smart** - it automatically checks if native reasoning is active and only enforces when the model needs tags as a fallback.
+
+**How Smart Enforcement Works:**
 
 ```typescript
 // With non-native reasoning models (e.g., GPT-4)
@@ -369,10 +369,10 @@ const response = await llmService.sendMessage({
     content: 'What is 15% of 240?'
   }],
   settings: {
-    thinkingTagFallback: { enabled: true } // enforce: true is default
+    thinkingTagFallback: { enabled: true, enforce: true }
   }
 });
-// Result: ERROR if <thinking> tag is missing (strict enforcement)
+// Result: ERROR if <thinking> tag is missing (native reasoning not active)
 // The response is still accessible via errorResponse.partialResponse
 
 // With native reasoning models (e.g., Claude with reasoning enabled)
@@ -382,10 +382,10 @@ const response = await llmService.sendMessage({
   messages: [/* same prompt */],
   settings: {
     reasoning: { enabled: true },
-    thinkingTagFallback: { enabled: true }
+    thinkingTagFallback: { enabled: true, enforce: true }
   }
 });
-// Result: SUCCESS even if <thinking> tag is missing (lenient for native reasoning)
+// Result: SUCCESS even if <thinking> tag is missing (native reasoning is active)
 ```
 
 This intelligent enforcement ensures that:

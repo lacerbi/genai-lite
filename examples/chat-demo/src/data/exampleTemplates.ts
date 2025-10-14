@@ -43,11 +43,11 @@ export const exampleTemplates: ExampleTemplate[] = [
   "settings": {
     "temperature": 0.3,
     "maxTokens": 2000,
-    "thinkingExtraction": { "enabled": true }
+    "thinkingTagFallback": { "enabled": true }
   }
 }
 </META>
-<SYSTEM>You are an expert code reviewer.{{ !thinking_enabled ? ' When reviewing code, first write your analysis inside <thinking> tags, then provide actionable feedback.' : ' Analyze the code carefully and provide actionable feedback.' }}</SYSTEM>
+<SYSTEM>You are an expert code reviewer.{{ requires_tags_for_thinking ? ' When reviewing code, first write your analysis inside <thinking> tags, then provide actionable feedback.' : ' Analyze the code carefully and provide actionable feedback.' }}</SYSTEM>
 <USER>Review this {{ language }} code:
 
 \`\`\`{{ language }}
@@ -96,11 +96,11 @@ Focus on: {{ focus_areas }}</USER>`,
     template: `<META>
 {
   "settings": {
-    "thinkingExtraction": { "enabled": true }
+    "thinkingTagFallback": { "enabled": true }
   }
 }
 </META>
-<SYSTEM>You are a helpful problem-solving assistant.{{ !thinking_enabled ? ' Write your step-by-step reasoning inside <thinking> tags first, then provide your final answer.' : '' }}</SYSTEM>
+<SYSTEM>You are a helpful problem-solving assistant.{{ requires_tags_for_thinking ? ' Write your step-by-step reasoning inside <thinking> tags first, then provide your final answer.' : '' }}</SYSTEM>
 <USER>Solve this problem:
 
 {{ problem }}
@@ -180,11 +180,11 @@ English: "{{ text_to_translate }}"
     template: `<META>
 {
   "settings": {
-    "thinkingExtraction": { "enabled": true }
+    "thinkingTagFallback": { "enabled": true }
   }
 }
 </META>
-<SYSTEM>You are a data analysis expert. {{ detail_level === 'detailed' ? 'Provide comprehensive analysis with statistical insights.' : 'Provide concise, actionable insights.' }}{{ !thinking_enabled ? ' Write your analytical reasoning inside <thinking> tags first.' : '' }}</SYSTEM>
+<SYSTEM>You are a data analysis expert. {{ detail_level === 'detailed' ? 'Provide comprehensive analysis with statistical insights.' : 'Provide concise, actionable insights.' }}{{ requires_tags_for_thinking ? ' Write your analytical reasoning inside <thinking> tags first.' : '' }}</SYSTEM>
 <USER>Analyze this {{ data_type }} data:
 
 {{ data }}
@@ -208,11 +208,11 @@ English: "{{ text_to_translate }}"
     template: `<META>
 {
   "settings": {
-    "thinkingExtraction": { "enabled": true }
+    "thinkingTagFallback": { "enabled": true }
   }
 }
 </META>
-<SYSTEM>You are a debugging expert specializing in {{ language }}. {{ includeStackTrace ? 'Analyze the stack trace carefully to identify the root cause.' : 'Focus on the error message and code context.' }}{{ !thinking_enabled ? ' Write your debugging analysis inside <thinking> tags first.' : '' }}</SYSTEM>
+<SYSTEM>You are a debugging expert specializing in {{ language }}. {{ includeStackTrace ? 'Analyze the stack trace carefully to identify the root cause.' : 'Focus on the error message and code context.' }}{{ requires_tags_for_thinking ? ' Write your debugging analysis inside <thinking> tags first.' : '' }}</SYSTEM>
 <USER>I'm getting this error:
 {{ error_message }}
 
@@ -246,11 +246,11 @@ Help me fix this issue.</USER>`,
   "settings": {
     "temperature": 0.5,
     "maxTokens": 2000,
-    "thinkingExtraction": { "enabled": true }
+    "thinkingTagFallback": { "enabled": true }
   }
 }
 </META>
-<SYSTEM>You are an interview preparation coach.{{ !thinking_enabled ? ' When analyzing questions, first think through the best approach in <thinking> tags, then provide a structured answer.' : ' Analyze the question carefully and provide a structured answer.' }}</SYSTEM>
+<SYSTEM>You are an interview preparation coach.{{ requires_tags_for_thinking ? ' When analyzing questions, first think through the best approach in <thinking> tags, then provide a structured answer.' : ' Analyze the question carefully and provide a structured answer.' }}</SYSTEM>
 <USER>Interview question for {{ position }} role:
 
 "{{ question }}"
