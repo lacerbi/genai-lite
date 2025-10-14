@@ -7,6 +7,7 @@ import { MessageList } from './MessageList';
 import { MessageInput } from './MessageInput';
 import { TemplateExamples } from './TemplateExamples';
 import { LlamaCppTools } from './LlamaCppTools';
+import { ErrorDisplay } from './ErrorDisplay';
 import { getProviders, getModels, getLlamaCppModels, sendChatMessage, getPresets, renderTemplate as renderTemplateAPI } from '../api/client';
 import { renderTemplate } from '../../../../src/prompting/template';
 import type { Message, Provider, Model, LLMSettings, Preset, UserVariables, AutomaticVariables } from '../types';
@@ -18,6 +19,12 @@ interface TemplateToSend {
   variables: Record<string, any>;
   settings?: Partial<LLMSettings>;
   templateName: string;
+}
+
+// Error data structure
+interface ErrorInfo {
+  userMessage: string;
+  rawError?: any;
 }
 
 // localStorage key for persisted settings
@@ -72,7 +79,22 @@ async function copyToClipboard(text: string): Promise<boolean> {
 
 // Enhance error messages with actionable hints
 function enhanceErrorMessage(error: any, context?: { providerId?: string; modelId?: string }): string {
-  const errorStr = error instanceof Error ? error.message : String(error);
+  // Extract error string from different error formats
+  let errorStr: string;
+
+  if (error instanceof Error) {
+    // JavaScript Error object
+    errorStr = error.message;
+  } else if (typeof error === 'object' && error !== null && error.message) {
+    // Object with message property (from backend)
+    errorStr = error.message;
+  } else if (typeof error === 'string') {
+    // Already a string
+    errorStr = error;
+  } else {
+    // Fallback for other types
+    errorStr = String(error);
+  }
 
   // Network errors
   if (errorStr.includes('fetch') || errorStr.includes('Network') || errorStr.includes('Failed to fetch')) {
@@ -118,7 +140,22 @@ function enhanceErrorMessage(error: any, context?: { providerId?: string; modelI
   }
 
   // Generic error with original message
-  return `Error: ${errorStr}`;
+  return errorStr;
+}
+
+// Create error info object from error
+function createErrorInfo(error: any, context?: { providerId?: string; modelId?: string }): ErrorInfo {
+  return {
+    userMessage: enhanceErrorMessage(error, context),
+    rawError: error
+  };
+}
+
+// Create simple error info (no raw error)
+function createSimpleError(message: string): ErrorInfo {
+  return {
+    userMessage: message
+  };
 }
 
 // Load settings from localStorage
@@ -156,7 +193,7 @@ export function ChatInterface() {
   // State for chat
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<ErrorInfo | null>(null);
 
   // State for system prompt
   const [systemPrompt, setSystemPrompt] = useState<string>(persisted?.systemPrompt || '');
@@ -258,7 +295,7 @@ export function ChatInterface() {
         }
       }
     } catch (err) {
-      setError(enhanceErrorMessage(err));
+      setError(createErrorInfo(err));
     }
   };
 
@@ -278,7 +315,7 @@ export function ChatInterface() {
         setSelectedModelId(response.models[0].id);
       }
     } catch (err) {
-      setError(enhanceErrorMessage(err, { providerId }));
+      setError(createErrorInfo(err, { providerId }));
       setModels([]);
       setSelectedModelId('');
     }
@@ -296,7 +333,7 @@ export function ChatInterface() {
 
   const handleSendMessage = async (content: string) => {
     if (!selectedProviderId || !selectedModelId) {
-      setError('Please select a provider and model first');
+      setError(createSimpleError('Please select a provider and model first'));
       return;
     }
 
@@ -350,10 +387,10 @@ export function ChatInterface() {
         };
         setMessages((prev) => [...prev, assistantMessage]);
       } else if (response.error) {
-        setError(enhanceErrorMessage(response.error.message, { providerId: selectedProviderId, modelId: selectedModelId }));
+        setError(createErrorInfo(response.error, { providerId: selectedProviderId, modelId: selectedModelId }));
       }
     } catch (err) {
-      setError(enhanceErrorMessage(err, { providerId: selectedProviderId, modelId: selectedModelId }));
+      setError(createErrorInfo(err, { providerId: selectedProviderId, modelId: selectedModelId }));
     } finally {
       setIsLoading(false);
     }
@@ -373,7 +410,7 @@ export function ChatInterface() {
 
   const handleExportJSON = () => {
     if (messages.length === 0) {
-      setError('No messages to export');
+      setError(createSimpleError('No messages to export'));
       return;
     }
 
@@ -392,7 +429,7 @@ export function ChatInterface() {
 
   const handleCopyMarkdown = async () => {
     if (messages.length === 0) {
-      setError('No messages to copy');
+      setError(createSimpleError('No messages to copy'));
       return;
     }
 
@@ -405,7 +442,7 @@ export function ChatInterface() {
       setError(null);
       setTimeout(() => setError(originalError), 2000);
     } else {
-      setError('Failed to copy to clipboard');
+      setError(createSimpleError('Failed to copy to clipboard'));
     }
   };
 
@@ -429,7 +466,7 @@ export function ChatInterface() {
   const handleSendTemplate = async () => {
     if (!templateToSend) return;
     if (!selectedProviderId || !selectedModelId) {
-      setError('Please select a provider and model first');
+      setError(createSimpleError('Please select a provider and model first'));
       return;
     }
 
@@ -438,7 +475,7 @@ export function ChatInterface() {
 
     try {
       // Render template with current provider/model
-      const renderResponse = await renderTemplate({
+      const renderResponse = await renderTemplateAPI({
         template: templateToSend.template,
         variables: templateToSend.variables,
         providerId: selectedProviderId,
@@ -446,7 +483,8 @@ export function ChatInterface() {
       });
 
       if (!renderResponse.success || !renderResponse.result) {
-        setError(renderResponse.error?.message || 'Failed to render template');
+        const errorMsg = renderResponse.error?.message || 'Failed to render template';
+        setError(createErrorInfo(renderResponse.error || errorMsg));
         setIsLoading(false);
         return;
       }
@@ -462,7 +500,7 @@ export function ChatInterface() {
       // Find USER message to send
       const userMsg = renderedMessages.find((m: any) => m.role === 'user');
       if (!userMsg) {
-        setError('Template did not produce a user message');
+        setError(createSimpleError('Template did not produce a user message'));
         setIsLoading(false);
         return;
       }
@@ -498,13 +536,13 @@ export function ChatInterface() {
         };
         setMessages((prev) => [...prev, assistantMessage]);
       } else if (response.error) {
-        setError(enhanceErrorMessage(response.error.message, { providerId: selectedProviderId, modelId: selectedModelId }));
+        setError(createErrorInfo(response.error, { providerId: selectedProviderId, modelId: selectedModelId }));
       }
 
       // Clear template state after successful send
       setTemplateToSend(null);
     } catch (err) {
-      setError(enhanceErrorMessage(err, { providerId: selectedProviderId, modelId: selectedModelId }));
+      setError(createErrorInfo(err, { providerId: selectedProviderId, modelId: selectedModelId }));
     } finally {
       setIsLoading(false);
     }
@@ -599,9 +637,7 @@ export function ChatInterface() {
             {/* Chat Content */}
             <div className="chat-main">
               {error && (
-                <div className="error-message">
-                  <strong>Error:</strong> {error}
-                </div>
+                <ErrorDisplay userMessage={error.userMessage} rawError={error.rawError} />
               )}
 
               {/* Template Banner */}
