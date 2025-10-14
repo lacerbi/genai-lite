@@ -9,7 +9,7 @@ export const templatesRouter = express.Router();
  */
 templatesRouter.post('/render', async (req, res) => {
   try {
-    const { template, variables, providerId, modelId, presetId } = req.body;
+    const { template, variables, providerId, modelId, presetId, settings } = req.body;
 
     // Validate input
     if (!template) {
@@ -39,7 +39,8 @@ templatesRouter.post('/render', async (req, res) => {
       variables: variables || {},
       providerId,
       modelId,
-      presetId
+      presetId,
+      settings
     });
 
     res.json({

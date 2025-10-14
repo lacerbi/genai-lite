@@ -418,6 +418,7 @@ export class LLMService {
     presetId?: string;
     providerId?: string;
     modelId?: string;
+    settings?: Partial<LLMSettings>;
   }): Promise<CreateMessagesResult> {
     console.log('LLMService.createMessages called');
 
@@ -434,7 +435,8 @@ export class LLMService {
       const resolved = this.modelResolver.resolve({
         presetId: options.presetId,
         providerId: options.providerId as ApiProviderId,
-        modelId: options.modelId
+        modelId: options.modelId,
+        settings: options.settings
       });
       
       if (resolved.error) {

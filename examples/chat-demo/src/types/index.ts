@@ -100,6 +100,7 @@ export interface TemplateRenderRequest {
   providerId?: string;
   modelId?: string;
   presetId?: string;
+  settings?: LLMSettings;
 }
 
 export interface TemplateRenderResponse {
@@ -156,3 +157,7 @@ export interface EmbeddingResponse {
     code: string;
   };
 }
+
+// Variables
+export type UserVariables = Record<string, string>;
+export type AutomaticVariables = Record<string, any>;

@@ -7,8 +7,9 @@ import { MessageList } from './MessageList';
 import { MessageInput } from './MessageInput';
 import { TemplateExamples } from './TemplateExamples';
 import { LlamaCppTools } from './LlamaCppTools';
-import { getProviders, getModels, getLlamaCppModels, sendChatMessage, getPresets, renderTemplate } from '../api/client';
-import type { Message, Provider, Model, LLMSettings, Preset } from '../types';
+import { getProviders, getModels, getLlamaCppModels, sendChatMessage, getPresets, renderTemplate as renderTemplateAPI } from '../api/client';
+import { renderTemplate } from '../../../../src/prompting/template';
+import type { Message, Provider, Model, LLMSettings, Preset, UserVariables, AutomaticVariables } from '../types';
 import packageJson from '../../package.json';
 
 // Template data for deferred rendering
@@ -178,6 +179,10 @@ export function ChatInterface() {
   // State for template to send (deferred rendering)
   const [templateToSend, setTemplateToSend] = useState<TemplateToSend | null>(null);
 
+  // State for variables
+  const [userVariables, setUserVariables] = useState<UserVariables>(persisted?.userVariables || {});
+  const [automaticVariables, setAutomaticVariables] = useState<AutomaticVariables>({});
+
   // Load providers and presets on mount
   useEffect(() => {
     loadProviders();
@@ -204,8 +209,41 @@ export function ChatInterface() {
       settings,
       activeTab,
       sidebarExpanded,
+      userVariables,
     });
-  }, [selectedProviderId, selectedModelId, selectedPresetId, systemPrompt, settings, activeTab, sidebarExpanded]);
+  }, [selectedProviderId, selectedModelId, selectedPresetId, systemPrompt, settings, activeTab, sidebarExpanded, userVariables]);
+
+  // Load automatic variables when provider/model/settings change
+  useEffect(() => {
+    const loadAutomaticVariables = async () => {
+      if (!selectedProviderId || !selectedModelId) {
+        setAutomaticVariables({});
+        return;
+      }
+
+      try {
+        // Use the template rendering API to get model context
+        const response = await renderTemplateAPI({
+          template: '<USER>dummy</USER>', // Minimal template just to get context
+          variables: {},
+          providerId: selectedProviderId,
+          modelId: selectedModelId,
+          settings,
+        });
+
+        if (response.success && response.result?.modelContext) {
+          setAutomaticVariables(response.result.modelContext);
+        } else {
+          setAutomaticVariables({});
+        }
+      } catch (err) {
+        console.warn('Failed to load automatic variables:', err);
+        setAutomaticVariables({});
+      }
+    };
+
+    loadAutomaticVariables();
+  }, [selectedProviderId, selectedModelId, settings]);
 
   const loadProviders = async () => {
     try {
@@ -262,10 +300,16 @@ export function ChatInterface() {
       return;
     }
 
-    // Add user message to the list
+    // Merge automatic and user variables
+    const allVariables = { ...automaticVariables, ...userVariables };
+
+    // Apply variable substitution to the user message
+    const processedContent = renderTemplate(content, allVariables);
+
+    // Add user message to the list (with original content for display)
     const userMessage: Message = {
       role: 'user',
-      content,
+      content: processedContent,
       timestamp: Date.now(),
     };
     setMessages((prev) => [...prev, userMessage]);
@@ -278,9 +322,14 @@ export function ChatInterface() {
         .concat(userMessage)
         .map((m) => ({ role: m.role, content: m.content }));
 
+      // Apply variable substitution to system prompt if set
+      const processedSystemPrompt = systemPrompt
+        ? renderTemplate(systemPrompt, allVariables)
+        : '';
+
       // Prepend system message if system prompt is set
-      const apiMessages = systemPrompt
-        ? [{ role: 'system', content: systemPrompt }, ...conversationMessages]
+      const apiMessages = processedSystemPrompt
+        ? [{ role: 'system', content: processedSystemPrompt }, ...conversationMessages]
         : conversationMessages;
 
       // Send to backend
@@ -319,6 +368,7 @@ export function ChatInterface() {
     setSettings(DEFAULT_SETTINGS);
     setSelectedPresetId('');
     setSystemPrompt('');
+    setUserVariables({});
   };
 
   const handleExportJSON = () => {
@@ -541,6 +591,9 @@ export function ChatInterface() {
               disabled={isLoading}
               isExpanded={sidebarExpanded}
               onToggle={() => setSidebarExpanded(!sidebarExpanded)}
+              userVariables={userVariables}
+              onUserVariablesChange={setUserVariables}
+              automaticVariables={automaticVariables}
             />
 
             {/* Chat Content */}

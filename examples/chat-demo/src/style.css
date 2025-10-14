@@ -374,6 +374,165 @@ body {
   background: var(--primary-hover);
 }
 
+/* Variables Section */
+.variables-section {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1rem 0;
+  border-top: 1px solid var(--border);
+  margin-top: 1rem;
+}
+
+.variables-subsection {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.variables-subsection-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 0.25rem;
+}
+
+.variable-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.variable-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.5rem;
+  border-radius: 6px;
+  font-size: 0.85rem;
+}
+
+.variable-item-readonly {
+  background: #f3f4f6;
+  border: 1px solid var(--border);
+}
+
+.variable-item-editable {
+  background: var(--background);
+  border: 1px solid var(--border);
+}
+
+.variable-item-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.variable-icon {
+  font-size: 0.9rem;
+  opacity: 0.7;
+}
+
+.variable-key {
+  font-weight: 600;
+  color: var(--primary-color);
+  word-break: break-word;
+  flex: 1;
+}
+
+.variable-value {
+  color: var(--text);
+  word-break: break-word;
+  padding-left: 1.4rem; /* Align with key text after icon */
+}
+
+.variable-value-input {
+  width: 100%;
+  padding: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 0.85rem;
+}
+
+.variable-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.variable-delete-btn {
+  padding: 0.35rem 0.75rem;
+  background: var(--error);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.75rem;
+  transition: all 0.2s;
+}
+
+.variable-delete-btn:hover {
+  background: #dc2626;
+  transform: scale(1.05);
+}
+
+.add-variable-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  background: var(--background-alt);
+  border-radius: 6px;
+  border: 1px solid var(--border);
+}
+
+.add-variable-inputs {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.add-variable-input {
+  width: 100%;
+  padding: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 0.85rem;
+}
+
+.add-variable-input::placeholder {
+  color: var(--text-light);
+}
+
+.add-variable-btn {
+  width: 100%;
+  padding: 0.5rem 1rem;
+  background: var(--success);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: 500;
+  font-size: 0.85rem;
+  transition: all 0.2s;
+}
+
+.add-variable-btn:hover:not(:disabled) {
+  background: #059669;
+  transform: translateY(-1px);
+}
+
+.add-variable-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.variables-empty {
+  font-size: 0.85rem;
+  color: var(--text-light);
+  font-style: italic;
+  padding: 0.5rem;
+}
+
 /* Error Message */
 .error-message {
   padding: 1rem 1.5rem;
