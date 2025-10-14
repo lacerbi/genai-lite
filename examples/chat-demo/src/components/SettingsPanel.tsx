@@ -190,17 +190,18 @@ export function SettingsPanel({
             <label>
               <input
                 type="checkbox"
-                checked={settings.thinkingExtraction?.enabled ?? false}
+                checked={settings.thinkingTagFallback?.enforce ?? false}
                 onChange={(e) =>
-                  updateSetting('thinkingExtraction', {
+                  updateSetting('thinkingTagFallback', {
                     enabled: e.target.checked,
+                    enforce: e.target.checked,
                   })
                 }
                 disabled={disabled}
               />
               Require Thinking
             </label>
-            <span className="setting-hint">Ensures reasoning is produced, either via native reasoning (Claude 4, o4-mini) or &lt;thinking&gt; tags</span>
+            <span className="setting-hint">Extract and require &lt;thinking&gt; tags when native reasoning is not active (fallback for models without reasoning support)</span>
           </div>
 
           {/* Variables Section */}

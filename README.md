@@ -1056,14 +1056,14 @@ const llmService = new LLMService(electronKeyProvider);
 genai-lite is written in TypeScript and provides comprehensive type definitions:
 
 ```typescript
-import type { 
+import type {
   LLMChatRequest,
   LLMChatRequestWithPreset,
   LLMResponse,
   LLMFailureResponse,
   LLMSettings,
   LLMReasoningSettings,
-  LLMThinkingExtractionSettings,
+  LLMThinkingTagFallbackSettings,
   ApiKeyProvider,
   ModelPreset,
   LLMServiceOptions,

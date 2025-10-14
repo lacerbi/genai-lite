@@ -604,7 +604,7 @@ describe('LLMService', () => {
       expect(successResponse.choices[0].message.content).toBe('<thinking>Default extraction test.</thinking>Result here.');
     });
 
-    describe('onMissing behavior', () => {
+    describe('enforce behavior', () => {
       it('should enforce tags when explicitly requested for non-native models', async () => {
         const request: LLMChatRequest = {
           providerId: 'mistral',

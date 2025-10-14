@@ -24,7 +24,6 @@ export interface Model {
   };
   capabilities?: {
     reasoning?: boolean;
-    thinkingExtraction?: boolean;
   };
   pricing?: {
     inputTokensPerMillion?: number;

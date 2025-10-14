@@ -14,7 +14,7 @@ This document explains how thinking extraction works in genai-lite, common misco
 The library doesn't automatically make models think. For non-reasoning models, YOU must explicitly instruct them to use `<thinking>` tags in your prompt. The library then:
 - Parses those tags from the response
 - Moves the content to the standardized `reasoning` field
-- Enforces that the tags were present (with `onMissing: 'auto'`)
+- Enforces that the tags were present (with `enforce: true` and smart detection)
 
 ## Model Context Variables
 
@@ -129,9 +129,9 @@ settings: {
 
 **Reality**: `thinkingTagFallback.enabled: true` means:
 1. Parse `<thinking>` tags from responses (if present)
-2. WITH `onMissing: 'auto'` (default): Enforce that reasoning happened
+2. WITH `enforce: true`: Enforce that reasoning happened
    - For non-reasoning models → ERROR if no `<thinking>` tags found
-   - For reasoning models → OK, they used native reasoning instead
+   - For reasoning models → OK, they used native reasoning instead (smart enforcement)
 
 ## Correct Patterns
 
@@ -199,9 +199,9 @@ Understanding how settings interact:
 // GPT-4 (no native reasoning)
 native_reasoning_capable: false
 native_reasoning_active: false
-settings: { thinkingTagFallback: { enabled: true } }
+settings: { thinkingTagFallback: { enabled: true, enforce: true } }
 ```
-**Result**: Model MUST include `<thinking>` tags or request fails (with `onMissing: 'auto'`)
+**Result**: Model MUST include `<thinking>` tags or request fails (smart enforcement)
 
 ### Scenario 2: Reasoning Model + Reasoning Enabled
 ```typescript
@@ -231,29 +231,29 @@ native_reasoning_capable: true
 native_reasoning_active: true
 settings: {
   reasoning: { enabled: true },
-  thinkingTagFallback: { enabled: true }
+  thinkingTagFallback: { enabled: true, enforce: true }
 }
 ```
-**Result**: Uses native reasoning, `thinkingTagFallback` is lenient (with `onMissing: 'auto'`)
+**Result**: Uses native reasoning, `thinkingTagFallback` is lenient (smart enforcement)
 
-## The `onMissing` Property
+## The `enforce` Property
 
 Controls behavior when `<thinking>` tags are missing:
 
-- `'ignore'`: Continue silently
-- `'warn'`: Log warning, continue
-- `'error'`: Fail request
-- `'auto'` (default, recommended):
-  - Non-reasoning model OR reasoning disabled → `'error'` (strict)
-  - Reasoning model with reasoning enabled → `'ignore'` (lenient)
+- `enforce: false`: Extract tags if present, never error
+- `enforce: true` (recommended): Smart enforcement based on native reasoning status
+  - Non-reasoning model OR reasoning disabled → ERROR (strict)
+  - Reasoning model with reasoning enabled → OK (lenient)
 
-**Why 'auto' is smart**:
+**Why `enforce: true` is smart**:
 ```typescript
-settings: { thinkingTagFallback: { enabled: true } }  // onMissing: 'auto' by default
+settings: { thinkingTagFallback: { enabled: true, enforce: true } }
 
 // GPT-4 without <thinking> tags → ERROR (you said to require thinking!)
 // Claude 4 with reasoning → OK (it used native reasoning instead)
 ```
+
+The enforcement is **always smart** - it automatically detects whether native reasoning is active and only enforces when the model needs to use tags as a fallback.
 
 ## Quick Reference
 
@@ -324,7 +324,7 @@ const template = `
 2. **`native_reasoning_active = true`** means native reasoning is active → DON'T ask for step-by-step
 3. **`native_reasoning_active = false`** means no native reasoning active (unsupported OR disabled) → DO ask for `<thinking>` tags
 4. **Use `requires_tags_for_thinking`** when adding thinking tag instructions to templates
-5. **`thinkingTagFallback.enabled: true`** enforces reasoning happens (natively OR via tags)
-6. **`onMissing: 'auto'`** is smart: strict for non-reasoning models, lenient for reasoning models
+5. **`thinkingTagFallback.enabled: true`** enables extraction and optional enforcement
+6. **`enforce: true`** provides smart enforcement: strict for non-reasoning models, lenient for reasoning models
 
 Remember: The goal is to ensure reasoning happens while respecting each model's capabilities!

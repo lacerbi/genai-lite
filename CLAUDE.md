@@ -181,7 +181,7 @@ For comprehensive usage examples, see `examples/chat-demo` - a full-featured Rea
   - `ProviderInfo` - Provider information
   - `ModelInfo` - Model capabilities and settings
   - `LLMSettings` - Configuration options
-  - `LLMThinkingExtractionSettings` - Settings for automatic thinking extraction
+  - `LLMThinkingTagFallbackSettings` - Settings for thinking tag fallback extraction
 
 **Always maintain type safety:**
 - Use strict TypeScript settings
