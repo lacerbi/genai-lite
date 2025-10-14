@@ -52,6 +52,12 @@ thinking_enabled: false
 // → Model won't think unless you prompt it with <thinking> tags
 ```
 
+**Key Insight:** Notice that both scenarios above have `thinking_enabled: false`. This is intentional:
+- The variable doesn't distinguish between "model can't" vs "model is disabled"
+- Both mean: native reasoning is NOT currently active
+- Both require: explicit `<thinking>` tag instructions in your prompt
+- This is why the `!thinking_enabled` pattern works universally
+
 ## The Two Ways Reasoning Happens
 
 ### 1. Native Reasoning (Automatic)
@@ -62,7 +68,7 @@ thinking_enabled: false
 - Result: Reasoning appears in `response.choices[0].reasoning`
 
 ### 2. Explicit Thinking Tags (Prompted)
-**When**: `thinking_enabled = false` (or any model without native reasoning)
+**When**: `thinking_enabled = false` (native reasoning not active - either unsupported OR disabled)
 - Model: Any model (GPT-4, Claude 3.5, Llama 3, etc.)
 - Behavior: Model thinks ONLY if you prompt it to
 - Prompting: "Write your reasoning in `<thinking>` tags first"
@@ -316,7 +322,7 @@ const template = `
 
 1. **Thinking extraction = parser + enforcer**, not automatic thinking generator
 2. **`thinking_enabled = true`** means native reasoning is active → DON'T ask for step-by-step
-3. **`thinking_enabled = false`** means no native reasoning → DO ask for `<thinking>` tags
+3. **`thinking_enabled = false`** means no native reasoning active (unsupported OR disabled) → DO ask for `<thinking>` tags
 4. **Use `!thinking_enabled`** when adding thinking tag instructions to templates
 5. **`thinkingExtraction.enabled: true`** enforces reasoning happens (natively OR via tags)
 6. **`onMissing: 'auto'`** is smart: strict for non-reasoning models, lenient for reasoning models

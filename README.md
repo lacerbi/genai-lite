@@ -297,7 +297,9 @@ if (response.object === 'chat.completion' && response.choices[0].reasoning) {
 
 ### Thinking Extraction and Enforcement
 
-genai-lite can extract and enforce reasoning from any model using XML tags. You prompt the model to output reasoning in tags like `<thinking>`, and the library parses these tags, moving the content to the standardized `reasoning` field. The feature also enforces that reasoning happens—either through native model capabilities or through explicit thinking tags—providing a consistent interface for accessing model reasoning:
+For models without native reasoning, you can prompt them to output reasoning in XML tags like `<thinking>`. The library then extracts these tags and moves the content to the standardized `reasoning` field, providing a consistent interface across all models.
+
+**Key point:** The library doesn't make models think automatically—you must explicitly instruct non-reasoning models to use thinking tags in your prompt. The library then enforces that these tags are present (for non-reasoning models) or accepts native reasoning (for reasoning models).
 
 ```typescript
 // Prompt the model to think step-by-step in a <thinking> tag
@@ -510,13 +512,10 @@ The library provides a powerful `createMessages` method that combines template r
 // Basic example: Create model-aware messages
 const { messages, modelContext } = await llmService.createMessages({
   template: `
-    <SYSTEM>
-      You are a {{ thinking_enabled ? "thoughtful" : "helpful" }} assistant.
-      {{ thinking_available && !thinking_enabled ? "Note: Reasoning mode is available for complex problems." : "" }}
-    </SYSTEM>
+    <SYSTEM>You are a helpful assistant.</SYSTEM>
     <USER>{{ question }}</USER>
   `,
-  variables: { 
+  variables: {
     question: 'What is the optimal algorithm for finding the shortest path in a weighted graph?'
   },
   presetId: 'anthropic-claude-3-7-sonnet-20250219-thinking'
@@ -560,13 +559,25 @@ The method provides:
 - **Template Rendering**: Full support for conditionals and variable substitution
 - **Role Tag Parsing**: Converts `<SYSTEM>`, `<USER>`, and `<ASSISTANT>` tags to messages
 
-Available model context variables:
-- `thinking_enabled`: Whether reasoning/thinking is enabled for this request
-- `thinking_available`: Whether the model supports reasoning/thinking
+**Available model context variables:**
+
+- `thinking_enabled`: Whether native reasoning is **currently active** for this request
+  - `true`: The model is using built-in reasoning (e.g., Claude 4, o4-mini, Gemini 2.5 Pro with reasoning enabled)
+  - `false`: No native reasoning is active (either because the model doesn't support it, or it's been disabled)
+- `thinking_available`: Whether the model **has the capability** to use native reasoning
+  - `true`: Model supports native reasoning (may or may not be enabled)
+  - `false`: Model does not support native reasoning
 - `model_id`: The resolved model ID
 - `provider_id`: The resolved provider ID
 - `reasoning_effort`: The reasoning effort level if specified
 - `reasoning_max_tokens`: The reasoning token budget if specified
+
+**Best Practice for Templates:**
+When adding thinking tag instructions to your templates, **always use `!thinking_enabled`** (the NOT operator). This ensures:
+- Models with active native reasoning get clean, direct prompts
+- Models without native reasoning get explicit instructions to use `<thinking>` tags
+
+Example: `{{ !thinking_enabled ? ' Write your reasoning in <thinking> tags first.' : '' }}`
 
 #### Advanced Features
 
@@ -1324,24 +1335,23 @@ const { messages } = await llmService.createMessages({
   presetId: 'openai-gpt-4.1-default' // Optional: adds model context
 });
 
-// Advanced: Leverage model context for adaptive prompts
+// Advanced: Adaptive prompts based on model capabilities
 const { messages, modelContext } = await llmService.createMessages({
   template: `
     <SYSTEM>
-      You are a {{ thinking_enabled ? 'analytical problem solver' : 'quick helper' }}.
-      {{ model_id.includes('claude') ? 'Use your advanced reasoning capabilities.' : '' }}
+      You are a problem-solving assistant.
+      {{ !thinking_enabled ? ' For complex problems, write your reasoning in <thinking> tags before answering.' : '' }}
     </SYSTEM>
-    <USER>
-      {{ thinking_enabled ? 'Please solve this step-by-step:' : 'Please answer:' }}
-      {{ question }}
-    </USER>
+    <USER>{{ question }}</USER>
   `,
+  // Note: Use !thinking_enabled (NOT operator) - only instruct models that don't have active native reasoning
   variables: { question: 'What causes the seasons on Earth?' },
   presetId: 'anthropic-claude-3-7-sonnet-20250219-thinking'
 });
 
 console.log('Model context:', modelContext);
 // Output: { thinking_enabled: true, thinking_available: true, model_id: 'claude-3-7-sonnet-20250219', ... }
+// Note: With a reasoning model, the system prompt won't include thinking tag instructions
 ```
 
 **Low-Level Utilities:**

@@ -124,7 +124,10 @@ const { messages, modelContext, settings } = await service.createMessages({
       }
     }
     </META>
-    <SYSTEM>You are a {{ thinking_enabled ? "thoughtful" : "quick" }} assistant.</SYSTEM>
+    <SYSTEM>
+      You are a helpful assistant.
+      {{ !thinking_enabled ? ' For complex problems, write your reasoning in <thinking> tags before answering.' : '' }}
+    </SYSTEM>
     <USER>{{ question }}</USER>
   `,
   variables: { question: 'Explain recursion' },

@@ -294,18 +294,42 @@ export type LLMIPCChannelName =
   (typeof LLM_IPC_CHANNELS)[keyof typeof LLM_IPC_CHANNELS];
 
 /**
- * Model context variables injected into templates
+ * Model context variables injected into templates during createMessages()
+ *
+ * These variables enable templates to adapt based on the model's reasoning capabilities:
+ *
+ * **Key Usage Pattern:**
+ * When adding thinking tag instructions, ALWAYS use !thinking_enabled (NOT operator):
+ * ```
+ * {{ !thinking_enabled ? ' Write your reasoning in <thinking> tags first.' : '' }}
+ * ```
+ *
+ * This ensures:
+ * - Models with active native reasoning (thinking_enabled = true) get clean prompts
+ * - Models without native reasoning (thinking_enabled = false) get explicit tag instructions
  */
 export interface ModelContext {
-  /** Whether reasoning/thinking is enabled for this request */
+  /**
+   * Whether native reasoning is CURRENTLY ACTIVE for this request.
+   * - true: Model is using built-in reasoning (Claude 4, o4-mini, Gemini with reasoning enabled)
+   * - false: No native reasoning is active (model doesn't support it OR it's been disabled)
+   *
+   * Use with NOT operator (!) when adding thinking tag instructions to templates.
+   */
   thinking_enabled: boolean;
-  /** Whether the model supports reasoning/thinking */
+
+  /**
+   * Whether the model HAS THE CAPABILITY to use native reasoning.
+   * - true: Model supports native reasoning (may or may not be enabled)
+   * - false: Model does not support native reasoning
+   */
   thinking_available: boolean;
+
   /** The resolved model ID */
   model_id: string;
   /** The resolved provider ID */
   provider_id: string;
-  /** Reasoning effort level if specified */
+  /** Reasoning effort level if specified ('low', 'medium', or 'high') */
   reasoning_effort?: string;
   /** Reasoning max tokens if specified */
   reasoning_max_tokens?: number;

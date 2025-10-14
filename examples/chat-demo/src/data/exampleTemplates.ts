@@ -100,7 +100,7 @@ Focus on: {{ focus_areas }}</USER>`,
   }
 }
 </META>
-<SYSTEM>You are a {{ thinking_enabled ? 'thoughtful problem solver who thinks step-by-step' : 'helpful problem-solving assistant' }}.{{ !thinking_enabled ? ' Write your step-by-step reasoning inside <thinking> tags first, then provide your final answer.' : '' }}</SYSTEM>
+<SYSTEM>You are a helpful problem-solving assistant.{{ !thinking_enabled ? ' Write your step-by-step reasoning inside <thinking> tags first, then provide your final answer.' : '' }}</SYSTEM>
 <USER>Solve this problem:
 
 {{ problem }}

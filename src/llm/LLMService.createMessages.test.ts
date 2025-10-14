@@ -123,15 +123,15 @@ describe('LLMService.createMessages', () => {
     it('should handle conditional role injection based on model context', async () => {
       const result = await service.createMessages({
         template: `
-          {{ thinking_enabled ? '<SYSTEM>Think step-by-step before answering.</SYSTEM>' : '' }}
+          {{ !thinking_enabled ? '<SYSTEM>Write your reasoning in <thinking> tags before answering.</SYSTEM>' : '' }}
           <USER>Solve: {{problem}}</USER>
         `,
         variables: { problem: 'What is 15% of 240?' },
-        presetId: 'anthropic-claude-3-7-sonnet-20250219-thinking'
+        presetId: 'openai-gpt-4.1-default' // Non-reasoning model
       });
 
       expect(result.messages).toEqual([
-        { role: 'system', content: 'Think step-by-step before answering.' },
+        { role: 'system', content: 'Write your reasoning in <thinking> tags before answering.' },
         { role: 'user', content: 'Solve: What is 15% of 240?' }
       ]);
     });
