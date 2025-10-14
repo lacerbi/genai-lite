@@ -108,62 +108,63 @@ export function TemplateExamples({ presets, selectedPresetId, onSelectPreset, on
         Demonstrate genai-lite's template engine with variable substitution, conditional logic, and model-aware prompts.
       </p>
 
-      {/* Preset Selector */}
-      <div className="preset-selector-section">
-        <label htmlFor="preset-select">Select Preset:</label>
-        <select
-          id="preset-select"
-          value={selectedPresetId || ''}
-          onChange={(e) => onSelectPreset(e.target.value)}
-          className="preset-select"
-        >
-          <option value="">Choose a preset...</option>
-          {presets.map(preset => (
-            <option key={preset.id} value={preset.id}>
-              {preset.displayName}
-            </option>
-          ))}
-        </select>
-      </div>
+      {/* Category and Template Selector Row */}
+      <div className="selector-row">
+        {/* Category Filter */}
+        <div className="category-filter">
+          <label htmlFor="category-select">Category:</label>
+          <select
+            id="category-select"
+            value={selectedCategory}
+            onChange={(e) => setSelectedCategory(e.target.value)}
+            className="category-select"
+          >
+            <option value="all">All Templates ({exampleTemplates.length})</option>
+            {categories.map(cat => (
+              <option key={cat} value={cat}>
+                {cat.charAt(0).toUpperCase() + cat.slice(1)} ({exampleTemplates.filter(t => t.category === cat).length})
+              </option>
+            ))}
+          </select>
 
-      {/* Category Filter */}
-      <div className="category-filter">
-        <label htmlFor="category-select">Category:</label>
-        <select
-          id="category-select"
-          value={selectedCategory}
-          onChange={(e) => setSelectedCategory(e.target.value)}
-          className="category-select"
-        >
-          <option value="all">All Templates ({exampleTemplates.length})</option>
-          {categories.map(cat => (
-            <option key={cat} value={cat}>
-              {cat.charAt(0).toUpperCase() + cat.slice(1)} ({exampleTemplates.filter(t => t.category === cat).length})
-            </option>
-          ))}
-        </select>
-      </div>
+          {/* Preset Selector */}
+          <label htmlFor="preset-select">Select Preset:</label>
+          <select
+            id="preset-select"
+            value={selectedPresetId || ''}
+            onChange={(e) => onSelectPreset(e.target.value)}
+            className="preset-select"
+          >
+            <option value="">Choose a preset...</option>
+            {presets.map(preset => (
+              <option key={preset.id} value={preset.id}>
+                {preset.displayName}
+              </option>
+            ))}
+          </select>
+        </div>
 
-      {/* Template Selector */}
-      <div className="template-selector">
-        <label htmlFor="template-select">Template:</label>
-        <select
-          id="template-select"
-          value={selectedTemplate.id}
-          onChange={(e) => handleTemplateChange(e.target.value)}
-          className="template-select"
-        >
-          {filteredTemplates.map(template => (
-            <option key={template.id} value={template.id}>
-              {template.name}
-            </option>
-          ))}
-        </select>
-        <p className="template-description">{selectedTemplate.description}</p>
-        <div className="template-tags">
-          {selectedTemplate.tags.map(tag => (
-            <span key={tag} className="template-tag">{tag}</span>
-          ))}
+        {/* Template Selector */}
+        <div className="template-selector">
+          <label htmlFor="template-select">Template:</label>
+          <select
+            id="template-select"
+            value={selectedTemplate.id}
+            onChange={(e) => handleTemplateChange(e.target.value)}
+            className="template-select"
+          >
+            {filteredTemplates.map(template => (
+              <option key={template.id} value={template.id}>
+                {template.name}
+              </option>
+            ))}
+          </select>
+          <p className="template-description">{selectedTemplate.description}</p>
+          <div className="template-tags">
+            {selectedTemplate.tags.map(tag => (
+              <span key={tag} className="template-tag">{tag}</span>
+            ))}
+          </div>
         </div>
       </div>
 

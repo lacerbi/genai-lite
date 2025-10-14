@@ -918,10 +918,6 @@ body {
   margin-bottom: 1.5rem;
 }
 
-.preset-selector-section {
-  margin-bottom: 1.5rem;
-}
-
 .preset-select,
 .template-select,
 .category-select {
@@ -933,12 +929,27 @@ body {
   margin-top: 0.5rem;
 }
 
-.category-filter {
+.selector-row {
+  display: flex;
+  gap: 1rem;
   margin-bottom: 1rem;
 }
 
-.template-selector {
-  margin-bottom: 1rem;
+.selector-row .category-filter,
+.selector-row .template-selector {
+  flex: 1;
+  margin-bottom: 0;
+}
+
+.selector-row .category-filter label,
+.selector-row .template-selector label {
+  display: block;
+  margin-top: 1rem;
+}
+
+.selector-row .category-filter label:first-child,
+.selector-row .template-selector label:first-child {
+  margin-top: 0;
 }
 
 .template-description {
@@ -1301,5 +1312,9 @@ body {
   .templates-tab,
   .llamacpp-tab {
     padding: 1rem;
+  }
+
+  .selector-row {
+    flex-direction: column;
   }
 }
