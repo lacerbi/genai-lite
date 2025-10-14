@@ -28,7 +28,7 @@ const DEFAULT_SETTINGS: LLMSettings = {
   maxTokens: undefined,
   topP: 1,
   reasoning: { enabled: false },
-  thinkingTagFallback: { enabled: false, enforce: false },
+  thinkingTagFallback: { enabled: true, enforce: false },
 };
 
 // Format messages as Markdown

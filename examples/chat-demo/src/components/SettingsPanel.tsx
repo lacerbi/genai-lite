@@ -190,18 +190,38 @@ export function SettingsPanel({
             <label>
               <input
                 type="checkbox"
-                checked={settings.thinkingTagFallback?.enforce ?? false}
+                checked={settings.thinkingTagFallback?.enabled ?? true}
                 onChange={(e) =>
                   updateSetting('thinkingTagFallback', {
                     enabled: e.target.checked,
-                    enforce: e.target.checked,
+                    enforce: e.target.checked ? (settings.thinkingTagFallback?.enforce ?? false) : false,
                   })
                 }
                 disabled={disabled}
               />
-              Require Thinking
+              Enable Thinking Tag Extraction
             </label>
-            <span className="setting-hint">Extract and require &lt;thinking&gt; tags when native reasoning is not active (fallback for models without reasoning support)</span>
+            <span className="setting-hint">Extract reasoning from &lt;thinking&gt; tags for models without native reasoning</span>
+
+            {settings.thinkingTagFallback?.enabled && (
+              <div style={{ marginLeft: '1.5rem', marginTop: '0.5rem' }}>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={settings.thinkingTagFallback?.enforce ?? false}
+                    onChange={(e) =>
+                      updateSetting('thinkingTagFallback', {
+                        enabled: true,
+                        enforce: e.target.checked,
+                      })
+                    }
+                    disabled={disabled}
+                  />
+                  Require Thinking Tags
+                </label>
+                <span className="setting-hint">Enforce thinking tags when native reasoning is not active</span>
+              </div>
+            )}
           </div>
 
           {/* Variables Section */}
