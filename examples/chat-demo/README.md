@@ -45,7 +45,11 @@ A production-ready interactive web application showcasing all capabilities of th
   - Translation with few-shot examples, technical docs, data analysis
   - Debugging helper, interview prep, adaptive learning tutor
   - Category filter and template tags for easy discovery
-- **Template Rendering**: Demonstrate genai-lite's template engine with `createMessages()`
+- **Templates as Conversation Starters**: Load templates directly into Chat tab
+  - "Open in Chat" button populates system prompt, message input, variables, and settings
+  - Templates provide raw content with `{{ variables }}` intact for editing
+  - Settings reset to defaults, then apply template's `<META>` configuration
+- **Template Rendering Preview**: Demonstrate genai-lite's template engine with `createMessages()`
   - Variable substitution and type-aware editing (string, boolean, number)
   - Shows rendered messages, model context, and settings from `<META>` blocks
 - **Model Presets**: Select from built-in genai-lite presets
@@ -129,7 +133,8 @@ examples/chat-demo/
 │   │   ├── ProviderSelector.tsx # Provider/model selection
 │   │   ├── SettingsPanel.tsx    # Settings sidebar (collapsible)
 │   │   ├── TemplateExamples.tsx # Template rendering with 10 examples
-│   │   └── LlamaCppTools.tsx    # llama.cpp utilities
+│   │   ├── LlamaCppTools.tsx    # llama.cpp utilities
+│   │   └── ErrorDisplay.tsx     # Error display with expandable details
 │   ├── data/             # Static data
 │   │   └── exampleTemplates.ts  # 10 categorized example templates
 │   └── types/            # TypeScript types
@@ -235,7 +240,11 @@ the model dropdown shows the actual model name from your running server (e.g., "
 2. **Select Preset**: Choose a model preset from the dropdown
 3. **Pick Template**: Browse 10 example templates across 4 categories
 4. **Edit Variables**: Modify template variables (supports strings, booleans, numbers)
-5. **Render**: Click "Render Template" to see the result with model context
+5. **Open in Chat**: Click "Open in Chat" to load template into Chat tab as a conversation starter
+   - System prompt and message input populate with raw template content (variables intact)
+   - Variables and settings from the template are applied
+   - You can then edit everything and start chatting normally
+6. **Preview (Optional)**: Click "Render Template" to see the rendered output with model context
 
 ### llama.cpp Tools Tab
 1. **Switch to llama.cpp Tools**: Click the "llama.cpp Tools" tab in the header
