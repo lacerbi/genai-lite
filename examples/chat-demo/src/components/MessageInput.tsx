@@ -1,8 +1,10 @@
 // MessageInput component - Input field and send button for chat messages
 
-import { useState, KeyboardEvent } from 'react';
+import { KeyboardEvent } from 'react';
 
 interface MessageInputProps {
+  value: string;
+  onChange: (value: string) => void;
   onSendMessage: (content?: string) => void;
   disabled?: boolean;
   placeholder?: string;
@@ -10,14 +12,11 @@ interface MessageInputProps {
   requireInput?: boolean;
 }
 
-export function MessageInput({ onSendMessage, disabled = false, placeholder = 'Type a message...', buttonLabel = 'Send', requireInput = true }: MessageInputProps) {
-  const [input, setInput] = useState('');
-
+export function MessageInput({ value, onChange, onSendMessage, disabled = false, placeholder = 'Type a message...', buttonLabel = 'Send', requireInput = true }: MessageInputProps) {
   const handleSend = () => {
     if (!disabled) {
-      if (requireInput && input.trim()) {
-        onSendMessage(input.trim());
-        setInput('');
+      if (requireInput && value.trim()) {
+        onSendMessage(value.trim());
       } else if (!requireInput) {
         onSendMessage();
       }
@@ -35,8 +34,8 @@ export function MessageInput({ onSendMessage, disabled = false, placeholder = 'T
   return (
     <div className="message-input">
       <textarea
-        value={input}
-        onChange={(e) => setInput(e.target.value)}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
         onKeyDown={handleKeyDown}
         placeholder={placeholder}
         disabled={disabled}
@@ -45,7 +44,7 @@ export function MessageInput({ onSendMessage, disabled = false, placeholder = 'T
       />
       <button
         onClick={handleSend}
-        disabled={disabled || (requireInput && !input.trim())}
+        disabled={disabled || (requireInput && !value.trim())}
         className="send-button"
       >
         {buttonLabel}

@@ -13,14 +13,6 @@ import { renderTemplate } from '../../../../src/prompting/template';
 import type { Message, Provider, Model, LLMSettings, Preset, UserVariables, AutomaticVariables } from '../types';
 import packageJson from '../../package.json';
 
-// Template data for deferred rendering
-interface TemplateToSend {
-  template: string;
-  variables: Record<string, any>;
-  settings?: Partial<LLMSettings>;
-  templateName: string;
-}
-
 // Error data structure
 interface ErrorInfo {
   userMessage: string;
@@ -180,6 +172,21 @@ function savePersistedSettings(data: any) {
   }
 }
 
+// Extract raw role content from template (without variable substitution)
+function extractRawRoleContent(template: string): { system: string; user: string } {
+  // Remove META block
+  const cleanTemplate = template.replace(/<META>[\s\S]*?<\/META>/g, '').trim();
+
+  // Extract SYSTEM and USER content (keep variables intact)
+  const systemMatch = cleanTemplate.match(/<SYSTEM>([\s\S]*?)<\/SYSTEM>/);
+  const userMatch = cleanTemplate.match(/<USER>([\s\S]*?)<\/USER>/);
+
+  return {
+    system: systemMatch?.[1].trim() || '',
+    user: userMatch?.[1].trim() || ''
+  };
+}
+
 export function ChatInterface() {
   // Load persisted settings or use defaults
   const persisted = loadPersistedSettings();
@@ -213,8 +220,8 @@ export function ChatInterface() {
   // State for settings sidebar (only in chat tab)
   const [sidebarExpanded, setSidebarExpanded] = useState(persisted?.sidebarExpanded !== false); // default true
 
-  // State for template to send (deferred rendering)
-  const [templateToSend, setTemplateToSend] = useState<TemplateToSend | null>(null);
+  // State for message input (controlled)
+  const [messageInputValue, setMessageInputValue] = useState<string>('');
 
   // State for variables
   const [userVariables, setUserVariables] = useState<UserVariables>(persisted?.userVariables || {});
@@ -343,7 +350,7 @@ export function ChatInterface() {
     // Apply variable substitution to the user message
     const processedContent = renderTemplate(content, allVariables);
 
-    // Add user message to the list (with original content for display)
+    // Add user message to the list (with processed content)
     const userMessage: Message = {
       role: 'user',
       content: processedContent,
@@ -386,6 +393,9 @@ export function ChatInterface() {
           timestamp: Date.now(),
         };
         setMessages((prev) => [...prev, assistantMessage]);
+
+        // Clear input after successful send
+        setMessageInputValue('');
       } else if (response.error) {
         setError(createErrorInfo(response.error, { providerId: selectedProviderId, modelId: selectedModelId }));
       }
@@ -446,110 +456,40 @@ export function ChatInterface() {
     }
   };
 
-  const handleOpenInChat = (data: TemplateToSend) => {
-    // Store template for deferred rendering
-    setTemplateToSend(data);
+  const handleOpenInChat = (data: {
+    template: string;
+    variables: Record<string, any>;
+    settings?: Partial<LLMSettings>;
+    templateName: string;
+  }) => {
+    // Extract raw role content from template (without variable substitution)
+    const { system, user } = extractRawRoleContent(data.template);
+
+    // Populate fields with RAW content (variables intact)
+    if (system) {
+      setSystemPrompt(system);
+    }
+    if (user) {
+      setMessageInputValue(user);
+    }
+
+    // Set variables
+    setUserVariables(data.variables);
+
+    // Reset settings to defaults first to avoid conflicts
+    setSettings(DEFAULT_SETTINGS);
+
+    // Then apply template settings from META if provided
+    if (data.settings) {
+      setSettings(prev => ({ ...prev, ...data.settings }));
+    }
 
     // Clear existing chat
     setMessages([]);
     setError(null);
 
-    // Apply settings from template META if provided
-    if (data.settings) {
-      setSettings(prev => ({ ...prev, ...data.settings }));
-    }
-
     // Switch to chat tab
     setActiveTab('chat');
-  };
-
-  const handleSendTemplate = async () => {
-    if (!templateToSend) return;
-    if (!selectedProviderId || !selectedModelId) {
-      setError(createSimpleError('Please select a provider and model first'));
-      return;
-    }
-
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      // Render template with current provider/model
-      const renderResponse = await renderTemplateAPI({
-        template: templateToSend.template,
-        variables: templateToSend.variables,
-        providerId: selectedProviderId,
-        modelId: selectedModelId,
-      });
-
-      if (!renderResponse.success || !renderResponse.result) {
-        const errorMsg = renderResponse.error?.message || 'Failed to render template';
-        setError(createErrorInfo(renderResponse.error || errorMsg));
-        setIsLoading(false);
-        return;
-      }
-
-      const { messages: renderedMessages } = renderResponse.result;
-
-      // Extract SYSTEM message and set as system prompt (if present)
-      const systemMsg = renderedMessages.find((m: any) => m.role === 'system');
-      if (systemMsg) {
-        setSystemPrompt(systemMsg.content);
-      }
-
-      // Find USER message to send
-      const userMsg = renderedMessages.find((m: any) => m.role === 'user');
-      if (!userMsg) {
-        setError(createSimpleError('Template did not produce a user message'));
-        setIsLoading(false);
-        return;
-      }
-
-      // Add user message to chat
-      const userMessage: Message = {
-        role: 'user',
-        content: userMsg.content,
-        timestamp: Date.now(),
-      };
-      setMessages([userMessage]);
-
-      // Prepare API messages (include system if present)
-      const apiMessages = systemMsg
-        ? [{ role: 'system', content: systemMsg.content }, { role: 'user', content: userMsg.content }]
-        : [{ role: 'user', content: userMsg.content }];
-
-      // Send to LLM
-      const response = await sendChatMessage({
-        providerId: selectedProviderId,
-        modelId: selectedModelId,
-        messages: apiMessages,
-        settings,
-      });
-
-      if (response.success && response.response) {
-        // Add assistant message
-        const assistantMessage: Message = {
-          role: 'assistant',
-          content: response.response.content,
-          reasoning: response.response.reasoning,
-          timestamp: Date.now(),
-        };
-        setMessages((prev) => [...prev, assistantMessage]);
-      } else if (response.error) {
-        setError(createErrorInfo(response.error, { providerId: selectedProviderId, modelId: selectedModelId }));
-      }
-
-      // Clear template state after successful send
-      setTemplateToSend(null);
-    } catch (err) {
-      setError(createErrorInfo(err, { providerId: selectedProviderId, modelId: selectedModelId }));
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleCancelTemplate = () => {
-    setTemplateToSend(null);
   };
 
   return (
@@ -640,34 +580,15 @@ export function ChatInterface() {
                 <ErrorDisplay userMessage={error.userMessage} rawError={error.rawError} />
               )}
 
-              {/* Template Banner */}
-              {templateToSend && (
-                <div className="template-banner">
-                  <div className="template-banner-content">
-                    <span className="template-banner-icon">📋</span>
-                    <div className="template-banner-text">
-                      <strong>Template ready:</strong> {templateToSend.templateName}
-                    </div>
-                  </div>
-                  <button
-                    className="template-banner-cancel"
-                    onClick={handleCancelTemplate}
-                    title="Cancel template"
-                  >
-                    ✕
-                  </button>
-                </div>
-              )}
-
               <div className="chat-container">
                 <MessageList messages={messages} />
                 <MessageInput
-                  onSendMessage={templateToSend ? handleSendTemplate : handleSendMessage}
+                  value={messageInputValue}
+                  onChange={setMessageInputValue}
+                  onSendMessage={handleSendMessage}
                   disabled={isLoading || !selectedProviderId || !selectedModelId}
                   placeholder={
-                    templateToSend
-                      ? 'Click "Send Template" to render and send...'
-                      : isLoading
+                    isLoading
                       ? 'Waiting for response...'
                       : !selectedProviderId
                       ? 'Select a provider first...'
@@ -675,8 +596,6 @@ export function ChatInterface() {
                       ? 'Select a model first...'
                       : 'Type a message...'
                   }
-                  buttonLabel={templateToSend ? 'Send Template' : 'Send'}
-                  requireInput={!templateToSend}
                 />
               </div>
 
