@@ -322,6 +322,22 @@ export function ChatInterface() {
         setSelectedModelId(response.models[0].id);
       }
     } catch (err) {
+      // For llamacpp, treat unavailability as normal state (not an error to show users)
+      // This happens when the llama.cpp server isn't running
+      if (providerId === 'llamacpp') {
+        const errorStr = err instanceof Error ? err.message : String(err);
+
+        // Check if it's a 503 Service Unavailable error
+        if (errorStr.includes('503') || errorStr.includes('Service Unavailable')) {
+          // Log for debugging but don't show error to user
+          console.log('llama.cpp server is not available (not running or unreachable)');
+          setModels([]);
+          setSelectedModelId('');
+          return; // Exit without setting error
+        }
+      }
+
+      // For all other errors, show them to the user
       setError(createErrorInfo(err, { providerId }));
       setModels([]);
       setSelectedModelId('');
