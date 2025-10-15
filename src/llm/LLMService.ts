@@ -237,6 +237,20 @@ export class LLMService {
           };
         }
 
+        // Validate API key format if adapter supports it
+        if (clientAdapter.validateApiKey && !clientAdapter.validateApiKey(apiKey)) {
+          return {
+            provider: providerId!,
+            model: modelId!,
+            error: {
+              message: `Invalid API key format for provider '${providerId}'. Please check your API key.`,
+              code: "INVALID_API_KEY",
+              type: "authentication_error",
+            },
+            object: "error",
+          };
+        }
+
         console.log(
           `Making LLM request with ${clientAdapter.constructor.name} for provider: ${providerId}`
         );
