@@ -127,14 +127,8 @@ llamacppRouter.post('/embedding', async (req, res) => {
  */
 llamacppRouter.get('/models', async (req, res) => {
   try {
-    // Query the OpenAI-compatible /v1/models endpoint
-    const response = await fetch(`${baseURL}/v1/models`);
-
-    if (!response.ok) {
-      throw new Error(`Failed to fetch models: ${response.status} ${response.statusText}`);
-    }
-
-    const data = await response.json();
+    // Use library method to query the OpenAI-compatible /v1/models endpoint
+    const data = await llamacppClient.getModels();
 
     // Extract model information from the response
     // llama.cpp returns: { data: [{ id: "model-name", ... }] }

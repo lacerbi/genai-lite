@@ -33,6 +33,8 @@ export type {
   LlamaCppMetricsResponse,
   LlamaCppSlot,
   LlamaCppSlotsResponse,
+  LlamaCppModel,
+  LlamaCppModelsResponse,
 } from "./llm/clients/LlamaCppServerClient";
 
 // --- Utilities ---
@@ -40,4 +42,5 @@ export { renderTemplate } from "./prompting/template";
 export { countTokens, getSmartPreview, extractRandomVariables } from "./prompting/content";
 export { parseStructuredContent, parseRoleTags, extractInitialTaggedContent, parseTemplateWithMetadata } from "./prompting/parser";
 export type { TemplateMetadata } from "./prompting/parser";
-export { createFallbackModelInfo } from "./llm/config";
+export { createFallbackModelInfo, detectGgufCapabilities, KNOWN_GGUF_MODELS } from "./llm/config";
+export type { GgufModelPattern } from "./llm/config";

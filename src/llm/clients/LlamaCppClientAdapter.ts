@@ -2,7 +2,7 @@
 // Provides LLM chat completions via llama.cpp's /v1/chat/completions endpoint.
 
 import OpenAI from "openai";
-import type { LLMResponse, LLMFailureResponse } from "../types";
+import type { LLMResponse, LLMFailureResponse, ModelInfo } from "../types";
 import type {
   ILLMClientAdapter,
   InternalLLMChatRequest,
@@ -10,6 +10,7 @@ import type {
 import { ADAPTER_ERROR_CODES } from "./types";
 import { getCommonMappedErrorDetails } from "./adapterErrorUtils";
 import { LlamaCppServerClient } from "./LlamaCppServerClient";
+import { detectGgufCapabilities } from "../config";
 
 /**
  * Configuration options for LlamaCppClientAdapter
@@ -60,6 +61,8 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
   private baseURL: string;
   private checkHealth: boolean;
   private serverClient: LlamaCppServerClient;
+  private cachedModelCapabilities: Partial<ModelInfo> | null = null;
+  private detectionAttempted: boolean = false;
 
   /**
    * Creates a new llama.cpp client adapter
@@ -70,6 +73,69 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
     this.baseURL = config?.baseURL || 'http://localhost:8080';
     this.checkHealth = config?.checkHealth || false;
     this.serverClient = new LlamaCppServerClient(this.baseURL);
+  }
+
+  /**
+   * Gets model capabilities by detecting the loaded GGUF model
+   *
+   * This method caches the result to avoid repeated HTTP calls.
+   * Cache is automatically cleared on connection errors in sendMessage().
+   *
+   * @returns Detected model capabilities or null if detection fails
+   */
+  async getModelCapabilities(): Promise<Partial<ModelInfo> | null> {
+    // Return cached result if available
+    if (this.cachedModelCapabilities !== null) {
+      return this.cachedModelCapabilities;
+    }
+
+    // Return null if we already tried and failed
+    if (this.detectionAttempted) {
+      return null;
+    }
+
+    // Attempt detection
+    try {
+      console.log(`Detecting model capabilities from llama.cpp server at ${this.baseURL}`);
+      const { data } = await this.serverClient.getModels();
+
+      if (!data || data.length === 0) {
+        console.warn('No models loaded in llama.cpp server');
+        this.detectionAttempted = true;
+        return null;
+      }
+
+      const ggufFilename = data[0].id;
+      const capabilities = detectGgufCapabilities(ggufFilename);
+
+      // Cache the result (even if null)
+      this.cachedModelCapabilities = capabilities;
+      this.detectionAttempted = true;
+
+      if (capabilities) {
+        console.log(`Cached model capabilities for: ${ggufFilename}`);
+      } else {
+        console.log(`No known pattern matched for: ${ggufFilename}`);
+      }
+
+      return capabilities;
+    } catch (error) {
+      console.warn('Failed to detect model capabilities:', error);
+      this.detectionAttempted = true;
+      return null;
+    }
+  }
+
+  /**
+   * Clears the cached model capabilities
+   *
+   * Called automatically on connection errors, or can be called manually
+   * if the server has been restarted with a different model.
+   */
+  clearModelCache(): void {
+    this.cachedModelCapabilities = null;
+    this.detectionAttempted = false;
+    console.log('Cleared model capabilities cache');
   }
 
   /**
@@ -155,6 +221,17 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
       }
     } catch (error) {
       console.error("llama.cpp API error:", error);
+
+      // Clear cache on connection errors so we re-detect on next request
+      const errorMessage = (error as any)?.message || String(error);
+      if (
+        errorMessage.includes("ECONNREFUSED") ||
+        errorMessage.includes("fetch failed") ||
+        errorMessage.includes("connect")
+      ) {
+        this.clearModelCache();
+      }
+
       return this.createErrorResponse(error, request);
     }
   }
@@ -255,19 +332,36 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
       throw new Error("No valid choices in llama.cpp completion response");
     }
 
+    // Extract reasoning content if available
+    // llama.cpp returns reasoning in reasoning_content field when using --reasoning-format
+    let reasoning: string | undefined;
+    if ((choice.message as any).reasoning_content) {
+      reasoning = (choice.message as any).reasoning_content;
+    }
+
     return {
       id: completion.id,
       provider: request.providerId,
       model: completion.model || request.modelId,
       created: completion.created,
-      choices: completion.choices.map((c) => ({
-        message: {
-          role: "assistant",
-          content: c.message.content || "",
-        },
-        finish_reason: c.finish_reason,
-        index: c.index,
-      })),
+      choices: completion.choices.map((c) => {
+        const mappedChoice: any = {
+          message: {
+            role: "assistant",
+            content: c.message.content || "",
+          },
+          finish_reason: c.finish_reason,
+          index: c.index,
+        };
+
+        // Include reasoning if available and not excluded
+        const messageReasoning = (c.message as any).reasoning_content;
+        if (messageReasoning && request.settings.reasoning && !request.settings.reasoning.exclude) {
+          mappedChoice.reasoning = messageReasoning;
+        }
+
+        return mappedChoice;
+      }),
       usage: completion.usage
         ? {
             prompt_tokens: completion.usage.prompt_tokens,

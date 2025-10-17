@@ -5,6 +5,7 @@ import type {
   ApiProviderId
 } from "../types";
 import { PresetManager } from "./PresetManager";
+import { AdapterRegistry } from "./AdapterRegistry";
 import {
   SUPPORTED_PROVIDERS,
   isProviderSupported,
@@ -12,6 +13,7 @@ import {
   getProviderById,
   createFallbackModelInfo
 } from "../config";
+import type { LlamaCppClientAdapter } from "../clients/LlamaCppClientAdapter";
 
 /**
  * Options for model selection
@@ -38,15 +40,18 @@ export interface ModelResolution {
  * Resolves model information from presets or direct provider/model IDs
  */
 export class ModelResolver {
-  constructor(private presetManager: PresetManager) {}
+  constructor(
+    private presetManager: PresetManager,
+    private adapterRegistry: AdapterRegistry
+  ) {}
 
   /**
    * Resolves model information from either a preset ID or provider/model IDs
-   * 
+   *
    * @param options Options containing either presetId or providerId/modelId
    * @returns Resolved model info and settings or error response
    */
-  resolve(options: ModelSelectionOptions): ModelResolution {
+  async resolve(options: ModelSelectionOptions): Promise<ModelResolution> {
     // If presetId is provided, use it
     if (options.presetId) {
       const preset = this.presetManager.resolvePreset(options.presetId);
@@ -132,16 +137,32 @@ export class ModelResolver {
       // Check if provider allows unknown models
       const provider = getProviderById(options.providerId);
 
+      // For llamacpp, try to detect capabilities from the adapter's cache
+      let detectedCapabilities: Partial<ModelInfo> | undefined;
+      if (options.providerId === 'llamacpp') {
+        try {
+          const adapter = this.adapterRegistry.getAdapter('llamacpp') as any;
+          // Check if adapter has the getModelCapabilities method
+          if (adapter && typeof adapter.getModelCapabilities === 'function') {
+            const capabilities = await adapter.getModelCapabilities();
+            detectedCapabilities = capabilities || undefined;
+          }
+        } catch (error) {
+          console.warn('Failed to detect GGUF model capabilities:', error);
+          // Continue with fallback
+        }
+      }
+
       if (provider?.allowUnknownModels) {
-        // Flexible provider (e.g., llamacpp) - silent fallback
-        modelInfo = createFallbackModelInfo(options.modelId, options.providerId);
+        // Flexible provider (e.g., llamacpp) - silent fallback with detected capabilities
+        modelInfo = createFallbackModelInfo(options.modelId, options.providerId, detectedCapabilities);
       } else {
         // Strict provider - warn but allow
         console.warn(
           `⚠️  Unknown model "${options.modelId}" for provider "${options.providerId}". ` +
           `Using default settings. This may fail at the provider API if the model doesn't exist.`
         );
-        modelInfo = createFallbackModelInfo(options.modelId, options.providerId);
+        modelInfo = createFallbackModelInfo(options.modelId, options.providerId, detectedCapabilities);
       }
     }
 

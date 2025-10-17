@@ -247,6 +247,89 @@ describe('LlamaCppClientAdapter', () => {
       }
     });
 
+    it('should extract reasoning_content when present and reasoning enabled', async () => {
+      mockCreate.mockResolvedValueOnce({
+        id: 'chatcmpl-reasoning',
+        object: 'chat.completion',
+        created: 1677652288,
+        model: 'qwen3-8b-instruct',
+        choices: [
+          {
+            index: 0,
+            message: {
+              role: 'assistant',
+              content: 'The answer is 42.',
+              reasoning_content: 'Let me think step by step. First, I consider the question...',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 15,
+          completion_tokens: 25,
+          total_tokens: 40,
+        },
+      });
+
+      const requestWithReasoning = {
+        ...basicRequest,
+        settings: {
+          ...basicRequest.settings,
+          reasoning: {
+            enabled: true,
+            exclude: false,
+          },
+        },
+      };
+
+      const response = await adapter.sendMessage(requestWithReasoning, 'not-needed');
+
+      expect(response.object).toBe('chat.completion');
+      if (response.object === 'chat.completion') {
+        expect(response.choices[0].message.content).toBe('The answer is 42.');
+        expect(response.choices[0].reasoning).toBe('Let me think step by step. First, I consider the question...');
+      }
+    });
+
+    it('should exclude reasoning_content when reasoning.exclude is true', async () => {
+      mockCreate.mockResolvedValueOnce({
+        id: 'chatcmpl-reasoning-excluded',
+        object: 'chat.completion',
+        created: 1677652288,
+        model: 'qwen3-8b-instruct',
+        choices: [
+          {
+            index: 0,
+            message: {
+              role: 'assistant',
+              content: 'The answer is 42.',
+              reasoning_content: 'Let me think step by step...',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+      });
+
+      const requestWithExclude = {
+        ...basicRequest,
+        settings: {
+          ...basicRequest.settings,
+          reasoning: {
+            enabled: true,
+            exclude: true,
+          },
+        },
+      };
+
+      const response = await adapter.sendMessage(requestWithExclude, 'not-needed');
+
+      expect(response.object).toBe('chat.completion');
+      if (response.object === 'chat.completion') {
+        expect(response.choices[0].message.content).toBe('The answer is 42.');
+        expect(response.choices[0].reasoning).toBeUndefined();
+      }
+    });
+
     it('should check health before request when enabled', async () => {
       const healthCheckAdapter = new LlamaCppClientAdapter({ checkHealth: true });
 
