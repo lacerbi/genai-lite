@@ -150,6 +150,170 @@ export const SUPPORTED_PROVIDERS: ProviderInfo[] = [
 ];
 
 /**
+ * Pattern definition for detecting GGUF model capabilities
+ */
+export interface GgufModelPattern {
+  /** Pattern to match in the GGUF filename (case-insensitive substring match) */
+  pattern: string;
+  /** Human-readable name for the model */
+  name: string;
+  /** Optional description */
+  description?: string;
+  /** Model capabilities (reasoning config, context window, etc.) */
+  capabilities: Partial<ModelInfo>;
+}
+
+/**
+ * Known GGUF model patterns for capability detection
+ *
+ * Order matters: more specific patterns should come before generic ones.
+ * First matching pattern wins.
+ *
+ * Example: "Qwen3-0.6B-0522" should be before "Qwen3-0.6B"
+ */
+export const KNOWN_GGUF_MODELS: GgufModelPattern[] = [
+  // Qwen 3 Series - All support thinking/reasoning
+  {
+    pattern: "qwen3-30b",
+    name: "Qwen 3 30B",
+    description: "Qwen 3 30B model with thinking capabilities",
+    capabilities: {
+      maxTokens: 16384,
+      contextWindow: 131072,
+      supportsImages: false,
+      supportsPromptCache: false,
+      reasoning: {
+        supported: true,
+        enabledByDefault: false,
+        canDisable: true,
+        maxBudget: 38912,
+      },
+    },
+  },
+  {
+    pattern: "qwen3-14b",
+    name: "Qwen 3 14B",
+    description: "Qwen 3 14B model with thinking capabilities",
+    capabilities: {
+      maxTokens: 8192,
+      contextWindow: 131072,
+      supportsImages: false,
+      supportsPromptCache: false,
+      reasoning: {
+        supported: true,
+        enabledByDefault: false,
+        canDisable: true,
+        maxBudget: 38912,
+      },
+    },
+  },
+  {
+    pattern: "qwen3-8b",
+    name: "Qwen 3 8B",
+    description: "Qwen 3 8B model with thinking capabilities",
+    capabilities: {
+      maxTokens: 8192,
+      contextWindow: 131072,
+      supportsImages: false,
+      supportsPromptCache: false,
+      reasoning: {
+        supported: true,
+        enabledByDefault: false,
+        canDisable: true,
+        maxBudget: 38912,
+      },
+    },
+  },
+  {
+    pattern: "qwen3-4b",
+    name: "Qwen 3 4B",
+    description: "Qwen 3 4B model with thinking capabilities",
+    capabilities: {
+      maxTokens: 8192,
+      contextWindow: 131072,
+      supportsImages: false,
+      supportsPromptCache: false,
+      reasoning: {
+        supported: true,
+        enabledByDefault: false,
+        canDisable: true,
+        maxBudget: 38912,
+      },
+    },
+  },
+  {
+    pattern: "qwen3-1.7b",
+    name: "Qwen 3 1.7B",
+    description: "Qwen 3 1.7B model with thinking capabilities",
+    capabilities: {
+      maxTokens: 8192,
+      contextWindow: 32768,
+      supportsImages: false,
+      supportsPromptCache: false,
+      reasoning: {
+        supported: true,
+        enabledByDefault: false,
+        canDisable: true,
+        maxBudget: 30720,
+      },
+    },
+  },
+  {
+    pattern: "qwen3-0.6b",
+    name: "Qwen 3 0.6B",
+    description: "Qwen 3 0.6B model with thinking capabilities",
+    capabilities: {
+      maxTokens: 8192,
+      contextWindow: 32768,
+      supportsImages: false,
+      supportsPromptCache: false,
+      reasoning: {
+        supported: true,
+        enabledByDefault: false,
+        canDisable: true,
+        maxBudget: 30720,
+      },
+    },
+  },
+  // Add more model patterns here as needed
+  // DeepSeek, Llama, etc.
+];
+
+/**
+ * Detects model capabilities from GGUF filename
+ *
+ * Performs case-insensitive substring matching against known model patterns.
+ * Returns the first matching pattern's capabilities (array order determines priority).
+ *
+ * @param ggufFilename - The GGUF model filename (e.g., "Qwen3-8B-Instruct-Q4_K_M.gguf")
+ * @returns Partial ModelInfo with detected capabilities, or null if no match
+ *
+ * @example
+ * ```typescript
+ * const caps = detectGgufCapabilities("Qwen3-8B-Instruct-Q4_K_M.gguf");
+ * if (caps?.reasoning?.supported) {
+ *   console.log("This model supports thinking!");
+ * }
+ * ```
+ */
+export function detectGgufCapabilities(
+  ggufFilename: string
+): Partial<ModelInfo> | null {
+  const lowerFilename = ggufFilename.toLowerCase();
+
+  // First match wins (array is pre-ordered from specific to generic)
+  for (const model of KNOWN_GGUF_MODELS) {
+    if (lowerFilename.includes(model.pattern.toLowerCase())) {
+      console.log(`Detected GGUF model: ${model.name} (pattern: ${model.pattern})`);
+      return model.capabilities;
+    }
+  }
+
+  // No match found
+  return null;
+}
+
+/**
  * Supported LLM models with their configurations
  * ModelInfo is similar to Cline model info
  * See: https://github.com/cline/cline/blob/main/src/shared/api.ts
@@ -558,13 +722,15 @@ export function isModelSupported(modelId: string, providerId: string): boolean {
  *
  * @param modelId - The model ID to create info for
  * @param providerId - The provider ID
- * @returns ModelInfo with default/placeholder values
+ * @param capabilities - Optional detected capabilities to merge (e.g., from GGUF detection)
+ * @returns ModelInfo with default/placeholder values, enhanced with detected capabilities
  */
 export function createFallbackModelInfo(
   modelId: string,
-  providerId: string
+  providerId: string,
+  capabilities?: Partial<ModelInfo>
 ): ModelInfo {
-  return {
+  const defaults: ModelInfo = {
     id: modelId,
     name: modelId,
     providerId: providerId as ApiProviderId,
@@ -576,6 +742,25 @@ export function createFallbackModelInfo(
     supportsImages: false,
     supportsPromptCache: false,
   };
+
+  // Merge detected capabilities if provided
+  if (capabilities) {
+    return {
+      ...defaults,
+      ...capabilities,
+      // Always preserve these from defaults/params
+      id: modelId,
+      name: capabilities.name || modelId,
+      providerId: providerId as ApiProviderId,
+      // For local models, pricing is always 0
+      inputPrice: 0,
+      outputPrice: 0,
+      cacheWritesPrice: undefined,
+      cacheReadsPrice: undefined,
+    };
+  }
+
+  return defaults;
 }
 
 /**

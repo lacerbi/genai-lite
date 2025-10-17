@@ -75,6 +75,25 @@ export interface LlamaCppSlotsResponse {
 }
 
 /**
+ * Individual model information from /v1/models endpoint
+ */
+export interface LlamaCppModel {
+  id: string;
+  object?: string;
+  created?: number;
+  owned_by?: string;
+  [key: string]: any;
+}
+
+/**
+ * Response from the /v1/models endpoint
+ */
+export interface LlamaCppModelsResponse {
+  object: string;
+  data: LlamaCppModel[];
+}
+
+/**
  * Client for interacting with llama.cpp server's management and utility endpoints
  *
  * This class provides access to non-LLM endpoints like tokenization, embeddings,
@@ -281,6 +300,34 @@ export class LlamaCppServerClient {
         throw new Error('Slots endpoint not enabled. Start server with --slots flag to enable.');
       }
       throw new Error(`Get slots failed: ${response.status} ${response.statusText}`);
+    }
+
+    return await response.json();
+  }
+
+  /**
+   * Retrieves the list of models loaded in the llama.cpp server
+   *
+   * This uses the OpenAI-compatible /v1/models endpoint to get information
+   * about the currently loaded model(s). Typically llama.cpp serves one model
+   * at a time, but this returns an array for API compatibility.
+   *
+   * @returns Promise resolving to models response with array of loaded models
+   * @throws Error if the request fails
+   *
+   * @example
+   * ```typescript
+   * const client = new LlamaCppServerClient('http://localhost:8080');
+   * const { data } = await client.getModels();
+   * console.log('Loaded model:', data[0].id);
+   * // Output: "Qwen2.5-7B-Instruct-Q4_K_M.gguf"
+   * ```
+   */
+  async getModels(): Promise<LlamaCppModelsResponse> {
+    const response = await fetch(`${this.baseURL}/v1/models`);
+
+    if (!response.ok) {
+      throw new Error(`Get models failed: ${response.status} ${response.statusText}`);
     }
 
     return await response.json();

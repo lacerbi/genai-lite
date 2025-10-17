@@ -77,13 +77,13 @@ export class LLMService {
 
   constructor(getApiKey: ApiKeyProvider, options: LLMServiceOptions = {}) {
     this.getApiKey = getApiKey;
-    
+
     // Initialize services
     this.presetManager = new PresetManager(options.presets, options.presetMode);
     this.adapterRegistry = new AdapterRegistry();
     this.requestValidator = new RequestValidator();
     this.settingsManager = new SettingsManager();
-    this.modelResolver = new ModelResolver(this.presetManager);
+    this.modelResolver = new ModelResolver(this.presetManager, this.adapterRegistry);
   }
 
   /**
@@ -131,7 +131,7 @@ export class LLMService {
 
     try {
       // Resolve model information from preset or direct IDs
-      const resolved = this.modelResolver.resolve(request);
+      const resolved = await this.modelResolver.resolve(request);
       if (resolved.error) {
         return resolved.error;
       }
@@ -446,13 +446,13 @@ export class LLMService {
     
     if (options.presetId || (options.providerId && options.modelId)) {
       // Resolve model information
-      const resolved = this.modelResolver.resolve({
+      const resolved = await this.modelResolver.resolve({
         presetId: options.presetId,
         providerId: options.providerId as ApiProviderId,
         modelId: options.modelId,
         settings: options.settings
       });
-      
+
       if (resolved.error) {
         // If resolution fails, proceed without model context
         console.warn('Model resolution failed, proceeding without model context:', resolved.error);

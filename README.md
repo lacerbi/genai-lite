@@ -151,6 +151,8 @@ const llmService = new LLMService(myKeyProvider);
 
 Run models locally via [llama.cpp](https://github.com/ggml-org/llama.cpp) server. Model IDs can be any name—they're not validated since you load your own GGUF models.
 
+**Automatic Capability Detection:** genai-lite automatically detects capabilities (reasoning support, context windows, token limits) for known open-weights models (Qwen3, etc.) by matching the GGUF filename from the server. No configuration needed.
+
 **Example models:**
 - `llama-3-8b-instruct` - Llama 3 8B Instruct
 - `llama-3-70b-instruct` - Llama 3 70B Instruct
@@ -1077,7 +1079,9 @@ import type {
 import {
   LlamaCppClientAdapter,
   LlamaCppServerClient,
-  createFallbackModelInfo
+  createFallbackModelInfo,
+  detectGgufCapabilities,
+  KNOWN_GGUF_MODELS
 } from 'genai-lite';
 
 import type {
@@ -1090,7 +1094,10 @@ import type {
   LlamaCppPropsResponse,
   LlamaCppMetricsResponse,
   LlamaCppSlot,
-  LlamaCppSlotsResponse
+  LlamaCppSlotsResponse,
+  LlamaCppModel,
+  LlamaCppModelsResponse,
+  GgufModelPattern
 } from 'genai-lite';
 ```
 
