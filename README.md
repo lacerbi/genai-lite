@@ -214,6 +214,7 @@ Some models include advanced reasoning/thinking capabilities that enhance their 
 - **Anthropic**: Claude Sonnet 4, Claude Opus 4, Claude 3.7 Sonnet
 - **Google Gemini**: Gemini 2.5 Pro (always on), Gemini 2.5 Flash, Gemini 2.5 Flash-Lite Preview
 - **OpenAI**: o4-mini (always on)
+- **llama.cpp**: Qwen3, DeepSeek-R1, GPT-OSS (requires `--reasoning-format deepseek` server flag)
 
 See the [Reasoning Mode](#reasoning-mode) section for usage details.
 
@@ -796,12 +797,20 @@ Get GGUF models from Hugging Face, for example:
 # Basic usage
 llama-server -m /path/to/model.gguf --port 8080
 
-# With more options
+# With reasoning support (for Qwen3, DeepSeek-R1, etc.)
 llama-server -m /path/to/model.gguf \
   --port 8080 \
-  -c 4096 \           # Context size
-  -np 4 \             # Parallel requests
-  --threads 8         # CPU threads
+  --jinja \
+  --reasoning-format deepseek
+
+# Full options
+llama-server -m /path/to/model.gguf \
+  --port 8080 \
+  --jinja \                    # Required for reasoning
+  --reasoning-format deepseek \ # Extract reasoning from <think> tags
+  -c 4096 \                    # Context size
+  -np 4 \                      # Parallel requests
+  --threads 8                  # CPU threads
 ```
 
 ### Basic Usage

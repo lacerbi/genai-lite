@@ -332,19 +332,36 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
       throw new Error("No valid choices in llama.cpp completion response");
     }
 
+    // Extract reasoning content if available
+    // llama.cpp returns reasoning in reasoning_content field when using --reasoning-format
+    let reasoning: string | undefined;
+    if ((choice.message as any).reasoning_content) {
+      reasoning = (choice.message as any).reasoning_content;
+    }
+
     return {
       id: completion.id,
       provider: request.providerId,
       model: completion.model || request.modelId,
       created: completion.created,
-      choices: completion.choices.map((c) => ({
-        message: {
-          role: "assistant",
-          content: c.message.content || "",
-        },
-        finish_reason: c.finish_reason,
-        index: c.index,
-      })),
+      choices: completion.choices.map((c) => {
+        const mappedChoice: any = {
+          message: {
+            role: "assistant",
+            content: c.message.content || "",
+          },
+          finish_reason: c.finish_reason,
+          index: c.index,
+        };
+
+        // Include reasoning if available and not excluded
+        const messageReasoning = (c.message as any).reasoning_content;
+        if (messageReasoning && request.settings.reasoning && !request.settings.reasoning.exclude) {
+          mappedChoice.reasoning = messageReasoning;
+        }
+
+        return mappedChoice;
+      }),
       usage: completion.usage
         ? {
             prompt_tokens: completion.usage.prompt_tokens,
