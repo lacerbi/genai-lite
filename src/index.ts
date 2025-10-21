@@ -37,6 +37,37 @@ export type {
   LlamaCppModelsResponse,
 } from "./llm/clients/LlamaCppServerClient";
 
+// --- Image Generation ---
+// Export all image types
+export type {
+  ImageProviderId,
+  ImageMimeType,
+  ImageResponseFormat,
+  ImageQuality,
+  ImageStyle,
+  DiffusionSampler,
+  ImageProgressStage,
+  ImageProgressCallback,
+  DiffusionSettings,
+  ImageGenerationSettings,
+  ResolvedImageGenerationSettings,
+  ImageUsage,
+  GeneratedImage,
+  ImageGenerationRequestBase,
+  ImageGenerationRequest,
+  ImageGenerationRequestWithPreset,
+  ImageGenerationResponse,
+  ImageFailureResponse,
+  ImageProviderCapabilities,
+  ImageModelInfo,
+  ImageProviderInfo,
+  ImagePreset,
+  ImageProviderAdapterConfig,
+  ImageProviderAdapter,
+  ImageServiceOptions,
+  CreatePromptResult,
+} from "./types/image";
+
 // --- Utilities ---
 export { renderTemplate } from "./prompting/template";
 export { countTokens, getSmartPreview, extractRandomVariables } from "./prompting/content";
