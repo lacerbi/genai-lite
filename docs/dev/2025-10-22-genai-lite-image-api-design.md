@@ -348,7 +348,7 @@ interface ImageProviderCapabilities {
    - Extract usage data from `timeTaken` field
    - Handle states: pending → in_progress → complete/error
 
-   **See Also:** Complete specification in `GENAI-ELECTRON-CHANGES.md` at project root.
+   **See Also:** Complete specification in [2025-10-22-genai-electron-changes.md](2025-10-22-genai-electron-changes.md).
 
 ### 5.3 Model & Preset Definitions
 ```ts
@@ -776,7 +776,7 @@ const image = new ImageService(fromEnvironment);
 **Tradeoffs Accepted:**
 1. **Complexity**: More complex than blocking endpoint (needs state management, cleanup)
 2. **Overhead**: Polling every 500ms adds HTTP requests (acceptable for long-running operations)
-3. **Coordination Required**: genai-electron must implement async API (see GENAI-ELECTRON-CHANGES.md)
+3. **Coordination Required**: genai-electron must implement async API (see [genai-electron changes](2025-10-22-genai-electron-changes.md))
 
 **Alternative Considered: HTTP Streaming (SSE/WebSocket)**
 - Would enable push-based progress instead of polling
@@ -798,11 +798,11 @@ const image = new ImageService(fromEnvironment);
 - Clean error messages with baseURL context
 
 **Documentation:**
-- Full async API specification: `GENAI-ELECTRON-CHANGES.md` (800+ lines)
+- Full async API specification: [2025-10-22-genai-electron-changes.md](2025-10-22-genai-electron-changes.md) (800+ lines)
 - Includes state management patterns (GenerationRegistry)
 - Error codes and handling
 - Implementation checklist for genai-electron team
-- Estimated effort: 7-10 hours
+- Estimated effort: 9-13 hours
 
 **Status:** ✅ Implemented in Phase 5
 - GenaiElectronImageAdapter: 395 lines, 29 tests, 87.96% coverage

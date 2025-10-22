@@ -346,7 +346,7 @@ Extract and generify common patterns between LLM and Image services to eliminate
 **Dependencies:** Phase 3.5 ✅, Phase 4 ✅
 
 #### Tasks
-- [x] Create `GENAI-ELECTRON-CHANGES.md` document for async API specification
+- [x] Create `docs/dev/2025-10-22-genai-electron-changes.md` document for async API specification
 - [x] Implement `src/adapters/image/GenaiElectronImageAdapter.ts` (395 lines)
 - [x] Implement adapter class
   - [x] Constructor with config (baseURL, timeout)
@@ -427,7 +427,7 @@ Extract and generify common patterns between LLM and Image services to eliminate
   - Includes baseURL in network error messages
   - Timeout handling for both fetch and overall polling
 - **genai-electron Coordination:**
-  - Created GENAI-ELECTRON-CHANGES.md with full specification
+  - Created docs/dev/2025-10-22-genai-electron-changes.md with full specification
   - Documents async API contract that genai-electron must implement
   - 800+ lines covering endpoints, state management, error codes, examples
 - **Test Coverage:** 87.96% for adapter (29 tests)
@@ -580,7 +580,7 @@ Extract and generify common patterns between LLM and Image services to eliminate
 - Phase 6: Presets and Utilities (next)
 - Phase 7: Documentation and Final Integration
 
-**Note:** Phase 5 requires coordination with genai-electron team to implement the async API (see GENAI-ELECTRON-CHANGES.md)
+**Note:** Phase 5 requires coordination with genai-electron team to implement the async API (see [docs/dev/2025-10-22-genai-electron-changes.md](docs/dev/2025-10-22-genai-electron-changes.md))
 
 ---
 
