@@ -864,7 +864,7 @@ interface ImageGenerationSettings {
 - Config: `image-presets.json` (all 12 presets), `image/config.ts`
 - Tests: 5 test files updated
 
-See `PROGRESS.md` Phase 6.5 for detailed implementation notes.
+See [2025-10-22-genai-lite-image-api-progress.md](2025-10-22-genai-lite-image-api-progress.md) Phase 6.5 for detailed implementation notes.
 
 ---
 
