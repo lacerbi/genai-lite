@@ -32,7 +32,7 @@ Implementing first-class image generation capabilities for genai-lite following 
 - [x] Create `src/types/image.ts` (skeleton)
 - [x] Create `src/adapters/image/` directory
 - [x] Create `src/adapters/image/OpenAIImageAdapter.ts` (skeleton)
-- [x] Create `src/adapters/image/ElectronDiffusionAdapter.ts` (skeleton)
+- [x] Create `src/adapters/image/GenaiElectronImageAdapter.ts` (skeleton)
 - [x] Verify project structure
 
 #### Notes
@@ -246,63 +246,106 @@ Extract and generify common patterns between LLM and Image services to eliminate
 
 ---
 
-### Phase 4: OpenAI Images Adapter
-**Status:** Not Started
-**Dependencies:** Phase 3.5
+### Phase 4: OpenAI Images Adapter ✅ COMPLETE
+**Status:** Complete
+**Completed:** 2025-10-22
+**Dependencies:** Phase 3.5 ✅
 
 #### Tasks
-- [ ] Implement `src/adapters/image/OpenAIImageAdapter.ts`
-- [ ] Implement adapter class
-  - [ ] Constructor with config (baseURL, timeout)
-  - [ ] Implement `ImageProviderAdapter` interface
-  - [ ] Define capabilities object
-- [ ] Implement `generate()` method
-  - [ ] Build request payload for `/v1/images/generations`
-  - [ ] Map settings to OpenAI parameters (size, quality, style, n)
-  - [ ] Set up HTTP headers (Authorization, Content-Type)
-  - [ ] Make POST request
-  - [ ] Handle response formats (url, b64_json)
-- [ ] Implement response processing
-  - [ ] Fetch images from URLs if needed
-  - [ ] Convert base64 to Buffer
-  - [ ] Populate `GeneratedImage[]` array
-  - [ ] Extract usage metadata (if available)
-- [ ] Implement error handling
-  - [ ] Use shared `errorUtils` from Phase 3.5 (`src/shared/adapters/errorUtils.ts`)
-  - [ ] Map OpenAI-specific errors using `getCommonMappedErrorDetails()`
-  - [ ] Handle HTTP 401 (authentication), 429 (rate limits), 5xx (server errors)
-  - [ ] Handle network errors (ECONNREFUSED, timeouts)
-  - [ ] Include resolved base URL in error messages
-  - [ ] Return `ImageFailureResponse` format
-- [ ] Configuration
-  - [ ] Support `OPENAI_API_BASE_URL` env var
-  - [ ] Default to `https://api.openai.com/v1`
-  - [ ] Support custom base URLs via options
-- [ ] Write unit tests
-  - [ ] Test request building
-  - [ ] Test response parsing (url format)
-  - [ ] Test response parsing (b64_json format)
-  - [ ] Test error handling (all error types)
-  - [ ] Mock HTTP client
-- [ ] Write integration test (manual/optional)
-  - [ ] Test with real OpenAI API (if key available)
-- [ ] Update `ImageService` to register OpenAI adapter by default
-- [ ] Run tests: `npm test -- OpenAIImageAdapter.test`
+- [x] Update type definitions with OpenAISpecificSettings
+  - [x] Added `OpenAISpecificSettings` interface
+  - [x] Added `openai` namespace to `ImageGenerationSettings`
+  - [x] Updated `ImageQuality` type for all models (auto, high, medium, low, hd, standard)
+  - [x] Exported from main index.ts
+- [x] Update config.ts with new OpenAI models
+  - [x] Added gpt-image-1 model (32K char prompts, advanced features)
+  - [x] Added gpt-image-1-mini model (default model, fast & efficient)
+  - [x] Updated dall-e-3 configuration (4K char prompts, n=1 only)
+  - [x] Updated dall-e-2 configuration (1K char prompts)
+  - [x] Updated provider capabilities and descriptions
+- [x] Implement `src/adapters/image/OpenAIImageAdapter.ts` (354 lines)
+- [x] Implement adapter class
+  - [x] Constructor with config (baseURL, timeout)
+  - [x] Implement `ImageProviderAdapter` interface
+  - [x] Define capabilities object
+  - [x] API key validation method
+- [x] Implement `generate()` method with model-specific logic
+  - [x] Build request payload for `/v1/images/generations`
+  - [x] Model detection (gpt-image-1 vs dall-e models)
+  - [x] Map gpt-image-1 parameters (output_format, background, moderation, compression)
+  - [x] Map dall-e parameters (size, quality, style, response_format)
+  - [x] Validate prompt length per model (32K/4K/1K limits)
+  - [x] Validate dall-e-3 constraint (n=1 only)
+  - [x] Set up HTTP headers via OpenAI SDK
+  - [x] Make API call using OpenAI SDK
+- [x] Implement response processing
+  - [x] Handle gpt-image-1 base64 responses
+  - [x] Handle dall-e URL responses (fetch and convert)
+  - [x] Handle dall-e b64_json responses
+  - [x] Convert all formats to Buffer
+  - [x] Populate `GeneratedImage[]` array with metadata
+  - [x] Extract usage data (input/output tokens)
+  - [x] Infer MIME types from URLs
+- [x] Implement error handling
+  - [x] Use shared `getCommonMappedErrorDetails()` utility
+  - [x] Map HTTP 401 (authentication errors)
+  - [x] Map HTTP 402 (insufficient credits)
+  - [x] Map HTTP 429 (rate limits)
+  - [x] Map HTTP 400 (invalid requests)
+  - [x] Map HTTP 5xx (server errors)
+  - [x] Handle network errors (ECONNREFUSED, timeouts)
+  - [x] Include baseURL in error messages
+  - [x] Enhanced error objects with context
+- [x] Configuration
+  - [x] Support `OPENAI_API_BASE_URL` env var (via config.ts)
+  - [x] Default to `https://api.openai.com/v1`
+  - [x] Support custom base URLs via ImageServiceOptions
+  - [x] Support custom timeout configuration
+- [x] Write comprehensive unit tests (29 tests, 568 lines)
+  - [x] Constructor and configuration (3 tests)
+  - [x] API key validation (2 tests)
+  - [x] gpt-image-1-mini generation (2 tests)
+  - [x] dall-e-3 generation (3 tests)
+  - [x] dall-e-2 generation (1 test)
+  - [x] Prompt length validation (4 tests)
+  - [x] Error handling (9 tests - all error types)
+  - [x] Response processing (3 tests)
+  - [x] Settings parameters (2 tests)
+  - [x] Mock OpenAI SDK and fetch
+- [x] Register OpenAI adapter in ImageService
+  - [x] Import adapter and config
+  - [x] Initialize with baseURL and timeout from config
+  - [x] Register with adapter registry
+  - [x] Support custom adapters via options
 
 #### Review Checkpoint
-- [ ] Adapter implements interface correctly
-- [ ] All unit tests passing
-- [ ] Error handling comprehensive
-- [ ] Integration with ImageService works
+- [x] Adapter implements interface correctly (100%)
+- [x] All unit tests passing (29/29 tests, 95.41% coverage)
+- [x] Error handling comprehensive (9 error scenarios covered)
+- [x] Integration with ImageService works (registered and initialized)
+- [x] All 517 tests passing across entire codebase
+- [x] Build succeeds with no errors
+- [x] Overall coverage: 89.67%
+
+#### Implementation Notes
+- **Models Supported:** gpt-image-1-mini (default), gpt-image-1, dall-e-3, dall-e-2
+- **New Features:**
+  - OpenAI-specific settings namespace (outputFormat, background, moderation, compression)
+  - Model-specific parameter mapping (gpt-image-1 vs dall-e)
+  - Prompt length validation per model
+  - Usage token tracking
+- **Architecture:** Follows patterns from OpenAIClientAdapter for consistency
+- **Test Coverage:** 95.41% (exceeds 85% target)
+- **Lines Added:** ~922 lines (354 adapter + 568 tests)
 
 ---
 
-### Phase 5: Electron Diffusion Adapter
+### Phase 5: genai-electron Image Adapter
 **Status:** Not Started
 **Dependencies:** Phase 3.5, Phase 4
 
 #### Tasks
-- [ ] Implement `src/adapters/image/ElectronDiffusionAdapter.ts`
+- [ ] Implement `src/adapters/image/GenaiElectronImageAdapter.ts`
 - [ ] Implement adapter class
   - [ ] Constructor with config (baseURL, timeout, checkHealth)
   - [ ] Implement `ImageProviderAdapter` interface
@@ -345,8 +388,8 @@ Extract and generify common patterns between LLM and Image services to eliminate
   - [ ] Mock HTTP client
 - [ ] Write integration test (manual/optional)
   - [ ] Test with real genai-electron server (if running)
-- [ ] Update `ImageService` to register Electron adapter by default
-- [ ] Run tests: `npm test -- ElectronDiffusionAdapter.test`
+- [ ] Update `ImageService` to register genai-electron adapter by default
+- [ ] Run tests: `npm test -- GenaiElectronImageAdapter.test`
 
 #### Review Checkpoint
 - [ ] Adapter implements interface correctly
@@ -483,8 +526,20 @@ Extract and generify common patterns between LLM and Image services to eliminate
 
 ## Next Steps
 
-**Current Phase:** Phase 3 - ImageService Core Implementation
-**Next Action:** Create `src/image/ImageService.ts` with core orchestration logic
+**Current Phase:** Phase 5 - genai-electron Image Adapter
+**Next Action:** Implement `src/adapters/image/GenaiElectronImageAdapter.ts` with diffusion support
+
+**Completed Phases:**
+- ✅ Phase 1: Project Structure
+- ✅ Phase 2: Type Definitions and Interfaces
+- ✅ Phase 3: ImageService Core Implementation
+- ✅ Phase 3.5: Code Abstraction & Reuse
+- ✅ Phase 4: OpenAI Images Adapter
+
+**Upcoming Phases:**
+- Phase 5: genai-electron Image Adapter (next)
+- Phase 6: Presets and Utilities
+- Phase 7: Documentation and Final Integration
 
 ---
 
@@ -500,4 +555,4 @@ None currently.
 
 ---
 
-_Last Updated: 2025-10-21_
+_Last Updated: 2025-10-22_

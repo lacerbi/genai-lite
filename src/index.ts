@@ -52,6 +52,7 @@ export type {
   ImageProgressStage,
   ImageProgressCallback,
   DiffusionSettings,
+  OpenAISpecificSettings,
   ImageGenerationSettings,
   ResolvedImageGenerationSettings,
   ImageUsage,

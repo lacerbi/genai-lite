@@ -23,23 +23,71 @@ export const SUPPORTED_IMAGE_PROVIDERS: ImageProviderInfo[] = [
   {
     id: 'openai-images',
     displayName: 'OpenAI Images',
-    description: 'DALL-E image generation models from OpenAI',
+    description: 'DALL-E and GPT-Image models from OpenAI',
     capabilities: {
       supportsMultipleImages: true,
       supportsB64Json: true,
       supportsHostedUrls: true,
       supportsProgressEvents: false,
       supportsNegativePrompt: false,
-      defaultModelId: 'dall-e-3',
+      defaultModelId: 'gpt-image-1-mini',
     },
     models: [
+      {
+        id: 'gpt-image-1-mini',
+        providerId: 'openai-images',
+        displayName: 'GPT-Image 1 Mini',
+        description: 'Fast and efficient image generation with GPT-Image (32K char prompts, supports transparency, webp/jpeg output)',
+        capabilities: {
+          supportsMultipleImages: true,
+          supportsB64Json: true,
+          supportsHostedUrls: false, // gpt-image-1 always returns base64
+          supportsProgressEvents: false,
+          supportsNegativePrompt: false,
+          defaultModelId: 'gpt-image-1-mini',
+        },
+        defaultSettings: {
+          size: '1024x1024',
+          quality: 'auto',
+          responseFormat: 'buffer',
+          openai: {
+            outputFormat: 'png',
+            background: 'auto',
+            moderation: 'auto',
+          },
+        },
+      },
+      {
+        id: 'gpt-image-1',
+        providerId: 'openai-images',
+        displayName: 'GPT-Image 1',
+        description: 'Most advanced OpenAI image model with highest quality (32K char prompts, supports transparency, compression control)',
+        capabilities: {
+          supportsMultipleImages: true,
+          supportsB64Json: true,
+          supportsHostedUrls: false, // gpt-image-1 always returns base64
+          supportsProgressEvents: false,
+          supportsNegativePrompt: false,
+          defaultModelId: 'gpt-image-1',
+        },
+        defaultSettings: {
+          size: '1024x1024',
+          quality: 'auto',
+          responseFormat: 'buffer',
+          openai: {
+            outputFormat: 'png',
+            background: 'auto',
+            moderation: 'auto',
+          },
+        },
+      },
       {
         id: 'dall-e-3',
         providerId: 'openai-images',
         displayName: 'DALL-E 3',
-        description: 'Most advanced DALL-E model with improved quality and prompt adherence',
+        description: 'High-quality DALL-E model with improved prompt adherence (4K char prompts, only n=1)',
         capabilities: {
-          supportsMultipleImages: true,
+          supportsMultipleImages: false, // dall-e-3 only supports n=1
           supportsB64Json: true,
           supportsHostedUrls: true,
           supportsProgressEvents: false,
@@ -57,7 +105,7 @@ export const SUPPORTED_IMAGE_PROVIDERS: ImageProviderInfo[] = [
         id: 'dall-e-2',
         providerId: 'openai-images',
         displayName: 'DALL-E 2',
-        description: 'Previous generation DALL-E model',
+        description: 'Previous generation DALL-E model (1K char prompts)',
         capabilities: {
           supportsMultipleImages: true,
           supportsB64Json: true,
@@ -75,7 +123,7 @@ export const SUPPORTED_IMAGE_PROVIDERS: ImageProviderInfo[] = [
     ],
   },
   {
-    id: 'electron-diffusion',
+    id: 'genai-electron-images',
     displayName: 'Local Diffusion (genai-electron)',
     description: 'Local stable-diffusion models via genai-electron wrapper',
     capabilities: {
@@ -89,7 +137,7 @@ export const SUPPORTED_IMAGE_PROVIDERS: ImageProviderInfo[] = [
     models: [
       {
         id: 'sdxl',
-        providerId: 'electron-diffusion',
+        providerId: 'genai-electron-images',
         displayName: 'Stable Diffusion XL',
         description: 'High-quality local diffusion model',
         capabilities: {
@@ -125,7 +173,7 @@ export const IMAGE_ADAPTER_CONFIGS: Record<ImageProviderId, ImageProviderAdapter
     baseURL: process.env.OPENAI_API_BASE_URL || 'https://api.openai.com/v1',
     timeout: 60000, // 60 seconds for image generation
   },
-  'electron-diffusion': {
+  'genai-electron-images': {
     baseURL: process.env.GENAI_ELECTRON_IMAGE_BASE_URL || 'http://localhost:8081',
     timeout: 120000, // 120 seconds for local diffusion
     checkHealth: false, // Optional health checks

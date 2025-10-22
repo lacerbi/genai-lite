@@ -73,7 +73,7 @@ const result = await imageService.generateImage({
 
 ### 4.3 Request / Response Types
 ```ts
-type ImageProviderId = 'openai-images' | 'electron-diffusion' | string;
+type ImageProviderId = 'openai-images' | 'genai-electron-images' | string;
 
 interface ImageGenerationRequestBase {
   providerId: ImageProviderId;
@@ -317,7 +317,7 @@ interface ImageServiceOptions {
   adapters?: Record<ImageProviderId, ImageProviderAdapter>;
   /**
    * Override default base URLs per provider.
-   * Example: { 'openai-images': 'https://api.openai.com/v1', 'electron-diffusion': 'http://localhost:8081' }
+   * Example: { 'openai-images': 'https://api.openai.com/v1', 'genai-electron-images': 'http://localhost:8081' }
    */
   baseUrls?: Record<ImageProviderId, string>;
 }
@@ -391,9 +391,9 @@ src/config/
 **Example image preset:**
 ```json
 {
-  "id": "electron-sdxl-quality",
+  "id": "genai-electron-sdxl-quality",
   "displayName": "SDXL (Quality)",
-  "providerId": "electron-diffusion",
+  "providerId": "genai-electron-images",
   "modelId": "sdxl",
   "settings": {
     "diffusion": {
@@ -436,7 +436,7 @@ src/config/
   });
   ```
 - **Optional by design**: Providers that don't support progress simply don't call the callback. No special handling needed
-- **Simpler implementation**: genai-lite's ElectronDiffusionAdapter just forwards the callback to genai-electron
+- **Simpler implementation**: genai-lite's GenaiElectronImageAdapter just forwards the callback to genai-electron
 
 **Future extensibility:** If async iterables become necessary later (e.g., for real-time video generation), add a separate `generateImageStream()` method without breaking the existing callback-based `generateImage()` API.
 
@@ -448,7 +448,7 @@ src/config/
 
 **Question:** When callers request `count > 1`, should the service fan-out sequential calls for the diffusion provider or return an error? (Current HTTP wrapper produces one image per request, but we can extend it to support batching if needed.)
 
-**Answer:** Add native `count` parameter support to genai-electron's diffusion API. genai-lite's ElectronDiffusionAdapter should pass through the `count` parameter directly.
+**Answer:** Add native `count` parameter support to genai-electron's diffusion API. genai-lite's GenaiElectronImageAdapter should pass through the `count` parameter directly.
 
 **Rationale:**
 - **We control both sides**: Since we maintain both genai-lite and genai-electron, we can coordinate this change
@@ -465,7 +465,7 @@ src/config/
    - Later optimization: use stable-diffusion.cpp's `-b` flag for true batching
    - Return array of images in response
 
-2. **genai-lite changes** (in `ElectronDiffusionAdapter`):
+2. **genai-lite changes** (in `GenaiElectronImageAdapter`):
    - Pass through `count` parameter to genai-electron API
    - No fan-out logic needed - genai-electron handles it
 
@@ -643,7 +643,7 @@ src/
 ├── adapters/
 │   └── image/                   # New image adapters
 │       ├── OpenAIImageAdapter.ts
-│       └── ElectronDiffusionAdapter.ts
+│       └── GenaiElectronImageAdapter.ts
 ├── types/
 │   └── image.ts                 # New (LLM types in llm/types.ts)
 ├── config/
@@ -688,7 +688,7 @@ const image = new ImageService(fromEnvironment);
    - Provide public methods & error envelopes.
 3. **Register Default Adapters**
    - `OpenAIImageAdapter` (HTTP POST `/images/generations`).
-   - `ElectronDiffusionAdapter` (HTTP POST `/v1/images/generations`).
+   - `GenaiElectronImageAdapter` (HTTP POST `/v1/images/generations`).
 4. **Integrate Presets**
    - Load `image-presets.json`.
    - Document how to extend/replace via `ImageServiceOptions`.

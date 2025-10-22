@@ -21,9 +21,12 @@ export type ImageMimeType = 'image/png' | 'image/jpeg' | 'image/webp';
 export type ImageResponseFormat = 'b64_json' | 'url' | 'buffer';
 
 /**
- * Image quality settings (OpenAI-style)
+ * Image quality settings
+ * - 'auto', 'high', 'medium', 'low': gpt-image-1 models
+ * - 'hd', 'standard': dall-e-3
+ * - 'standard': dall-e-2
  */
-export type ImageQuality = 'standard' | 'high';
+export type ImageQuality = 'auto' | 'high' | 'medium' | 'low' | 'hd' | 'standard';
 
 /**
  * Image style settings (OpenAI-style)
@@ -81,6 +84,41 @@ export interface DiffusionSettings {
 }
 
 /**
+ * OpenAI-specific settings for gpt-image-1 models
+ * These settings are only supported by gpt-image-1 and gpt-image-1-mini models
+ */
+export interface OpenAISpecificSettings {
+  /**
+   * Image output format (gpt-image-1 models only)
+   * Determines the format of the generated image file.
+   * For dall-e-2/dall-e-3, use the top-level responseFormat instead.
+   */
+  outputFormat?: 'png' | 'jpeg' | 'webp';
+
+  /**
+   * Background transparency control (gpt-image-1 models only)
+   * - 'transparent': Image will have a transparent background (requires PNG or WebP format)
+   * - 'opaque': Image will have an opaque background
+   * - 'auto': Model automatically determines the best background (default)
+   */
+  background?: 'transparent' | 'opaque' | 'auto';
+
+  /**
+   * Content moderation level (gpt-image-1 models only)
+   * - 'auto': Standard moderation (default)
+   * - 'low': Less restrictive content filtering
+   */
+  moderation?: 'low' | 'auto';
+
+  /**
+   * Compression level for JPEG and WebP formats (gpt-image-1 models only)
+   * Value must be between 0-100, where 100 is highest quality/least compression.
+   * Only applies when outputFormat is 'jpeg' or 'webp'.
+   */
+  outputCompression?: number;
+}
+
+/**
  * Settings for image generation requests
  */
 export interface ImageGenerationSettings {
@@ -97,8 +135,11 @@ export interface ImageGenerationSettings {
   /** Number of images to generate (alias for count parameter) */
   n?: number;
 
-  /** Diffusion-specific settings (namespaced for provider-specific options) */
+  /** Diffusion-specific settings (for stable-diffusion providers) */
   diffusion?: DiffusionSettings;
+
+  /** OpenAI-specific settings (for gpt-image-1 models) */
+  openai?: OpenAISpecificSettings;
 }
 
 /**

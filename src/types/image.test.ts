@@ -70,7 +70,7 @@ describe('Image Type Definitions', () => {
 
     it('should accept ImageGenerationRequest with diffusion settings', () => {
       const request: ImageGenerationRequest = {
-        providerId: 'electron-diffusion',
+        providerId: 'genai-electron-images',
         modelId: 'sdxl',
         prompt: 'A fantasy castle',
         settings: {
@@ -129,7 +129,7 @@ describe('Image Type Definitions', () => {
       const response: ImageGenerationResponse = {
         object: 'image.result',
         created: Date.now(),
-        providerId: 'electron-diffusion',
+        providerId: 'genai-electron-images',
         modelId: 'sdxl',
         data: [
           {
@@ -308,12 +308,12 @@ describe('Image Type Definitions', () => {
       const options: ImageServiceOptions = {
         baseUrls: {
           'openai-images': 'https://api.openai.com/v1',
-          'electron-diffusion': 'http://localhost:8081',
+          'genai-electron-images': 'http://localhost:8081',
         },
       };
 
       expect(options.baseUrls?.['openai-images']).toBe('https://api.openai.com/v1');
-      expect(options.baseUrls?.['electron-diffusion']).toBe('http://localhost:8081');
+      expect(options.baseUrls?.['genai-electron-images']).toBe('http://localhost:8081');
     });
   });
 

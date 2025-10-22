@@ -23,7 +23,7 @@ describe('ImageRequestValidator', () => {
 
     it('should accept request with optional fields', () => {
       const request: ImageGenerationRequest = {
-        providerId: 'electron-diffusion',
+        providerId: 'genai-electron-images',
         modelId: 'sdxl',
         prompt: 'A mountain landscape',
         count: 2,
@@ -230,7 +230,7 @@ describe('ImageRequestValidator', () => {
 
     it('should accept valid diffusion settings', () => {
       const request: ImageGenerationRequest = {
-        providerId: 'electron-diffusion',
+        providerId: 'genai-electron-images',
         modelId: 'sdxl',
         prompt: 'A landscape',
         settings: {
@@ -252,7 +252,7 @@ describe('ImageRequestValidator', () => {
 
     it('should reject invalid diffusion steps (too low)', () => {
       const request: ImageGenerationRequest = {
-        providerId: 'electron-diffusion',
+        providerId: 'genai-electron-images',
         modelId: 'sdxl',
         prompt: 'A landscape',
         settings: {
@@ -270,7 +270,7 @@ describe('ImageRequestValidator', () => {
 
     it('should reject invalid diffusion steps (too high)', () => {
       const request: ImageGenerationRequest = {
-        providerId: 'electron-diffusion',
+        providerId: 'genai-electron-images',
         modelId: 'sdxl',
         prompt: 'A landscape',
         settings: {
@@ -288,7 +288,7 @@ describe('ImageRequestValidator', () => {
 
     it('should reject invalid diffusion cfgScale (too low)', () => {
       const request: ImageGenerationRequest = {
-        providerId: 'electron-diffusion',
+        providerId: 'genai-electron-images',
         modelId: 'sdxl',
         prompt: 'A landscape',
         settings: {
@@ -306,7 +306,7 @@ describe('ImageRequestValidator', () => {
 
     it('should reject invalid diffusion cfgScale (too high)', () => {
       const request: ImageGenerationRequest = {
-        providerId: 'electron-diffusion',
+        providerId: 'genai-electron-images',
         modelId: 'sdxl',
         prompt: 'A landscape',
         settings: {
@@ -324,7 +324,7 @@ describe('ImageRequestValidator', () => {
 
     it('should reject invalid diffusion dimensions (too small)', () => {
       const request: ImageGenerationRequest = {
-        providerId: 'electron-diffusion',
+        providerId: 'genai-electron-images',
         modelId: 'sdxl',
         prompt: 'A landscape',
         settings: {
@@ -343,7 +343,7 @@ describe('ImageRequestValidator', () => {
 
     it('should reject invalid diffusion dimensions (too large)', () => {
       const request: ImageGenerationRequest = {
-        providerId: 'electron-diffusion',
+        providerId: 'genai-electron-images',
         modelId: 'sdxl',
         prompt: 'A landscape',
         settings: {

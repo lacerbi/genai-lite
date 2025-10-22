@@ -18,11 +18,12 @@ import type {
   ImageServiceOptions,
   ImageProviderAdapter,
 } from '../types/image';
-import { SUPPORTED_IMAGE_PROVIDERS, getImageModelsByProvider } from './config';
+import { SUPPORTED_IMAGE_PROVIDERS, getImageModelsByProvider, IMAGE_ADAPTER_CONFIGS } from './config';
 import rawDefaultImagePresets from '../config/image-presets.json';
 import { PresetManager } from '../shared/services/PresetManager';
 import { AdapterRegistry } from '../shared/services/AdapterRegistry';
 import { MockImageAdapter } from '../adapters/image/MockImageAdapter';
+import { OpenAIImageAdapter } from '../adapters/image/OpenAIImageAdapter';
 import { ImageRequestValidator } from './services/ImageRequestValidator';
 import { ImageSettingsResolver } from './services/ImageSettingsResolver';
 import { ImageModelResolver } from './services/ImageModelResolver';
@@ -50,17 +51,38 @@ export class ImageService {
       options.presets,
       options.presetMode
     );
+
+    // Initialize adapter registry with fallback
     this.adapterRegistry = new AdapterRegistry<ImageProviderAdapter, ImageProviderId>({
       supportedProviders: SUPPORTED_IMAGE_PROVIDERS,
       fallbackAdapter: new MockImageAdapter(),
-      // Note: Real adapters (OpenAI, Electron) will be added in Phases 4-5
-      // For now, all providers use the mock adapter
     });
+
+    // Register OpenAI adapter
+    const openaiConfig = IMAGE_ADAPTER_CONFIGS['openai-images'];
+    const openaiBaseURL = options.baseUrls?.['openai-images'] || openaiConfig.baseURL;
+    this.adapterRegistry.registerAdapter(
+      'openai-images',
+      new OpenAIImageAdapter({
+        baseURL: openaiBaseURL,
+        timeout: openaiConfig.timeout,
+      })
+    );
+
+    // Note: genai-electron-images adapter will be added in Phase 5
+
+    // Register custom adapters if provided
+    if (options.adapters) {
+      for (const [providerId, adapter] of Object.entries(options.adapters)) {
+        this.adapterRegistry.registerAdapter(providerId, adapter);
+      }
+    }
+
     this.requestValidator = new ImageRequestValidator();
     this.settingsResolver = new ImageSettingsResolver();
     this.modelResolver = new ImageModelResolver(this.presetManager);
 
-    console.log('ImageService: Initialized');
+    console.log('ImageService: Initialized with OpenAI Images adapter');
   }
 
   /**

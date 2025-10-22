@@ -107,7 +107,7 @@ describe('ImageSettingsResolver', () => {
     it('should parse size string into diffusion dimensions', () => {
       const modelInfo: ImageModelInfo = {
         id: 'sdxl',
-        providerId: 'electron-diffusion',
+        providerId: 'genai-electron-images',
         displayName: 'SDXL',
         capabilities: {
           supportsMultipleImages: true,
@@ -136,7 +136,7 @@ describe('ImageSettingsResolver', () => {
     it('should apply diffusion defaults', () => {
       const modelInfo: ImageModelInfo = {
         id: 'sdxl',
-        providerId: 'electron-diffusion',
+        providerId: 'genai-electron-images',
         displayName: 'SDXL',
         capabilities: {
           supportsMultipleImages: true,
@@ -165,7 +165,7 @@ describe('ImageSettingsResolver', () => {
     it('should merge diffusion settings deeply', () => {
       const modelInfo: ImageModelInfo = {
         id: 'sdxl',
-        providerId: 'electron-diffusion',
+        providerId: 'genai-electron-images',
         displayName: 'SDXL',
         capabilities: {
           supportsMultipleImages: true,
