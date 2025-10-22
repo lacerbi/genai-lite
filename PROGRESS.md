@@ -321,7 +321,7 @@ Implementing first-class image generation capabilities for genai-lite following 
   - [ ] Update table of contents
 - [ ] Update `CLAUDE.md`
   - [ ] Add image service to architecture overview
-  - [ ] Document new directory structure (src/adapters/image, src/types/image.ts)
+  - [ ] Document new directory structure (src/image/, src/adapters/image/, src/types/image.ts)
   - [ ] Add development guidelines for image features
   - [ ] Document preset file split (llm-presets.json, image-presets.json)
   - [ ] Add testing guidelines for image adapters
