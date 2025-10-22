@@ -207,14 +207,19 @@ export class OpenAIImageAdapter implements ImageProviderAdapter {
     // Convert width/height to OpenAI's size format
     params.size = this.toSizeString(settings.width, settings.height);
 
-    // Quality (hd or standard for dall-e-3, standard for dall-e-2)
-    if (settings.quality) {
-      params.quality = settings.quality;
-    }
+    // Quality and Style are only supported by dall-e-3
+    const isDallE3 = params.model === 'dall-e-3';
 
-    // Style (vivid or natural for dall-e-3)
-    if (settings.style) {
-      params.style = settings.style;
+    if (isDallE3) {
+      // Quality (hd or standard for dall-e-3 only)
+      if (settings.quality) {
+        params.quality = settings.quality;
+      }
+
+      // Style (vivid or natural for dall-e-3 only)
+      if (settings.style) {
+        params.style = settings.style;
+      }
     }
 
     // Response format (url or b64_json)

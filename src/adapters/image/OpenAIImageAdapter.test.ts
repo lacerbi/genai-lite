@@ -305,9 +305,9 @@ describe('OpenAIImageAdapter', () => {
       const settings: ResolvedImageGenerationSettings = {
         width: 512,
         height: 512,
-        quality: 'standard',
+        quality: 'standard',  // Will be ignored for dall-e-2
         responseFormat: 'buffer',
-        style: 'vivid',
+        style: 'vivid',  // Will be ignored for dall-e-2
       };
 
       const result = await adapter.generate({
@@ -325,6 +325,9 @@ describe('OpenAIImageAdapter', () => {
       const callArgs = mockOpenAIClient.images.generate.mock.calls[0][0];
       expect(callArgs.model).toBe('dall-e-2');
       expect(callArgs.n).toBe(3);
+      // Verify quality and style are NOT sent for dall-e-2
+      expect(callArgs.quality).toBeUndefined();
+      expect(callArgs.style).toBeUndefined();
     });
   });
 

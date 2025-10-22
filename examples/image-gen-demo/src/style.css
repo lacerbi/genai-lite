@@ -299,6 +299,18 @@ button {
   margin-top: 2px;
 }
 
+.dimension-display {
+  padding: 10px 12px;
+  background: var(--background-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+  text-align: center;
+  margin-top: 10px;
+}
+
 textarea.negative-prompt {
   width: 100%;
   min-height: 60px;
