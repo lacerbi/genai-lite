@@ -1,1 +1,194 @@
-[]
+[
+  {
+    "id": "openai-gpt-image-1-mini-default",
+    "displayName": "OpenAI - GPT-Image 1 Mini",
+    "description": "Fast and efficient image generation with GPT-Image (32K char prompts)",
+    "providerId": "openai-images",
+    "modelId": "gpt-image-1-mini",
+    "settings": {
+      "size": "1024x1024",
+      "quality": "auto",
+      "responseFormat": "buffer",
+      "openai": {
+        "outputFormat": "png",
+        "background": "auto",
+        "moderation": "auto"
+      }
+    }
+  },
+  {
+    "id": "openai-gpt-image-1-quality",
+    "displayName": "OpenAI - GPT-Image 1 (High Quality)",
+    "description": "Highest quality OpenAI image model with advanced features (32K char prompts)",
+    "providerId": "openai-images",
+    "modelId": "gpt-image-1",
+    "settings": {
+      "size": "1024x1024",
+      "quality": "high",
+      "responseFormat": "buffer",
+      "openai": {
+        "outputFormat": "png",
+        "background": "auto",
+        "moderation": "auto"
+      }
+    }
+  },
+  {
+    "id": "openai-dalle-3-hd",
+    "displayName": "OpenAI - DALL-E 3 HD",
+    "description": "High-quality DALL-E 3 with vivid style (4K char prompts)",
+    "providerId": "openai-images",
+    "modelId": "dall-e-3",
+    "settings": {
+      "size": "1024x1024",
+      "quality": "hd",
+      "style": "vivid",
+      "responseFormat": "buffer"
+    }
+  },
+  {
+    "id": "openai-dalle-3-natural",
+    "displayName": "OpenAI - DALL-E 3 Natural",
+    "description": "DALL-E 3 with natural style for realistic photographs (4K char prompts)",
+    "providerId": "openai-images",
+    "modelId": "dall-e-3",
+    "settings": {
+      "size": "1024x1024",
+      "quality": "standard",
+      "style": "natural",
+      "responseFormat": "buffer"
+    }
+  },
+  {
+    "id": "openai-dalle-2-default",
+    "displayName": "OpenAI - DALL-E 2",
+    "description": "Cost-effective DALL-E 2 generation (1K char prompts)",
+    "providerId": "openai-images",
+    "modelId": "dall-e-2",
+    "settings": {
+      "size": "1024x1024",
+      "quality": "standard",
+      "responseFormat": "buffer"
+    }
+  },
+  {
+    "id": "openai-dalle-2-fast",
+    "displayName": "OpenAI - DALL-E 2 Fast",
+    "description": "Rapid prototyping with smaller image size (1K char prompts)",
+    "providerId": "openai-images",
+    "modelId": "dall-e-2",
+    "settings": {
+      "size": "512x512",
+      "quality": "standard",
+      "responseFormat": "buffer"
+    }
+  },
+  {
+    "id": "genai-electron-sdxl-quality",
+    "displayName": "Local - SDXL Quality",
+    "description": "High-quality SDXL generation for final production images",
+    "providerId": "genai-electron-images",
+    "modelId": "sdxl",
+    "settings": {
+      "size": "1024x1024",
+      "responseFormat": "buffer",
+      "diffusion": {
+        "steps": 30,
+        "cfgScale": 7.5,
+        "width": 1024,
+        "height": 1024,
+        "sampler": "dpm++2m"
+      }
+    }
+  },
+  {
+    "id": "genai-electron-sdxl-balanced",
+    "displayName": "Local - SDXL Balanced",
+    "description": "Balanced quality and speed for general use",
+    "providerId": "genai-electron-images",
+    "modelId": "sdxl",
+    "settings": {
+      "size": "768x768",
+      "responseFormat": "buffer",
+      "diffusion": {
+        "steps": 20,
+        "cfgScale": 7.0,
+        "width": 768,
+        "height": 768,
+        "sampler": "euler_a"
+      }
+    }
+  },
+  {
+    "id": "genai-electron-sdxl-fast",
+    "displayName": "Local - SDXL Fast",
+    "description": "Quick iterations with reduced steps",
+    "providerId": "genai-electron-images",
+    "modelId": "sdxl",
+    "settings": {
+      "size": "512x512",
+      "responseFormat": "buffer",
+      "diffusion": {
+        "steps": 15,
+        "cfgScale": 6.5,
+        "width": 512,
+        "height": 512,
+        "sampler": "euler_a"
+      }
+    }
+  },
+  {
+    "id": "genai-electron-sdxl-portrait",
+    "displayName": "Local - SDXL Portrait",
+    "description": "Portrait-oriented image generation",
+    "providerId": "genai-electron-images",
+    "modelId": "sdxl",
+    "settings": {
+      "size": "768x1024",
+      "responseFormat": "buffer",
+      "diffusion": {
+        "steps": 20,
+        "cfgScale": 7.5,
+        "width": 768,
+        "height": 1024,
+        "sampler": "dpm++2m"
+      }
+    }
+  },
+  {
+    "id": "genai-electron-sdxl-turbo",
+    "displayName": "Local - SDXL Turbo",
+    "description": "Real-time generation with SDXL Turbo (optimal at 512x512, 1-4 steps)",
+    "providerId": "genai-electron-images",
+    "modelId": "sdxl-turbo",
+    "settings": {
+      "size": "512x512",
+      "responseFormat": "buffer",
+      "diffusion": {
+        "steps": 4,
+        "cfgScale": 1.0,
+        "width": 512,
+        "height": 512,
+        "sampler": "euler_a"
+      }
+    }
+  },
+  {
+    "id": "genai-electron-sdxl-lightning",
+    "displayName": "Local - SDXL Lightning",
+    "description": "Lightning-fast generation with quality (trained at 1024x1024, 2-8 steps)",
+    "providerId": "genai-electron-images",
+    "modelId": "sdxl-lightning",
+    "settings": {
+      "size": "1024x1024",
+      "responseFormat": "buffer",
+      "diffusion": {
+        "steps": 8,
+        "cfgScale": 1.0,
+        "width": 1024,
+        "height": 1024,
+        "sampler": "euler_a"
+      }
+    }
+  }
+]

@@ -352,6 +352,8 @@ export interface ImagePreset {
   id: string;
   /** Human-readable display name */
   displayName: string;
+  /** Optional description of the preset's intended use case */
+  description?: string;
   /** Provider to use */
   providerId: ImageProviderId;
   /** Model to use */

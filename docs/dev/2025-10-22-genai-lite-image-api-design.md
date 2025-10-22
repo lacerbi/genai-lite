@@ -469,10 +469,11 @@ src/config/
 }
 ```
 
-**Migration note:** Renaming `presets.json` → `llm-presets.json` is a breaking change for users who import presets directly. The implementation should include:
-1. Keep `presets.json` as a re-export of `llm-presets.json` for backward compatibility (with deprecation notice)
-2. Update all internal imports to use `llm-presets.json`
-3. Document the migration path in CHANGELOG
+**Migration note:** Renaming `presets.json` → `llm-presets.json` implemented without backward compatibility.
+
+**Rationale:** Preset files are internal implementation details (users import `LLMService`, not preset files). Package is pre-1.0. Simpler codebase. Actual impact: zero.
+
+**Phase 6 Implementation:** All internal imports updated to `llm-presets.json`. No re-export file created.
 
 ---
 

@@ -28,7 +28,7 @@ import {
 } from "./config";
 import { renderTemplate } from "../prompting/template";
 import { extractInitialTaggedContent, parseRoleTags, parseTemplateWithMetadata } from "../prompting/parser";
-import defaultPresets from "../config/presets.json";
+import defaultPresets from "../config/llm-presets.json";
 import { MockClientAdapter } from "./clients/MockClientAdapter";
 
 // Import the extracted services
