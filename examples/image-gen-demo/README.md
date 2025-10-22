@@ -5,11 +5,13 @@ An interactive web application demonstrating the image generation capabilities o
 ## Features
 
 - 🎨 **Multi-Provider Support** - Switch between OpenAI Images and genai-electron diffusion
-- ⚙️ **Comprehensive Settings** - Universal settings (width, height, quality) and provider-specific options
+- 📐 **Size Presets** - Quick selection from 7 common image dimensions or custom sizes
+- ⚙️ **Comprehensive Settings** - Universal settings and provider-specific options (all DALL-E models supported)
 - 🔄 **Batch Generation** - Generate multiple images (1-4) in a single request
 - 📊 **Progress Monitoring** - Real-time progress updates for local diffusion generation
-- 🖼️ **Gallery View** - Responsive grid display of generated images
-- 💾 **Image Management** - Download individual images and view metadata
+- 🔍 **Image Lightbox** - Click images to view full-screen with keyboard navigation
+- 🖼️ **Gallery View** - Responsive grid display with auto-scroll to latest
+- 💾 **Image Management** - Download, delete, and view detailed metadata
 - 🎯 **Preset System** - 12 built-in presets for common use cases
 
 ## Prerequisites
@@ -68,27 +70,28 @@ This starts:
 
 1. **Select Provider & Model**
    - Choose between OpenAI Images or genai-electron
-   - Select a specific model (e.g., gpt-image-1-mini, dall-e-3)
+   - Select a specific model (e.g., gpt-image-1-mini, dall-e-3, dall-e-2)
 
 2. **Enter Your Prompt**
    - Describe the image you want to generate
    - Example: "A serene mountain lake at sunrise, photorealistic"
 
 3. **Configure Settings** (Optional)
-   - Adjust universal settings (width, height, quality)
-   - Configure provider-specific options:
-     - **OpenAI**: Quality, style, output format
-     - **Diffusion**: Negative prompt, steps, CFG scale, sampler, seed
+   - **Image Size**: Select from preset dimensions (512×512, 1024×1024, etc.) or choose Custom
+   - **Batch Count**: Use slider to generate 1-4 images at once
+   - **Provider Options**: Configure OpenAI settings (quality, style, format) or diffusion parameters
 
 4. **Generate**
    - Click "Generate Image"
    - For diffusion models, watch real-time progress
    - View generated images in the gallery
 
-5. **Manage Images**
-   - Download individual images
-   - View metadata (seed, dimensions, generation time)
-   - Clear gallery when needed
+5. **View & Manage Images**
+   - **Click any image** to view full-screen in lightbox
+   - Use arrow keys (← →) to navigate, ESC to close
+   - Download individual images (⬇️ button)
+   - View metadata: dimensions, seed (diffusion only), generation time
+   - Delete unwanted images or clear entire gallery
 
 ## API Endpoints
 
@@ -114,6 +117,19 @@ examples/image-gen-demo/
 │       ├── presets.ts     # Preset endpoints
 │       └── image.ts       # Image generation endpoint
 └── src/                   # Frontend (React)
+    ├── components/        # 13 React components
+    │   ├── ImageGenInterface.tsx   # Main orchestrator
+    │   ├── ImageGallery.tsx        # Gallery with modal
+    │   ├── ImageCard.tsx           # Individual image
+    │   ├── ImageModal.tsx          # Full-screen lightbox
+    │   ├── SettingsPanel.tsx       # Settings UI
+    │   ├── ProviderSelector.tsx    # Provider/model picker
+    │   ├── PromptInput.tsx         # Prompt textarea
+    │   ├── ProgressDisplay.tsx     # Progress bar
+    │   └── ErrorDisplay.tsx        # Error messages
+    ├── types/index.ts     # TypeScript interfaces
+    ├── api/client.ts      # API helper functions
+    ├── style.css          # Global styles
     ├── index.html
     ├── main.tsx
     └── App.tsx

@@ -1,9 +1,8 @@
 import React from 'react';
 import type { ImageCardProps } from '../types';
 
-export function ImageCard({ image, onDownload, onDelete }: ImageCardProps) {
-  const timeTaken = Date.now() - image.generatedAt;
-  const timeSeconds = (timeTaken / 1000).toFixed(1);
+export function ImageCard({ image, onDownload, onDelete, onImageClick }: ImageCardProps) {
+  const timeSeconds = (image.generationTime / 1000).toFixed(1);
 
   const handleDownload = () => {
     // Create a download link
@@ -22,6 +21,9 @@ export function ImageCard({ image, onDownload, onDelete }: ImageCardProps) {
         src={`data:image/png;base64,${image.data}`}
         alt={`Generated image ${image.index + 1}`}
         loading="lazy"
+        onClick={onImageClick}
+        style={{ cursor: onImageClick ? 'pointer' : 'default' }}
+        title={onImageClick ? 'Click to view full size' : ''}
       />
 
       <div className="image-actions">

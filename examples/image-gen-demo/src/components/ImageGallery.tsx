@@ -1,9 +1,11 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ImageCard } from './ImageCard';
+import { ImageModal } from './ImageModal';
 import type { ImageGalleryProps } from '../types';
 
 export function ImageGallery({ images, onDownload, onDelete, onClearAll }: ImageGalleryProps) {
   const galleryRef = useRef<HTMLDivElement>(null);
+  const [selectedImageIndex, setSelectedImageIndex] = useState<number | null>(null);
 
   // Auto-scroll to latest image when new ones are added
   useEffect(() => {
@@ -11,6 +13,29 @@ export function ImageGallery({ images, onDownload, onDelete, onClearAll }: Image
       galleryRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
   }, [images.length]);
+
+  // Modal handlers
+  const handleImageClick = (index: number) => {
+    setSelectedImageIndex(index);
+  };
+
+  const handleCloseModal = () => {
+    setSelectedImageIndex(null);
+  };
+
+  const handleNextImage = () => {
+    if (selectedImageIndex !== null && selectedImageIndex < images.length - 1) {
+      setSelectedImageIndex(selectedImageIndex + 1);
+    }
+  };
+
+  const handlePreviousImage = () => {
+    if (selectedImageIndex !== null && selectedImageIndex > 0) {
+      setSelectedImageIndex(selectedImageIndex - 1);
+    }
+  };
+
+  const selectedImage = selectedImageIndex !== null ? images[selectedImageIndex] : null;
 
   if (images.length === 0) {
     return (
@@ -42,9 +67,19 @@ export function ImageGallery({ images, onDownload, onDelete, onClearAll }: Image
             image={image}
             onDownload={() => onDownload(index)}
             onDelete={() => onDelete(index)}
+            onImageClick={() => handleImageClick(index)}
           />
         ))}
       </div>
+
+      <ImageModal
+        image={selectedImage}
+        onClose={handleCloseModal}
+        onNext={handleNextImage}
+        onPrevious={handlePreviousImage}
+        hasNext={selectedImageIndex !== null && selectedImageIndex < images.length - 1}
+        hasPrevious={selectedImageIndex !== null && selectedImageIndex > 0}
+      />
     </div>
   );
 }

@@ -420,15 +420,24 @@ import type {
 } from 'genai-lite';
 ```
 
-## Example Application
+## Example Applications
 
-For a complete, production-ready example showcasing all genai-lite capabilities, see the **[chat-demo](examples/chat-demo)** interactive web application. The demo includes:
+### LLM Chat Demo
+For a complete, production-ready example showcasing genai-lite's LLM capabilities, see the **[chat-demo](examples/chat-demo)** interactive web application. Features include:
 - Multi-provider chat interface with all supported providers
 - Template rendering and model presets
 - llama.cpp utilities (tokenization, embeddings, health checks)
 - Settings persistence, export/import features
 
-The chat-demo serves as both a comprehensive showcase and a quick-test environment for library changes.
+### Image Generation Demo
+For image generation capabilities, see the **[image-gen-demo](examples/image-gen-demo)** interactive web application. Features include:
+- Multi-provider image generation (OpenAI Images, local diffusion)
+- Size presets and batch generation
+- Full-screen image lightbox with keyboard navigation
+- Progress monitoring for diffusion models
+- Comprehensive settings for all DALL-E models
+
+Both demos serve as comprehensive showcases and quick-test environments for library changes.
 
 ## API Key Management
 
@@ -1837,7 +1846,12 @@ These utilities enable:
 
 ## Examples
 
-See the **[chat-demo](examples/chat-demo)** application for a complete working example that demonstrates all library features in a production-ready React + Express application.
+genai-lite includes two complete demo applications:
+
+- **[chat-demo](examples/chat-demo)** - Full-featured LLM chat interface with all providers, template rendering, and advanced features
+- **[image-gen-demo](examples/image-gen-demo)** - Interactive image generation UI with OpenAI and local diffusion support
+
+Both are production-ready React + Express applications that demonstrate library features and serve as testing environments.
 
 ## Contributing
 

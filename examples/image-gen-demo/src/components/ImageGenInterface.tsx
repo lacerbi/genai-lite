@@ -67,7 +67,8 @@ export function ImageGenInterface() {
     setError(null);
     setIsGenerating(true);
     setProgress(0);
-    setStartTime(Date.now());
+    const start = Date.now();
+    setStartTime(start);
 
     try {
       const response = await generateImage({
@@ -79,10 +80,15 @@ export function ImageGenInterface() {
       });
 
       if (response.success && response.result) {
+        // Calculate generation time
+        const endTime = Date.now();
+        const generationTime = endTime - start;
+
         // Add generated images to gallery
         const newImages: GeneratedImage[] = response.result.images.map(img => ({
           ...img,
-          generatedAt: Date.now()
+          generatedAt: endTime,
+          generationTime
         }));
 
         setImages(prev => [...prev, ...newImages]);

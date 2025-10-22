@@ -185,10 +185,67 @@
 
 ---
 
+## UI/UX Improvements (Post-Phase 3) ✅
+
+### 2025-01-22 Evening Session
+
+**Image Size Presets** ✅
+- Added dropdown menu with 7 common preset sizes
+  - 512×512, 768×768, 1024×1024 (squares)
+  - Portrait and landscape variants (768×1024, 1024×768, 1024×1536, 1536×1024)
+  - Custom option with manual width/height inputs
+- Smart preset detection automatically selects matching preset based on current dimensions
+- Clean dimension display shows "W × H pixels" for preset sizes
+- Width/height inputs appear inline when Custom is selected
+
+**Settings Panel Reorganization** ✅
+- Merged "Dimensions" and "Batch Generation" into unified "Image Settings" section
+- All settings now on single compact row: [Size] [Count Slider] on same line
+- Consolidated all OpenAI settings (Quality, Style, Format, Background) into single row
+- More efficient use of screen space, cleaner layout
+- Responsive grid automatically adapts to screen size (auto-fit, minmax(200px, 1fr))
+
+**Generation Time Display Fix** ✅
+- Fixed bug where time showed elapsed time since creation (constantly increasing)
+- Now correctly displays actual generation duration stored at creation time
+- Added `generationTime` field to `GeneratedImage` type
+- Time calculated once when images arrive and remains static
+- Accurate timing for performance comparison between providers
+
+**Image Lightbox Modal** ✅
+- Click any image to view full-screen in modal viewer
+- Dark overlay (85% opacity) with centered image display
+- Navigation features:
+  - Previous/Next arrow buttons (◀ ▶)
+  - Keyboard support: Left/Right arrows for navigation, ESC to close
+  - Click outside image to close
+- Display metadata below image (size, seed, generation time)
+- Smooth animations: fade-in overlay, scale-in image
+- Body scroll prevention when modal open
+- Component: ImageModal.tsx (13th component)
+
+**DALL-E 2 Compatibility Fix** ✅
+- Fixed critical bug where `quality` and `style` parameters were sent to DALL-E 2
+- These parameters only supported by DALL-E 3, not DALL-E 2
+- OpenAI adapter now checks `params.model === 'dall-e-3'` before adding these params
+- Resolves "400 Unknown parameter: 'quality'" error when using DALL-E 2
+- Added test assertions in `OpenAIImageAdapter.test.ts` to verify params correctly filtered
+- Prevents regression with explicit undefined checks for dall-e-2
+
+**Files Modified:**
+- Core library: 2 files (OpenAIImageAdapter.ts, OpenAIImageAdapter.test.ts)
+- Demo app: 5 files (ImageModal.tsx NEW, ImageCard.tsx, ImageGallery.tsx, types/index.ts, style.css)
+- Commit: 51ffbe6 - "feat: add image size presets and fix DALL-E 2 compatibility"
+- Changes: 4 library files + 1 new component, 207 insertions(+), 108 deletions(-)
+
+**Component Count:** 13 total (added ImageModal.tsx)
+
+---
+
 ## Next Steps (Phase 4 - Advanced Features)
 
 When ready to continue:
-- Implement preset selection UI
+- ~~Implement preset selection UI~~ ✅ (Size presets added)
 - Add generation history with timestamps
 - Implement seed reuse functionality
 - Add genai-electron health check UI

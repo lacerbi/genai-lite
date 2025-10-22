@@ -41,6 +41,7 @@ export interface GeneratedImage {
   width: number;
   height: number;
   generatedAt: number;
+  generationTime: number; // Duration in milliseconds
 }
 
 // Settings Types
@@ -129,6 +130,7 @@ export interface ImageCardProps {
   image: GeneratedImage;
   onDownload: () => void;
   onDelete: () => void;
+  onImageClick?: () => void;
 }
 
 export interface ProgressDisplayProps {
