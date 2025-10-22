@@ -6,7 +6,8 @@
     "providerId": "openai-images",
     "modelId": "gpt-image-1-mini",
     "settings": {
-      "size": "1024x1024",
+      "width": 1024,
+      "height": 1024,
       "quality": "auto",
       "responseFormat": "buffer",
       "openai": {
@@ -23,7 +24,8 @@
     "providerId": "openai-images",
     "modelId": "gpt-image-1",
     "settings": {
-      "size": "1024x1024",
+      "width": 1024,
+      "height": 1024,
       "quality": "high",
       "responseFormat": "buffer",
       "openai": {
@@ -40,7 +42,8 @@
     "providerId": "openai-images",
     "modelId": "dall-e-3",
     "settings": {
-      "size": "1024x1024",
+      "width": 1024,
+      "height": 1024,
       "quality": "hd",
       "style": "vivid",
       "responseFormat": "buffer"
@@ -53,7 +56,8 @@
     "providerId": "openai-images",
     "modelId": "dall-e-3",
     "settings": {
-      "size": "1024x1024",
+      "width": 1024,
+      "height": 1024,
       "quality": "standard",
       "style": "natural",
       "responseFormat": "buffer"
@@ -66,7 +70,8 @@
     "providerId": "openai-images",
     "modelId": "dall-e-2",
     "settings": {
-      "size": "1024x1024",
+      "width": 1024,
+      "height": 1024,
       "quality": "standard",
       "responseFormat": "buffer"
     }
@@ -78,7 +83,8 @@
     "providerId": "openai-images",
     "modelId": "dall-e-2",
     "settings": {
-      "size": "512x512",
+      "width": 512,
+      "height": 512,
       "quality": "standard",
       "responseFormat": "buffer"
     }
@@ -88,15 +94,14 @@
     "displayName": "Local - SDXL Quality",
     "description": "High-quality SDXL generation for final production images",
     "providerId": "genai-electron-images",
-    "modelId": "sdxl",
+    "modelId": "stable-diffusion",
     "settings": {
-      "size": "1024x1024",
+      "width": 1024,
+      "height": 1024,
       "responseFormat": "buffer",
       "diffusion": {
         "steps": 30,
         "cfgScale": 7.5,
-        "width": 1024,
-        "height": 1024,
         "sampler": "dpm++2m"
       }
     }
@@ -106,15 +111,14 @@
     "displayName": "Local - SDXL Balanced",
     "description": "Balanced quality and speed for general use",
     "providerId": "genai-electron-images",
-    "modelId": "sdxl",
+    "modelId": "stable-diffusion",
     "settings": {
-      "size": "768x768",
+      "width": 768,
+      "height": 768,
       "responseFormat": "buffer",
       "diffusion": {
         "steps": 20,
         "cfgScale": 7.0,
-        "width": 768,
-        "height": 768,
         "sampler": "euler_a"
       }
     }
@@ -124,15 +128,14 @@
     "displayName": "Local - SDXL Fast",
     "description": "Quick iterations with reduced steps",
     "providerId": "genai-electron-images",
-    "modelId": "sdxl",
+    "modelId": "stable-diffusion",
     "settings": {
-      "size": "512x512",
+      "width": 512,
+      "height": 512,
       "responseFormat": "buffer",
       "diffusion": {
         "steps": 15,
         "cfgScale": 6.5,
-        "width": 512,
-        "height": 512,
         "sampler": "euler_a"
       }
     }
@@ -142,15 +145,14 @@
     "displayName": "Local - SDXL Portrait",
     "description": "Portrait-oriented image generation",
     "providerId": "genai-electron-images",
-    "modelId": "sdxl",
+    "modelId": "stable-diffusion",
     "settings": {
-      "size": "768x1024",
+      "width": 768,
+      "height": 1024,
       "responseFormat": "buffer",
       "diffusion": {
         "steps": 20,
         "cfgScale": 7.5,
-        "width": 768,
-        "height": 1024,
         "sampler": "dpm++2m"
       }
     }
@@ -162,13 +164,12 @@
     "providerId": "genai-electron-images",
     "modelId": "sdxl-turbo",
     "settings": {
-      "size": "512x512",
+      "width": 512,
+      "height": 512,
       "responseFormat": "buffer",
       "diffusion": {
         "steps": 4,
         "cfgScale": 1.0,
-        "width": 512,
-        "height": 512,
         "sampler": "euler_a"
       }
     }
@@ -180,13 +181,12 @@
     "providerId": "genai-electron-images",
     "modelId": "sdxl-lightning",
     "settings": {
-      "size": "1024x1024",
+      "width": 1024,
+      "height": 1024,
       "responseFormat": "buffer",
       "diffusion": {
         "steps": 8,
         "cfgScale": 1.0,
-        "width": 1024,
-        "height": 1024,
         "sampler": "euler_a"
       }
     }

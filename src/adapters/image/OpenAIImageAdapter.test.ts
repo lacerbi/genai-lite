@@ -94,7 +94,8 @@ describe('OpenAIImageAdapter', () => {
       };
 
       const settings: ResolvedImageGenerationSettings = {
-        size: '1024x1024',
+        width: 1024,
+        height: 1024,
         quality: 'auto',
         responseFormat: 'buffer',
         style: 'vivid',
@@ -132,7 +133,8 @@ describe('OpenAIImageAdapter', () => {
       };
 
       const settings: ResolvedImageGenerationSettings = {
-        size: '1536x1024',
+        width: 1536,
+        height: 1024,
         quality: 'high',
         responseFormat: 'buffer',
         style: 'vivid',
@@ -180,7 +182,8 @@ describe('OpenAIImageAdapter', () => {
       };
 
       const settings: ResolvedImageGenerationSettings = {
-        size: '1792x1024',
+        width: 1792,
+        height: 1024,
         quality: 'hd',
         responseFormat: 'buffer',
         style: 'natural',
@@ -230,7 +233,8 @@ describe('OpenAIImageAdapter', () => {
       };
 
       const settings: ResolvedImageGenerationSettings = {
-        size: '1024x1024',
+        width: 1024,
+        height: 1024,
         quality: 'standard',
         responseFormat: 'url',
         style: 'vivid',
@@ -260,7 +264,8 @@ describe('OpenAIImageAdapter', () => {
       };
 
       const settings: ResolvedImageGenerationSettings = {
-        size: '1024x1024',
+        width: 1024,
+        height: 1024,
         quality: 'standard',
         responseFormat: 'buffer',
         style: 'vivid',
@@ -298,7 +303,8 @@ describe('OpenAIImageAdapter', () => {
       };
 
       const settings: ResolvedImageGenerationSettings = {
-        size: '512x512',
+        width: 512,
+        height: 512,
         quality: 'standard',
         responseFormat: 'buffer',
         style: 'vivid',
@@ -340,7 +346,8 @@ describe('OpenAIImageAdapter', () => {
       };
 
       const settings: ResolvedImageGenerationSettings = {
-        size: '1024x1024',
+        width: 1024,
+        height: 1024,
         quality: 'auto',
         responseFormat: 'buffer',
         style: 'vivid',
@@ -366,7 +373,8 @@ describe('OpenAIImageAdapter', () => {
       };
 
       const settings: ResolvedImageGenerationSettings = {
-        size: '1024x1024',
+        width: 1024,
+        height: 1024,
         quality: 'auto',
         responseFormat: 'buffer',
         style: 'vivid',
@@ -392,7 +400,8 @@ describe('OpenAIImageAdapter', () => {
       };
 
       const settings: ResolvedImageGenerationSettings = {
-        size: '1024x1024',
+        width: 1024,
+        height: 1024,
         quality: 'standard',
         responseFormat: 'buffer',
         style: 'vivid',
@@ -418,7 +427,8 @@ describe('OpenAIImageAdapter', () => {
       };
 
       const settings: ResolvedImageGenerationSettings = {
-        size: '1024x1024',
+        width: 1024,
+        height: 1024,
         quality: 'standard',
         responseFormat: 'buffer',
         style: 'vivid',
@@ -444,7 +454,8 @@ describe('OpenAIImageAdapter', () => {
       };
 
       const settings: ResolvedImageGenerationSettings = {
-        size: '1024x1024',
+        width: 1024,
+        height: 1024,
         quality: 'auto',
         responseFormat: 'buffer',
         style: 'vivid',
@@ -473,7 +484,8 @@ describe('OpenAIImageAdapter', () => {
       };
 
       const settings: ResolvedImageGenerationSettings = {
-        size: '1024x1024',
+        width: 1024,
+        height: 1024,
         quality: 'auto',
         responseFormat: 'buffer',
         style: 'vivid',
@@ -502,7 +514,8 @@ describe('OpenAIImageAdapter', () => {
       };
 
       const settings: ResolvedImageGenerationSettings = {
-        size: '1024x1024',
+        width: 1024,
+        height: 1024,
         quality: 'standard',
         responseFormat: 'buffer',
         style: 'vivid',
@@ -531,7 +544,8 @@ describe('OpenAIImageAdapter', () => {
       };
 
       const settings: ResolvedImageGenerationSettings = {
-        size: '1024x1024',
+        width: 1024,
+        height: 1024,
         quality: 'auto',
         responseFormat: 'buffer',
         style: 'vivid',
@@ -560,7 +574,8 @@ describe('OpenAIImageAdapter', () => {
       };
 
       const settings: ResolvedImageGenerationSettings = {
-        size: '512x512',
+        width: 512,
+        height: 512,
         quality: 'standard',
         responseFormat: 'buffer',
         style: 'vivid',
@@ -589,7 +604,8 @@ describe('OpenAIImageAdapter', () => {
       };
 
       const settings: ResolvedImageGenerationSettings = {
-        size: '1024x1024',
+        width: 1024,
+        height: 1024,
         quality: 'auto',
         responseFormat: 'buffer',
         style: 'vivid',
@@ -620,7 +636,8 @@ describe('OpenAIImageAdapter', () => {
       };
 
       const settings: ResolvedImageGenerationSettings = {
-        size: '1024x1024',
+        width: 1024,
+        height: 1024,
         quality: 'auto',
         responseFormat: 'buffer',
         style: 'vivid',
@@ -660,7 +677,8 @@ describe('OpenAIImageAdapter', () => {
       };
 
       const settings: ResolvedImageGenerationSettings = {
-        size: '1024x1024',
+        width: 1024,
+        height: 1024,
         quality: 'standard',
         responseFormat: 'url',
         style: 'vivid',
@@ -695,7 +713,8 @@ describe('OpenAIImageAdapter', () => {
       };
 
       const settings: ResolvedImageGenerationSettings = {
-        size: '512x512',
+        width: 512,
+        height: 512,
         quality: 'standard',
         responseFormat: 'buffer',
         style: 'vivid',
@@ -730,7 +749,8 @@ describe('OpenAIImageAdapter', () => {
       };
 
       const settings: ResolvedImageGenerationSettings = {
-        size: '1024x1024',
+        width: 1024,
+        height: 1024,
         quality: 'auto',
         responseFormat: 'buffer',
         style: 'vivid',
@@ -764,7 +784,8 @@ describe('OpenAIImageAdapter', () => {
       };
 
       const settings: ResolvedImageGenerationSettings = {
-        size: '1024x1024',
+        width: 1024,
+        height: 1024,
         quality: 'auto',
         responseFormat: 'buffer',
         style: 'vivid',
@@ -804,7 +825,8 @@ describe('OpenAIImageAdapter', () => {
       };
 
       const settings: ResolvedImageGenerationSettings = {
-        size: '1024x1024',
+        width: 1024,
+        height: 1024,
         quality: 'standard',
         responseFormat: 'url',
         style: 'vivid',
@@ -837,7 +859,8 @@ describe('OpenAIImageAdapter', () => {
       };
 
       const settings: ResolvedImageGenerationSettings = {
-        size: '1024x1024',
+        width: 1024,
+        height: 1024,
         quality: 'standard',
         responseFormat: 'buffer',
         style: 'vivid',
@@ -870,7 +893,8 @@ describe('OpenAIImageAdapter', () => {
       };
 
       const settings: ResolvedImageGenerationSettings = {
-        size: '1536x1024',
+        width: 1536,
+        height: 1024,
         quality: 'auto',
         responseFormat: 'buffer',
         style: 'vivid',

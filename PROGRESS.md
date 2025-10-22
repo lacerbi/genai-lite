@@ -514,9 +514,96 @@ Extract and generify common patterns between LLM and Image services to eliminate
 
 ---
 
+### Phase 6.5: Settings API Refactor ✅ COMPLETE
+**Status:** Complete
+**Completed:** 2025-10-22
+**Dependencies:** Phase 6 ✅
+
+#### Objective
+Refactor image dimension handling from string-based `size` field to universal numeric `width` and `height` fields at the base settings level, eliminating duplication between base settings and diffusion namespace.
+
+#### Tasks Completed
+- [x] Update type definitions in `src/types/image.ts`
+  - [x] Replace `size?: string` with `width?: number, height?: number` in `ImageGenerationSettings`
+  - [x] Replace `size: string` with `width: number, height: number` in `ResolvedImageGenerationSettings`
+  - [x] Remove `width/height` from `DiffusionSettings` interface (moved to base)
+  - [x] Add JSDoc note explaining dimensions are now universal
+- [x] Update OpenAI adapter (`src/adapters/image/OpenAIImageAdapter.ts`)
+  - [x] Add `toSizeString()` helper to convert width/height → OpenAI format ("1024x1024")
+  - [x] Update `addGptImageParams()` and `addDalleParams()` to use conversion
+  - [x] Remove diffusion.width/height warning (no longer needed)
+- [x] Update Electron adapter (`src/adapters/image/GenaiElectronImageAdapter.ts`)
+  - [x] Simplified: removed all size string parsing logic (~15 lines removed)
+  - [x] Now directly uses `settings.width` and `settings.height`
+- [x] Update all 12 presets in `src/config/image-presets.json`
+  - [x] Changed `"size": "1024x1024"` → `"width": 1024, "height": 1024`
+  - [x] Removed duplicate width/height from diffusion objects
+  - [x] Changed model ID "sdxl" → "stable-diffusion" (generic naming)
+- [x] Update config defaults in `src/image/config.ts`
+  - [x] All model default settings use width/height
+  - [x] Updated model display names to "Stable Diffusion" (generic)
+- [x] Update settings resolver (`src/image/services/ImageSettingsResolver.ts`)
+  - [x] Removed `parseSizeString()` method entirely
+  - [x] Removed logic that parsed size into diffusion.width/height
+  - [x] Simplified diffusion defaults (no longer includes dimensions)
+- [x] Update request validator (`src/image/services/ImageRequestValidator.ts`)
+  - [x] Moved width/height validation from diffusion namespace to base settings
+  - [x] Error codes: INVALID_WIDTH, INVALID_HEIGHT (was INVALID_DIFFUSION_WIDTH)
+  - [x] Validates 64-2048 pixel range at top level
+- [x] Fix all test files (5 files)
+  - [x] `src/types/image.test.ts` - Updated type validation tests
+  - [x] `src/image/services/ImageRequestValidator.test.ts` - Updated validation tests
+  - [x] `src/image/services/ImageSettingsResolver.test.ts` - Removed size parsing tests
+  - [x] `src/adapters/image/GenaiElectronImageAdapter.test.ts` - Removed diffusion width/height
+  - [x] `src/config/image-presets.test.ts` - Updated all preset assertions
+
+#### Review Checkpoint
+- [x] All 566 tests passing (removed duplicates during refactor)
+- [x] 28/28 test suites passing
+- [x] Build successful with no errors
+- [x] Coverage maintained at 89.52%
+- [x] All TypeScript compilation errors resolved
+
+#### Implementation Summary
+- **Files Modified:** 13 total
+  - 2 adapter implementations
+  - 2 adapter test files
+  - 1 preset JSON file
+  - 1 config file
+  - 1 preset test file
+  - 3 service implementations (validator, resolver, types)
+  - 3 service test files
+- **Lines Changed:** ~400 lines across all files
+- **Test Count:** 566 tests (stable, some duplicate tests removed)
+- **Code Removed:** ~30 lines (size parsing logic no longer needed)
+- **Breaking Change:** Yes, but only to types (implementation adapters handle conversion internally)
+
+#### Design Rationale
+
+**Why this refactor?**
+1. **Universality**: Width/height are needed by ALL image providers, not just diffusion
+2. **Type Safety**: Direct numbers are clearer than parsing strings like "1024x1024"
+3. **Adapter Responsibility**: Each adapter converts to its own format internally (OpenAI still sends "1024x1024" to its API)
+4. **Eliminates Duplication**: No more both `size` string AND `diffusion.width/height`
+5. **Cleaner API**: More intuitive for users - dimensions are first-class citizens
+
+**Architecture:**
+- **OpenAI adapter**: Converts `width/height` → `"1024x1024"` string internally via `toSizeString()`
+- **Electron adapter**: Passes `width/height` directly to genai-electron API (which expects numbers)
+- **Settings resolver**: No longer needs to parse size strings
+- **Request validator**: Validates dimensions at base level (not diffusion-specific)
+
+**Impact:**
+- All image providers now use the same dimension API
+- Simpler, more maintainable codebase
+- Better TypeScript autocomplete and validation
+- Foundation for future providers (Stability AI, Replicate, etc.)
+
+---
+
 ### Phase 7: Documentation and Final Integration
 **Status:** Not Started
-**Dependencies:** Phase 6
+**Dependencies:** Phase 6.5 ✅
 
 #### Tasks
 - [ ] Update `README.md`

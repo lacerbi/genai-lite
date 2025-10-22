@@ -155,26 +155,23 @@ export class OpenAIImageAdapter implements ImageProviderAdapter {
   }
 
   /**
+   * Converts width and height to OpenAI size format (e.g., "1024x1024")
+   */
+  private toSizeString(width: number, height: number): string {
+    return `${width}x${height}`;
+  }
+
+  /**
    * Adds gpt-image-1 specific parameters to the request
    */
   private addGptImageParams(params: any, settings: ResolvedImageGenerationSettings): void {
     // Size (supports auto, 1024x1024, 1536x1024, 1024x1536)
-    if (settings.size) {
-      params.size = settings.size;
-    }
+    // Convert width/height to OpenAI's size format
+    params.size = this.toSizeString(settings.width, settings.height);
 
     // Quality (auto, high, medium, low)
     if (settings.quality) {
       params.quality = settings.quality;
-    }
-
-    // OpenAI-specific settings
-    if (settings.diffusion?.width && settings.diffusion?.height) {
-      // Note: gpt-image-1 doesn't support arbitrary dimensions via diffusion namespace
-      // Log a warning but don't fail
-      console.warn(
-        'gpt-image-1 models do not support arbitrary width/height from diffusion settings. Use size parameter instead.'
-      );
     }
 
     // For gpt-image-1, use settings.openai namespace
@@ -207,9 +204,8 @@ export class OpenAIImageAdapter implements ImageProviderAdapter {
    */
   private addDalleParams(params: any, settings: ResolvedImageGenerationSettings): void {
     // Size (model-specific options)
-    if (settings.size) {
-      params.size = settings.size;
-    }
+    // Convert width/height to OpenAI's size format
+    params.size = this.toSizeString(settings.width, settings.height);
 
     // Quality (hd or standard for dall-e-3, standard for dall-e-2)
     if (settings.quality) {

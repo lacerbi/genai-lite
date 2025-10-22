@@ -75,7 +75,8 @@ describe('Image Presets Configuration', () => {
       const preset = imagePresets.find(p => p.id === 'openai-gpt-image-1-mini-default');
       expect(preset).toBeDefined();
       expect(preset?.modelId).toBe('gpt-image-1-mini');
-      expect(preset?.settings?.size).toBe('1024x1024');
+      expect(preset?.settings?.width).toBe(1024);
+      expect(preset?.settings?.height).toBe(1024);
       expect(preset?.settings?.quality).toBe('auto');
     });
 
@@ -105,14 +106,16 @@ describe('Image Presets Configuration', () => {
       const preset = imagePresets.find(p => p.id === 'openai-dalle-2-default');
       expect(preset).toBeDefined();
       expect(preset?.modelId).toBe('dall-e-2');
-      expect(preset?.settings?.size).toBe('1024x1024');
+      expect(preset?.settings?.width).toBe(1024);
+      expect(preset?.settings?.height).toBe(1024);
     });
 
     it('should have dalle-2-fast preset', () => {
       const preset = imagePresets.find(p => p.id === 'openai-dalle-2-fast');
       expect(preset).toBeDefined();
       expect(preset?.modelId).toBe('dall-e-2');
-      expect(preset?.settings?.size).toBe('512x512');
+      expect(preset?.settings?.width).toBe(512);
+      expect(preset?.settings?.height).toBe(512);
     });
   });
 
@@ -120,48 +123,48 @@ describe('Image Presets Configuration', () => {
     it('should have sdxl-quality preset', () => {
       const preset = imagePresets.find(p => p.id === 'genai-electron-sdxl-quality');
       expect(preset).toBeDefined();
-      expect(preset?.modelId).toBe('sdxl');
+      expect(preset?.modelId).toBe('stable-diffusion');
+      expect(preset?.settings?.width).toBe(1024);
+      expect(preset?.settings?.height).toBe(1024);
       expect(preset?.settings?.diffusion?.steps).toBe(30);
       expect(preset?.settings?.diffusion?.cfgScale).toBe(7.5);
-      expect(preset?.settings?.diffusion?.width).toBe(1024);
-      expect(preset?.settings?.diffusion?.height).toBe(1024);
       expect(preset?.settings?.diffusion?.sampler).toBe('dpm++2m');
     });
 
     it('should have sdxl-balanced preset', () => {
       const preset = imagePresets.find(p => p.id === 'genai-electron-sdxl-balanced');
       expect(preset).toBeDefined();
-      expect(preset?.modelId).toBe('sdxl');
+      expect(preset?.modelId).toBe('stable-diffusion');
+      expect(preset?.settings?.width).toBe(768);
+      expect(preset?.settings?.height).toBe(768);
       expect(preset?.settings?.diffusion?.steps).toBe(20);
-      expect(preset?.settings?.diffusion?.width).toBe(768);
-      expect(preset?.settings?.diffusion?.height).toBe(768);
     });
 
     it('should have sdxl-fast preset', () => {
       const preset = imagePresets.find(p => p.id === 'genai-electron-sdxl-fast');
       expect(preset).toBeDefined();
-      expect(preset?.modelId).toBe('sdxl');
+      expect(preset?.modelId).toBe('stable-diffusion');
+      expect(preset?.settings?.width).toBe(512);
+      expect(preset?.settings?.height).toBe(512);
       expect(preset?.settings?.diffusion?.steps).toBe(15);
-      expect(preset?.settings?.diffusion?.width).toBe(512);
-      expect(preset?.settings?.diffusion?.height).toBe(512);
     });
 
     it('should have sdxl-portrait preset', () => {
       const preset = imagePresets.find(p => p.id === 'genai-electron-sdxl-portrait');
       expect(preset).toBeDefined();
-      expect(preset?.modelId).toBe('sdxl');
-      expect(preset?.settings?.diffusion?.width).toBe(768);
-      expect(preset?.settings?.diffusion?.height).toBe(1024);
+      expect(preset?.modelId).toBe('stable-diffusion');
+      expect(preset?.settings?.width).toBe(768);
+      expect(preset?.settings?.height).toBe(1024);
     });
 
     it('should have sdxl-turbo preset with correct settings', () => {
       const preset = imagePresets.find(p => p.id === 'genai-electron-sdxl-turbo');
       expect(preset).toBeDefined();
       expect(preset?.modelId).toBe('sdxl-turbo');
+      expect(preset?.settings?.width).toBe(512);
+      expect(preset?.settings?.height).toBe(512);
       expect(preset?.settings?.diffusion?.steps).toBe(4);
       expect(preset?.settings?.diffusion?.cfgScale).toBe(1.0);
-      expect(preset?.settings?.diffusion?.width).toBe(512);
-      expect(preset?.settings?.diffusion?.height).toBe(512);
       expect(preset?.settings?.diffusion?.sampler).toBe('euler_a');
     });
 
@@ -169,10 +172,10 @@ describe('Image Presets Configuration', () => {
       const preset = imagePresets.find(p => p.id === 'genai-electron-sdxl-lightning');
       expect(preset).toBeDefined();
       expect(preset?.modelId).toBe('sdxl-lightning');
+      expect(preset?.settings?.width).toBe(1024);
+      expect(preset?.settings?.height).toBe(1024);
       expect(preset?.settings?.diffusion?.steps).toBe(8);
       expect(preset?.settings?.diffusion?.cfgScale).toBe(1.0);
-      expect(preset?.settings?.diffusion?.width).toBe(1024);
-      expect(preset?.settings?.diffusion?.height).toBe(1024);
       expect(preset?.settings?.diffusion?.sampler).toBe('euler_a');
     });
   });
@@ -194,11 +197,11 @@ describe('Image Presets Configuration', () => {
         expect(diffusion.cfgScale).toBeGreaterThanOrEqual(0);
         expect(diffusion.cfgScale).toBeLessThanOrEqual(20);
 
-        // Dimensions should be reasonable
-        expect(diffusion.width).toBeGreaterThanOrEqual(256);
-        expect(diffusion.width).toBeLessThanOrEqual(2048);
-        expect(diffusion.height).toBeGreaterThanOrEqual(256);
-        expect(diffusion.height).toBeLessThanOrEqual(2048);
+        // Dimensions should be reasonable (now at base settings level)
+        expect(preset.settings!.width).toBeGreaterThanOrEqual(256);
+        expect(preset.settings!.width).toBeLessThanOrEqual(2048);
+        expect(preset.settings!.height).toBeGreaterThanOrEqual(256);
+        expect(preset.settings!.height).toBeLessThanOrEqual(2048);
 
         // Sampler should be defined
         expect(diffusion.sampler).toBeDefined();
@@ -211,8 +214,9 @@ describe('Image Presets Configuration', () => {
       openaiPresets.forEach((preset) => {
         expect(preset.settings).toBeDefined();
 
-        // Size should be defined
-        expect(preset.settings?.size).toBeDefined();
+        // Dimensions should be defined
+        expect(preset.settings?.width).toBeDefined();
+        expect(preset.settings?.height).toBeDefined();
 
         // Response format should be buffer
         expect(preset.settings?.responseFormat).toBe('buffer');

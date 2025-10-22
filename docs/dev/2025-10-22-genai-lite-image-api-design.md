@@ -55,7 +55,7 @@ const result = await imageService.generateImage({
   providerId: 'openai-images',
   modelId: 'gpt-image-1',
   prompt: 'A serene mountain lake at sunrise',
-  settings: { size: '1024x1024', quality: 'high' }
+  settings: { width: 1024, height: 1024, quality: 'high' }
 });
 ```
 
@@ -125,13 +125,12 @@ interface ImageProviderInfo {
 }
 
 type ResolvedImageGenerationSettings = ImageGenerationSettings & {
-  size: string;
+  width: number;
+  height: number;
   responseFormat: 'b64_json' | 'url' | 'buffer';
   quality: 'standard' | 'high';
   style: 'vivid' | 'natural';
   diffusion?: ImageGenerationSettings['diffusion'] & {
-    width: number;
-    height: number;
     steps: number;
     cfgScale: number;
   };
@@ -153,7 +152,10 @@ type ImageFailureResponse = {
 Split into **provider-neutral** keys (OpenAI-compatible) and **provider-specific** extensions:
 ```ts
 interface ImageGenerationSettings {
-  size?: '256x256' | '512x512' | '1024x1024' | `${number}x${number}`;
+  // Universal dimensions (used by all providers)
+  width?: number;          // Image width in pixels (default: 1024)
+  height?: number;         // Image height in pixels (default: 1024)
+
   responseFormat?: 'b64_json' | 'url' | 'buffer'; // default 'buffer'
   quality?: 'standard' | 'high';
   style?: 'vivid' | 'natural';
@@ -168,8 +170,6 @@ interface ImageGenerationSettings {
     cfgScale?: number;       // Default 7.5 if omitted
     seed?: number;
     sampler?: 'euler_a' | 'euler' | 'heun' | 'dpm2' | 'dpm++2s_a' | 'dpm++2m' | 'dpm++2mv2' | 'lcm';
-    width?: number;          // Default 512 when not provided
-    height?: number;         // Default 512 when not provided
     onProgress?: ImageProgressCallback; // Optional callback for local provider
   };
 }
@@ -813,6 +813,58 @@ const image = new ImageService(fromEnvironment);
 **Next Steps:**
 - genai-electron team implements async API per specification
 - Optional: Add SSE/WebSocket streaming in future phase if polling overhead becomes an issue
+
+---
+
+### Post-Implementation Refactor: Dimension Settings (Phase 6.5)
+
+**Date:** 2025-10-22 (completed after Phase 6)
+
+**Change:** Refactored dimension handling from string-based `size` field to universal numeric `width` and `height` fields.
+
+**Before (original design):**
+```ts
+interface ImageGenerationSettings {
+  size?: '256x256' | '512x512' | '1024x1024' | `${number}x${number}`;
+  diffusion?: {
+    width?: number;  // Duplicated!
+    height?: number; // Duplicated!
+  };
+}
+```
+
+**After (implemented design):**
+```ts
+interface ImageGenerationSettings {
+  width?: number;   // Universal (default: 1024)
+  height?: number;  // Universal (default: 1024)
+  diffusion?: {
+    // width/height removed - now at base level
+  };
+}
+```
+
+**Rationale:**
+1. **Universality**: Width/height are needed by ALL image providers, not just diffusion
+2. **Type Safety**: Direct numbers clearer than parsing strings like "1024x1024"
+3. **Eliminates Duplication**: No more both `size` AND `diffusion.width/height`
+4. **Adapter Responsibility**: OpenAI adapter converts to "1024x1024" format internally
+5. **Better DX**: Cleaner TypeScript autocomplete and validation
+
+**Impact:**
+- Breaking change to type definitions (completed in Phase 6.5)
+- All adapters updated: OpenAI converts internally, GenaiElectron passes through
+- 13 files modified, ~400 lines changed
+- All 566 tests passing, 89.52% coverage maintained
+
+**Files Updated:**
+- Type definitions: `src/types/image.ts`
+- Adapters: `OpenAIImageAdapter.ts`, `GenaiElectronImageAdapter.ts`
+- Services: `ImageRequestValidator.ts`, `ImageSettingsResolver.ts`
+- Config: `image-presets.json` (all 12 presets), `image/config.ts`
+- Tests: 5 test files updated
+
+See `PROGRESS.md` Phase 6.5 for detailed implementation notes.
 
 ---
 

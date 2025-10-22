@@ -57,14 +57,16 @@ describe('Image Type Definitions', () => {
         modelId: 'dall-e-3',
         prompt: 'A cyberpunk cityscape',
         settings: {
-          size: '1024x1024',
+          width: 1024,
+          height: 1024,
           quality: 'high',
           style: 'vivid',
           responseFormat: 'buffer',
         },
       };
 
-      expect(request.settings?.size).toBe('1024x1024');
+      expect(request.settings?.width).toBe(1024);
+      expect(request.settings?.height).toBe(1024);
       expect(request.settings?.quality).toBe('high');
     });
 
@@ -74,18 +76,20 @@ describe('Image Type Definitions', () => {
         modelId: 'sdxl',
         prompt: 'A fantasy castle',
         settings: {
+          width: 1024,
+          height: 1024,
           diffusion: {
             negativePrompt: 'blurry, low quality',
             steps: 30,
             cfgScale: 7.5,
             seed: 42,
             sampler: 'dpm++2m',
-            width: 1024,
-            height: 1024,
           },
         },
       };
 
+      expect(request.settings?.width).toBe(1024);
+      expect(request.settings?.height).toBe(1024);
       expect(request.settings?.diffusion?.steps).toBe(30);
       expect(request.settings?.diffusion?.cfgScale).toBe(7.5);
       expect(request.settings?.diffusion?.sampler).toBe('dpm++2m');
@@ -211,13 +215,15 @@ describe('Image Type Definitions', () => {
         providerId: 'openai-images',
         modelId: 'dall-e-3',
         settings: {
-          size: '1024x1024',
+          width: 1024,
+          height: 1024,
           quality: 'high',
           style: 'vivid',
         },
       };
 
       expect(preset.id).toBe('openai-dalle3-quality');
+      expect(preset.settings?.width).toBe(1024);
       expect(preset.settings?.quality).toBe('high');
     });
   });
@@ -234,12 +240,11 @@ describe('Image Type Definitions', () => {
         cfgScale: 7.5,
         seed: 42,
         sampler: 'dpm++2m',
-        width: 1024,
-        height: 1024,
         onProgress: progressCallback,
       };
 
       expect(settings.steps).toBe(30);
+      expect(settings.cfgScale).toBe(7.5);
       expect(settings.onProgress).toBe(progressCallback);
     });
 
@@ -265,7 +270,8 @@ describe('Image Type Definitions', () => {
 
     it('should accept ResolvedImageGenerationSettings', () => {
       const settings: ResolvedImageGenerationSettings = {
-        size: '1024x1024',
+        width: 1024,
+        height: 1024,
         responseFormat: 'buffer',
         quality: 'high',
         style: 'vivid',
@@ -273,13 +279,13 @@ describe('Image Type Definitions', () => {
           negativePrompt: 'low quality',
           steps: 30,
           cfgScale: 7.5,
-          width: 1024,
-          height: 1024,
         },
       };
 
+      expect(settings.width).toBe(1024);
+      expect(settings.height).toBe(1024);
       expect(settings.diffusion?.steps).toBe(30);
-      expect(settings.diffusion?.width).toBe(1024);
+      expect(settings.diffusion?.cfgScale).toBe(7.5);
     });
   });
 
@@ -355,12 +361,14 @@ describe('Image Type Definitions', () => {
       const result: CreatePromptResult = {
         prompt: 'A beautiful sunset over the ocean',
         settings: {
-          size: '1024x1024',
+          width: 1024,
+          height: 1024,
           quality: 'high',
         },
       };
 
       expect(result.prompt).toBe('A beautiful sunset over the ocean');
+      expect(result.settings?.width).toBe(1024);
       expect(result.settings?.quality).toBe('high');
     });
   });

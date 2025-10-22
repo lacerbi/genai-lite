@@ -126,6 +126,30 @@ export class ImageRequestValidator {
       return null;
     }
 
+    // Validate width
+    if (settings.width !== undefined) {
+      if (!Number.isInteger(settings.width) || settings.width < 64 || settings.width > 2048) {
+        return this.createValidationError(
+          request,
+          'Image width must be an integer between 64 and 2048 pixels',
+          'INVALID_WIDTH',
+          'settings.width'
+        );
+      }
+    }
+
+    // Validate height
+    if (settings.height !== undefined) {
+      if (!Number.isInteger(settings.height) || settings.height < 64 || settings.height > 2048) {
+        return this.createValidationError(
+          request,
+          'Image height must be an integer between 64 and 2048 pixels',
+          'INVALID_HEIGHT',
+          'settings.height'
+        );
+      }
+    }
+
     // Validate diffusion settings if present
     if (settings.diffusion) {
       const diffusion = settings.diffusion;
@@ -150,30 +174,6 @@ export class ImageRequestValidator {
             'Diffusion cfgScale must be between 0.1 and 30',
             'INVALID_DIFFUSION_CFG_SCALE',
             'settings.diffusion.cfgScale'
-          );
-        }
-      }
-
-      // Validate width
-      if (diffusion.width !== undefined) {
-        if (diffusion.width < 64 || diffusion.width > 2048) {
-          return this.createValidationError(
-            request,
-            'Diffusion width must be between 64 and 2048 pixels',
-            'INVALID_DIFFUSION_WIDTH',
-            'settings.diffusion.width'
-          );
-        }
-      }
-
-      // Validate height
-      if (diffusion.height !== undefined) {
-        if (diffusion.height < 64 || diffusion.height > 2048) {
-          return this.createValidationError(
-            request,
-            'Diffusion height must be between 64 and 2048 pixels',
-            'INVALID_DIFFUSION_HEIGHT',
-            'settings.diffusion.height'
           );
         }
       }

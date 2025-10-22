@@ -47,7 +47,8 @@ export const SUPPORTED_IMAGE_PROVIDERS: ImageProviderInfo[] = [
           defaultModelId: 'gpt-image-1-mini',
         },
         defaultSettings: {
-          size: '1024x1024',
+          width: 1024,
+          height: 1024,
           quality: 'auto',
           responseFormat: 'buffer',
           openai: {
@@ -71,7 +72,8 @@ export const SUPPORTED_IMAGE_PROVIDERS: ImageProviderInfo[] = [
           defaultModelId: 'gpt-image-1',
         },
         defaultSettings: {
-          size: '1024x1024',
+          width: 1024,
+          height: 1024,
           quality: 'auto',
           responseFormat: 'buffer',
           openai: {
@@ -95,7 +97,8 @@ export const SUPPORTED_IMAGE_PROVIDERS: ImageProviderInfo[] = [
           defaultModelId: 'dall-e-3',
         },
         defaultSettings: {
-          size: '1024x1024',
+          width: 1024,
+          height: 1024,
           quality: 'standard',
           style: 'vivid',
           responseFormat: 'buffer',
@@ -115,7 +118,8 @@ export const SUPPORTED_IMAGE_PROVIDERS: ImageProviderInfo[] = [
           defaultModelId: 'dall-e-2',
         },
         defaultSettings: {
-          size: '1024x1024',
+          width: 1024,
+          height: 1024,
           quality: 'standard',
           responseFormat: 'buffer',
         },
@@ -132,13 +136,13 @@ export const SUPPORTED_IMAGE_PROVIDERS: ImageProviderInfo[] = [
       supportsHostedUrls: false,
       supportsProgressEvents: true,
       supportsNegativePrompt: true,
-      defaultModelId: 'sdxl',
+      defaultModelId: 'stable-diffusion',
     },
     models: [
       {
-        id: 'sdxl',
+        id: 'stable-diffusion',
         providerId: 'genai-electron-images',
-        displayName: 'Stable Diffusion XL',
+        displayName: 'Stable Diffusion',
         description: 'High-quality local diffusion model',
         capabilities: {
           supportsMultipleImages: true,
@@ -146,16 +150,15 @@ export const SUPPORTED_IMAGE_PROVIDERS: ImageProviderInfo[] = [
           supportsHostedUrls: false,
           supportsProgressEvents: true,
           supportsNegativePrompt: true,
-          defaultModelId: 'sdxl',
+          defaultModelId: 'stable-diffusion',
         },
         defaultSettings: {
-          size: '1024x1024',
+          width: 512,
+          height: 512,
           responseFormat: 'buffer',
           diffusion: {
             steps: 20,
             cfgScale: 7.5,
-            width: 512,
-            height: 512,
             sampler: 'dpm++2m',
           },
         },

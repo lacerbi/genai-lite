@@ -216,7 +216,8 @@ describe('ImageRequestValidator', () => {
         modelId: 'dall-e-3',
         prompt: 'A sunset',
         settings: {
-          size: '1024x1024',
+          width: 1024,
+          height: 1024,
           quality: 'high',
           style: 'vivid',
           responseFormat: 'buffer',
@@ -234,13 +235,13 @@ describe('ImageRequestValidator', () => {
         modelId: 'sdxl',
         prompt: 'A landscape',
         settings: {
+          width: 1024,
+          height: 1024,
           diffusion: {
             steps: 30,
             cfgScale: 7.5,
             seed: 42,
             sampler: 'dpm++2m',
-            width: 1024,
-            height: 1024,
           },
         },
       };
@@ -322,16 +323,14 @@ describe('ImageRequestValidator', () => {
       expect(result?.error.message).toContain('cfgScale');
     });
 
-    it('should reject invalid diffusion dimensions (too small)', () => {
+    it('should reject invalid image dimensions (too small)', () => {
       const request: ImageGenerationRequest = {
         providerId: 'genai-electron-images',
         modelId: 'sdxl',
         prompt: 'A landscape',
         settings: {
-          diffusion: {
-            width: 63,
-            height: 64,
-          },
+          width: 63,
+          height: 64,
         },
       };
 
@@ -339,17 +338,16 @@ describe('ImageRequestValidator', () => {
 
       expect(result).not.toBeNull();
       expect(result?.error.message).toContain('width');
+      expect(result?.error.code).toBe('INVALID_WIDTH');
     });
 
-    it('should reject invalid diffusion dimensions (too large)', () => {
+    it('should reject invalid image dimensions (too large)', () => {
       const request: ImageGenerationRequest = {
         providerId: 'genai-electron-images',
         modelId: 'sdxl',
         prompt: 'A landscape',
         settings: {
-          diffusion: {
-            width: 2049,
-          },
+          width: 2049,
         },
       };
 
@@ -357,6 +355,7 @@ describe('ImageRequestValidator', () => {
 
       expect(result).not.toBeNull();
       expect(result?.error.message).toContain('width');
+      expect(result?.error.code).toBe('INVALID_WIDTH');
     });
   });
 

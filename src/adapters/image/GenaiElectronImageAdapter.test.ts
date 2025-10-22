@@ -17,20 +17,19 @@ describe('GenaiElectronImageAdapter', () => {
   let adapter: GenaiElectronImageAdapter;
   const defaultRequest: ImageGenerationRequest = {
     providerId: 'genai-electron-images',
-    modelId: 'sdxl',
+    modelId: 'stable-diffusion',
     prompt: 'A serene mountain lake',
   };
 
   const defaultSettings: ResolvedImageGenerationSettings = {
-    size: '512x512',
+    width: 512,
+    height: 512,
     responseFormat: 'buffer',
     quality: 'standard',
     style: 'natural',
     diffusion: {
       steps: 20,
       cfgScale: 7.5,
-      width: 512,
-      height: 512,
       sampler: 'euler_a',
     },
   };
@@ -140,14 +139,13 @@ describe('GenaiElectronImageAdapter', () => {
         });
 
       const settingsWithAll: ResolvedImageGenerationSettings = {
-        size: '1024x1024',
+        width: 1024,
+        height: 1024,
         responseFormat: 'buffer',
         quality: 'standard',
         style: 'natural',
         diffusion: {
           negativePrompt: 'blurry, low quality',
-          width: 1024,
-          height: 1024,
           steps: 30,
           cfgScale: 8.5,
           seed: 12345,
@@ -192,13 +190,12 @@ describe('GenaiElectronImageAdapter', () => {
         });
 
       const settingsWithSize: ResolvedImageGenerationSettings = {
-        size: '768x768',
+        width: 768,
+        height: 768,
         responseFormat: 'buffer',
         quality: 'standard',
         style: 'natural',
         diffusion: {
-          width: 768,
-          height: 768,
           steps: 20,
           cfgScale: 7.5,
           sampler: 'euler_a',
@@ -271,13 +268,12 @@ describe('GenaiElectronImageAdapter', () => {
         });
 
       const settingsWithBoth: ResolvedImageGenerationSettings = {
-        size: '512x512',
+        width: 1024,
+        height: 768,
         responseFormat: 'buffer',
         quality: 'standard',
         style: 'natural',
         diffusion: {
-          width: 1024,
-          height: 768,
           steps: 20,
           cfgScale: 7.5,
           sampler: 'euler_a',
@@ -563,7 +559,7 @@ describe('GenaiElectronImageAdapter', () => {
 
       expect(result.object).toBe('image.result');
       expect(result.providerId).toBe('genai-electron-images');
-      expect(result.modelId).toBe('sdxl');
+      expect(result.modelId).toBe('stable-diffusion');
       expect(result.data.length).toBe(1);
 
       const image = result.data[0];

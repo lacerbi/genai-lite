@@ -143,18 +143,9 @@ export class GenaiElectronImageAdapter implements ImageProviderAdapter {
   ): any {
     const diffusion = settings.diffusion;
 
-    // Parse size string into width/height if needed
-    let width = diffusion?.width || 512;
-    let height = diffusion?.height || 512;
-
-    if (settings.size && !diffusion?.width && !diffusion?.height) {
-      // Parse size like "1024x1024" into width/height
-      const match = settings.size.match(/^(\d+)x(\d+)$/);
-      if (match) {
-        width = parseInt(match[1], 10);
-        height = parseInt(match[2], 10);
-      }
-    }
+    // Use dimensions from base settings (universal for all providers)
+    const width = settings.width;
+    const height = settings.height;
 
     return {
       prompt,

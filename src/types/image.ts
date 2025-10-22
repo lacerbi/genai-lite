@@ -63,6 +63,7 @@ export type ImageProgressCallback = (progress: {
 
 /**
  * Diffusion-specific settings for local/stable-diffusion providers
+ * Note: Image dimensions (width/height) are in the base settings, not here
  */
 export interface DiffusionSettings {
   /** Negative prompt to guide what should NOT be in the image */
@@ -75,10 +76,6 @@ export interface DiffusionSettings {
   seed?: number;
   /** Sampling algorithm to use */
   sampler?: DiffusionSampler;
-  /** Image width in pixels (default: 512) */
-  width?: number;
-  /** Image height in pixels (default: 512) */
-  height?: number;
   /** Optional callback for receiving progress updates */
   onProgress?: ImageProgressCallback;
 }
@@ -122,8 +119,10 @@ export interface OpenAISpecificSettings {
  * Settings for image generation requests
  */
 export interface ImageGenerationSettings {
-  /** Image dimensions in WxH format (e.g., '1024x1024') */
-  size?: '256x256' | '512x512' | '1024x1024' | `${number}x${number}`;
+  /** Image width in pixels */
+  width?: number;
+  /** Image height in pixels */
+  height?: number;
   /** Response format for image data */
   responseFormat?: ImageResponseFormat;
   /** Quality level for generation (OpenAI-style) */
@@ -146,8 +145,10 @@ export interface ImageGenerationSettings {
  * Resolved image generation settings with all defaults applied
  */
 export interface ResolvedImageGenerationSettings {
-  /** Image dimensions in WxH format (resolved to string) */
-  size: string;
+  /** Image width in pixels (resolved, required) */
+  width: number;
+  /** Image height in pixels (resolved, required) */
+  height: number;
   /** Response format for image data (resolved) */
   responseFormat: ImageResponseFormat;
   /** Quality level for generation (resolved) */
@@ -160,8 +161,6 @@ export interface ResolvedImageGenerationSettings {
   n?: number;
   /** Diffusion-specific settings with resolved defaults */
   diffusion?: DiffusionSettings & {
-    width: number;
-    height: number;
     steps: number;
     cfgScale: number;
   };
