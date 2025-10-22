@@ -41,7 +41,7 @@ describe('fromEnvironment', () => {
   });
 
   it('should handle special characters in provider ID', async () => {
-    process.env['PROVIDER-123_API_KEY'] = 'test-special-key';
+    process.env['PROVIDER_123_API_KEY'] = 'test-special-key';
     const key = await fromEnvironment('provider-123');
     expect(key).toBe('test-special-key');
   });

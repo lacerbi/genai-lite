@@ -1,12 +1,14 @@
 import { ModelResolver } from './ModelResolver';
-import { PresetManager } from './PresetManager';
-import { AdapterRegistry } from './AdapterRegistry';
+import { PresetManager } from '../../shared/services/PresetManager';
+import { AdapterRegistry } from '../../shared/services/AdapterRegistry';
 import type { ModelPreset } from '../../types/presets';
+import type { ILLMClientAdapter } from '../clients/types';
+import type { ApiProviderId } from '../types';
 
 describe('ModelResolver', () => {
   let resolver: ModelResolver;
-  let mockPresetManager: jest.Mocked<PresetManager>;
-  let mockAdapterRegistry: jest.Mocked<AdapterRegistry>;
+  let mockPresetManager: jest.Mocked<PresetManager<ModelPreset>>;
+  let mockAdapterRegistry: jest.Mocked<AdapterRegistry<ILLMClientAdapter, ApiProviderId>>;
 
   beforeEach(() => {
     mockPresetManager = {

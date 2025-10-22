@@ -24,18 +24,22 @@ node -e "const lib = require('./dist'); console.log('Exports:', Object.keys(lib)
 
 ## Architecture Overview
 
-genai-lite is a lightweight, standalone Node.js/TypeScript library providing a unified interface for interacting with various Generative AI APIs, currently focusing on Large Language Models (LLMs). The library has been successfully extracted from an Electron application (Athanor) and is now fully portable across different JavaScript environments.
+genai-lite is a lightweight, standalone Node.js/TypeScript library providing a unified interface for interacting with various Generative AI APIs, supporting both **Large Language Models (LLMs)** and **AI Image Generation**. The library has been successfully extracted from an Electron application (Athanor) and is now fully portable across different JavaScript environments.
+
+### Core Services
+
+**LLMService** - Orchestrates text generation and chat completions across multiple providers
+**ImageService** - Orchestrates AI image generation across cloud and local providers
 
 ### Supported Providers
 
-**Cloud Providers:**
-- OpenAI (GPT-4.1, o4-mini)
-- Anthropic (Claude 4, Claude 3.x)
-- Google Gemini (2.5 Pro, 2.5 Flash)
-- Mistral (Codestral, Devstral)
+**LLM Providers:**
+- **Cloud:** OpenAI (GPT-4.1, o4-mini), Anthropic (Claude 4, Claude 3.x), Google Gemini (2.5 Pro, 2.5 Flash), Mistral (Codestral, Devstral)
+- **Local:** llama.cpp - Run any GGUF model locally with no API keys required. Includes `LlamaCppClientAdapter` for chat completions and `LlamaCppServerClient` for server utilities (tokenization, embeddings, health checks, metrics).
 
-**Local Providers:**
-- llama.cpp - Run any GGUF model locally with no API keys required. Includes `LlamaCppClientAdapter` for chat completions and `LlamaCppServerClient` for server utilities (tokenization, embeddings, health checks, metrics).
+**Image Generation Providers:**
+- **Cloud:** OpenAI Images (gpt-image-1, gpt-image-1-mini, dall-e-3, dall-e-2)
+- **Local:** genai-electron diffusion - Run Stable Diffusion models locally via genai-electron's HTTP wrapper around stable-diffusion.cpp. Supports progress callbacks, negative prompts, and advanced diffusion settings.
 
 ### Key Capabilities
 
@@ -56,24 +60,41 @@ genai-lite is a lightweight, standalone Node.js/TypeScript library providing a u
 - **Token Counting** - Count tokens using OpenAI's tiktoken library
 - **Smart Text Previews** - Generate context-aware previews of large text blocks
 
+**Image Generation:**
+- **Multi-Provider Support** - Unified API for cloud (OpenAI) and local (genai-electron) image generation
+- **Diffusion Controls** - Negative prompts, samplers, steps, CFG scale, seeds for local models
+- **Progress Monitoring** - Real-time progress callbacks during local diffusion generation (async polling architecture)
+- **Batch Generation** - Generate multiple images in a single request with automatic seed variation
+- **Preset System** - 12 built-in presets for common use cases (quality, speed, aspect ratios)
+- **Flexible Settings** - Provider-specific namespaces (`openai`, `diffusion`) for specialized controls
+
 ### Core Architecture Principles
 
 **Adapter Pattern Implementation:**
-- Each AI provider (OpenAI, Anthropic, Gemini, Mistral, llama.cpp) has a dedicated client adapter
-- All adapters implement the `ILLMClientAdapter` interface in `src/llm/clients/types.ts`
+- **LLM Adapters:** Each provider (OpenAI, Anthropic, Gemini, Mistral, llama.cpp) has a dedicated adapter implementing `ILLMClientAdapter` interface
+- **Image Adapters:** Each image provider (OpenAI Images, genai-electron) implements `ImageProviderAdapter` interface
 - Adapters handle provider-specific API quirks and normalize responses
+- All adapters use shared error handling utilities (`src/shared/adapters/errorUtils.ts`)
 
 **Service Layer:**
-- `LLMService.ts` orchestrates all LLM operations
-- Validates requests against provider/model capabilities
-- Routes requests to appropriate adapters
-- Provides unified error handling via `adapterErrorUtils.ts`
+- **LLMService** (`src/llm/LLMService.ts`) orchestrates all LLM operations
+- **ImageService** (`src/image/ImageService.ts`) orchestrates all image generation operations
+- Both services validate requests, resolve settings hierarchies, and route to appropriate adapters
+- Unified error handling with consistent error envelopes across both services
+
+**Shared Utilities (Phase 3.5 Abstraction):**
+- **PresetManager<TPreset>** - Generic preset management (extend/replace modes) used by both LLM and Image services
+- **AdapterRegistry<TAdapter, TProviderId>** - Generic adapter registration and management
+- **errorUtils** - Shared error mapping and normalization for all adapters
+- Located in `src/shared/services/` and `src/shared/adapters/`
+- Eliminates ~390 lines of duplicate code between LLM and Image implementations
 
 **Configuration System:**
-- `src/llm/config.ts` centralizes all provider and model definitions
-- Each model has default settings (max tokens, temperature ranges)
-- New providers/models are registered here
-- Supports flexible model validation: llama.cpp and mock providers allow arbitrary model IDs; cloud providers (OpenAI, Anthropic, etc.) warn but proceed with unknown models
+- **LLM:** `src/llm/config.ts` + `src/config/llm-presets.json` (24 presets)
+- **Image:** `src/image/config.ts` + `src/config/image-presets.json` (12 presets)
+- Each model has default settings (max tokens, temperature ranges, dimensions, etc.)
+- New providers/models are registered in respective config files
+- Supports flexible model validation: llama.cpp and genai-electron allow arbitrary model IDs; cloud providers warn but proceed with unknown models
 
 ### API Key Management
 
@@ -150,15 +171,66 @@ const service = new LLMService(async () => 'not-needed');
 
 const response = await service.sendMessage({
   providerId: 'llamacpp',
-  modelId: 'llama-3-8b-instruct',  // Any model name you've loaded
+  modelId: 'llamacpp',  // Generic ID for loaded model
   messages: [{ role: 'user', content: 'Hello!' }]
+});
+```
+
+**Using ImageService for AI Image Generation:**
+```typescript
+import { ImageService, fromEnvironment } from 'genai-lite';
+
+const imageService = new ImageService(fromEnvironment);
+
+// OpenAI image generation
+const result = await imageService.generateImage({
+  providerId: 'openai-images',
+  modelId: 'gpt-image-1-mini',
+  prompt: 'A serene mountain lake at sunrise',
+  settings: {
+    width: 1024,
+    height: 1024,
+    quality: 'high'
+  }
+});
+
+if (result.object === 'image.result') {
+  // Save image to file
+  require('fs').writeFileSync('output.png', result.data[0].data);
+}
+```
+
+**Using Local Diffusion with Progress Callbacks:**
+```typescript
+import { ImageService } from 'genai-lite';
+
+// Start genai-electron diffusion server on port 8081
+const imageService = new ImageService(async () => 'not-needed');
+
+const result = await imageService.generateImage({
+  providerId: 'genai-electron-images',
+  modelId: 'stable-diffusion',
+  prompt: 'A mystical forest with glowing mushrooms',
+  settings: {
+    width: 1024,
+    height: 1024,
+    diffusion: {
+      negativePrompt: 'blurry, low quality',
+      steps: 30,
+      cfgScale: 7.5,
+      sampler: 'dpm++2m',
+      onProgress: (progress) => {
+        console.log(`${progress.stage}: ${progress.percentage?.toFixed(1)}%`);
+      }
+    }
+  }
 });
 ```
 
 **Interactive Demo Application:**
 For comprehensive usage examples, see `examples/chat-demo` - a full-featured React + Express application showcasing all library capabilities. The demo is kept up-to-date with new features and serves as both a showcase and quick-test environment.
 
-### Adding New AI Providers
+### Adding New AI Providers (LLM)
 
 1. Create adapter in `src/llm/clients/[Provider]ClientAdapter.ts`
 2. Implement `ILLMClientAdapter` interface
@@ -169,11 +241,58 @@ For comprehensive usage examples, see `examples/chat-demo` - a full-featured Rea
 4. Add provider-specific dependencies to `package.json`
 5. Export any new types from `src/index.ts` if needed
 
+### Adding New Image Providers
+
+1. Create adapter in `src/adapters/image/[Provider]ImageAdapter.ts`
+2. Implement `ImageProviderAdapter` interface:
+   ```typescript
+   interface ImageProviderAdapter {
+     readonly id: ImageProviderId;
+     readonly supports: ImageProviderCapabilities;
+     generate(config: {
+       request: ImageGenerationRequest;
+       resolvedPrompt: string;
+       settings: ResolvedImageGenerationSettings;
+       apiKey: string | null;
+     }): Promise<ImageGenerationResponse>;
+     getModels?(): Promise<ImageModelInfo[]>;
+   }
+   ```
+3. Register in `src/image/config.ts`:
+   - Add to `SUPPORTED_IMAGE_PROVIDERS`
+   - Define models in provider configuration
+   - Add to `IMAGE_ADAPTER_CONFIGS` with constructor
+4. Register in `ImageService` constructor:
+   - Import adapter class
+   - Instantiate with configuration (baseURL, timeout, etc.)
+   - Call `adapterRegistry.registerAdapter(providerId, adapter)`
+5. Add presets to `src/config/image-presets.json` (optional but recommended)
+6. Export any new types from `src/index.ts` if needed
+7. Write comprehensive tests:
+   - Test adapter implementation with mocked HTTP clients
+   - Test error handling for all error types
+   - Test settings mapping and validation
+   - Test response processing (Buffer conversion, metadata extraction)
+   - Aim for 85%+ coverage
+
+**Example: OpenAI Images Adapter**
+- See `src/adapters/image/OpenAIImageAdapter.ts` for reference implementation
+- 29 tests, 95.41% coverage
+- Handles multiple models (gpt-image-1, dall-e-3, dall-e-2) with different APIs
+- Uses shared `errorUtils` for consistent error handling
+
+**Example: genai-electron Diffusion Adapter**
+- See `src/adapters/image/GenaiElectronImageAdapter.ts` for async polling pattern
+- 29 tests, 87.96% coverage
+- Implements progress callbacks via polling
+- Coordinates with genai-electron's async API (see `docs/dev/2025-10-22-genai-electron-changes.md`)
+
 ### Type System
 
 **Core Types:**
 - `src/types.ts`:
-  - `ApiKeyProvider` - Function type for key retrieval
+  - `ApiKeyProvider` - Function type for key retrieval (shared by both services)
+  - `PresetMode` - 'extend' | 'replace' (shared by both services)
 - `src/llm/types.ts`:
   - `LLMChatRequest` - Unified request format
   - `LLMResponse` - Success response format
@@ -182,38 +301,95 @@ For comprehensive usage examples, see `examples/chat-demo` - a full-featured Rea
   - `ModelInfo` - Model capabilities and settings
   - `LLMSettings` - Configuration options
   - `LLMThinkingTagFallbackSettings` - Settings for thinking tag fallback extraction
+- `src/types/image.ts`:
+  - `ImageGenerationRequest` - Image generation request format
+  - `ImageGenerationResponse` - Success response with image data
+  - `ImageFailureResponse` - Error response
+  - `ImageProviderInfo` - Image provider information
+  - `ImageModelInfo` - Image model capabilities
+  - `ImageGenerationSettings` - Universal settings + provider-specific namespaces
+  - `DiffusionSettings` - Diffusion-specific controls (steps, CFG, sampler, etc.)
+  - `OpenAISpecificSettings` - OpenAI-specific options (outputFormat, background, etc.)
+  - `ImagePreset` - Image generation preset definition
+  - `GeneratedImage` - Individual image result with metadata
+  - `ImageProgressCallback` - Progress monitoring callback type
 
 **Always maintain type safety:**
 - Use strict TypeScript settings
 - Define explicit types for all provider-specific data
 - Avoid `any` types in adapter implementations
+- Use feature-based namespaces for provider-specific settings (e.g., `diffusion`, `openai`)
 
 ### Project Structure
 
 **Main Entry Point:**
 - `src/index.ts` - Exports public API including:
-  - `LLMService` - Main service class with `createMessages()` method
-  - `CreateMessagesResult` - Return type for createMessages
-  - `fromEnvironment` - Built-in environment variable provider
-  - `LlamaCppClientAdapter` - Adapter for llama.cpp chat completions
-  - `LlamaCppServerClient` - Client for llama.cpp server utilities (tokenization, embeddings, etc.)
-  - `createFallbackModelInfo` - Helper for unknown model IDs
-  - `renderTemplate` - Template engine for dynamic prompt generation
-  - `parseRoleTags`, `parseStructuredContent`, `extractInitialTaggedContent`, `parseTemplateWithMetadata` - Parser utilities
-  - `TemplateMetadata` - Type for template metadata structure
-  - All types from `src/llm/types.ts` and `src/llm/clients/types.ts`
-  - `ApiKeyProvider` type from `src/types.ts`
-  - llama.cpp types: `LlamaCppClientConfig`, `LlamaCppHealthResponse`, `LlamaCppTokenizeResponse`, etc.
+  - **Services:** `LLMService`, `ImageService`
+  - **API Key:** `fromEnvironment`, `ApiKeyProvider` type
+  - **LLM Types:** All from `src/llm/types.ts` and `src/llm/clients/types.ts`
+  - **Image Types:** All from `src/types/image.ts` (27 types total)
+  - **Utilities:** `renderTemplate`, `countTokens`, `getSmartPreview`, `extractRandomVariables`
+  - **Parsers:** `parseRoleTags`, `parseStructuredContent`, `extractInitialTaggedContent`, `parseTemplateWithMetadata`
+  - **llama.cpp:** `LlamaCppClientAdapter`, `LlamaCppServerClient`, and related types
+  - **Helpers:** `createFallbackModelInfo`, `detectGgufCapabilities`, `KNOWN_GGUF_MODELS`
+  - **Shared Types:** `PresetMode`
 
-**Key Files:**
-- `src/types.ts` - Global types (ApiKeyProvider)
-- `src/llm/LLMService.ts` - Main service implementation
-- `src/providers/fromEnvironment.ts` - Environment variable provider
-- `src/llm/config.ts` - Provider and model configurations
-- `src/llm/clients/` - Provider-specific adapters
-- `src/prompting/template.ts` - Template rendering utility
-- `src/prompting/content.ts` - Token counting, text preview, and content preparation utilities
-- `src/prompting/parser.ts` - Structured content parsing from LLM responses, thinking extraction, and template metadata parsing
+**Directory Structure:**
+```
+src/
+├── types.ts                      # Global shared types (ApiKeyProvider, PresetMode)
+├── types/
+│   ├── image.ts                  # All image generation types (27 types)
+│   └── presets.ts                # Preset type definitions
+├── llm/                          # LLM service and adapters
+│   ├── LLMService.ts             # Main LLM service
+│   ├── config.ts                 # LLM provider/model configuration
+│   ├── types.ts                  # LLM-specific types
+│   ├── clients/                  # LLM provider adapters
+│   │   ├── OpenAIClientAdapter.ts
+│   │   ├── AnthropicClientAdapter.ts
+│   │   ├── GeminiClientAdapter.ts
+│   │   ├── LlamaCppClientAdapter.ts
+│   │   └── ...
+│   └── services/                 # LLM helper services
+│       ├── ModelResolver.ts
+│       ├── SettingsManager.ts
+│       └── ...
+├── image/                        # Image service and helpers
+│   ├── ImageService.ts           # Main image service
+│   ├── config.ts                 # Image provider/model configuration
+│   └── services/                 # Image helper services
+│       ├── ImageModelResolver.ts
+│       ├── ImageRequestValidator.ts
+│       ├── ImageSettingsResolver.ts
+│       └── ...
+├── adapters/                     # Provider adapters
+│   └── image/                    # Image provider adapters
+│       ├── OpenAIImageAdapter.ts
+│       ├── GenaiElectronImageAdapter.ts
+│       └── MockImageAdapter.ts
+├── shared/                       # Shared utilities (Phase 3.5)
+│   ├── services/                 # Generic service utilities
+│   │   ├── PresetManager.ts      # Generic preset management
+│   │   └── AdapterRegistry.ts    # Generic adapter registration
+│   └── adapters/                 # Shared adapter utilities
+│       └── errorUtils.ts         # Error mapping/normalization
+├── prompting/                    # Prompt engineering utilities
+│   ├── template.ts               # Template rendering
+│   ├── content.ts                # Token counting, text preview
+│   └── parser.ts                 # Structured parsing, role tags
+├── providers/                    # API key providers
+│   └── fromEnvironment.ts        # Environment variable provider
+└── config/                       # Configuration files
+    ├── llm-presets.json          # LLM presets (24 presets)
+    └── image-presets.json        # Image presets (12 presets)
+```
+
+**Key Architectural Changes (Phase 3.5):**
+- **Shared Utilities:** Created `src/shared/` for generic patterns (~390 lines of duplication eliminated)
+- **Generic PresetManager:** Used by both LLM and Image services
+- **Generic AdapterRegistry:** Shared adapter management logic
+- **Preset File Split:** Separated `presets.json` → `llm-presets.json` + `image-presets.json` for clarity
 
 **Testing:**
 - Jest with ts-jest for TypeScript support
@@ -283,6 +459,27 @@ The `examples/chat-demo` application provides a quick way to test library change
 - Hybrid architecture: `LlamaCppClientAdapter` for chat, `LlamaCppServerClient` for utilities
 - Configure via `LLAMACPP_API_BASE_URL` environment variable (default: http://localhost:8080)
 
+**Image Provider Considerations:**
+
+**OpenAI Images:**
+- Multiple models with different capabilities: gpt-image-1 (32K prompts), dall-e-3 (4K prompts, n=1 only), dall-e-2 (1K prompts)
+- Prompt length validation enforced per model
+- Returns hosted URLs (fetched and converted to Buffer internally)
+- Supports quality settings: `auto`, `high`, `medium`, `low`, `hd`, `standard`
+- Style options: `vivid` (hyper-real), `natural` (photographic)
+- Provider-specific settings in `openai` namespace (outputFormat, background, moderation, compression)
+
+**genai-electron Diffusion:**
+- Local stable-diffusion.cpp server - no API keys needed
+- Async polling architecture (POST starts generation, GET polls for progress/result)
+- Generic `stable-diffusion` model ID (like llama.cpp pattern)
+- Accepts arbitrary dimensions (width/height) within 64-2048 pixel range
+- Diffusion settings in `diffusion` namespace (negativePrompt, steps, cfgScale, sampler, seed)
+- Progress callbacks via polling (500ms interval, 120s timeout)
+- Batch generation support (count parameter)
+- Configure via `GENAI_ELECTRON_IMAGE_BASE_URL` environment variable (default: http://localhost:8081)
+- See `docs/dev/2025-10-22-genai-electron-changes.md` for async API specification
+
 ### Error Handling
 
 All adapters should use `adapterErrorUtils.ts` patterns:
@@ -334,15 +531,22 @@ All adapters should use `adapterErrorUtils.ts` patterns:
 
 ## Common Development Tasks
 
-**Adding a new model to an existing provider:**
+**Adding a new LLM model to an existing provider:**
 1. Update model list in `src/llm/config.ts` under the provider's configuration
 2. Add model-specific defaults if needed
 3. Test with the new model ID
 
+**Adding a new image model to an existing provider:**
+1. Update model list in `src/image/config.ts` under the provider's configuration
+2. Add model-specific defaults (dimensions, quality settings, etc.)
+3. Add presets to `src/config/image-presets.json` if desired
+4. Test with the new model ID
+
 **Debugging provider issues:**
 1. Check console logs - adapters log API calls and responses
-2. Verify API key is being retrieved correctly
+2. Verify API key is being retrieved correctly (or check base URL for local providers)
 3. Check provider-specific error messages in adapter's error handling
+4. For image generation: verify dimensions, settings namespaces, and progress callbacks
 
 **Quick-testing library changes:**
 1. Make your changes to the library and build: `npm run build`

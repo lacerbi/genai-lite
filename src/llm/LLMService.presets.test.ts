@@ -1,7 +1,7 @@
 import { LLMService, PresetMode, LLMServiceOptions } from './LLMService';
 import type { ApiKeyProvider } from '../types';
 import type { ModelPreset } from '../types/presets';
-import defaultPresets from '../config/presets.json';
+import defaultPresets from '../config/llm-presets.json';
 
 describe('LLMService Presets', () => {
   let mockApiKeyProvider: jest.MockedFunction<ApiKeyProvider>;

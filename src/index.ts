@@ -1,9 +1,9 @@
 // --- Core Types ---
-export type { ApiKeyProvider } from "./types";
+export type { ApiKeyProvider, PresetMode } from "./types";
 
 // --- LLM Service ---
 export { LLMService } from "./llm/LLMService";
-export type { LLMServiceOptions, PresetMode, CreateMessagesResult } from "./llm/LLMService";
+export type { LLMServiceOptions, CreateMessagesResult } from "./llm/LLMService";
 
 // --- Model Presets ---
 export type { ModelPreset } from "./types/presets";
@@ -36,6 +36,41 @@ export type {
   LlamaCppModel,
   LlamaCppModelsResponse,
 } from "./llm/clients/LlamaCppServerClient";
+
+// --- Image Generation ---
+// Export Image Service
+export { ImageService } from "./image/ImageService";
+
+// Export all image types
+export type {
+  ImageProviderId,
+  ImageMimeType,
+  ImageResponseFormat,
+  ImageQuality,
+  ImageStyle,
+  DiffusionSampler,
+  ImageProgressStage,
+  ImageProgressCallback,
+  DiffusionSettings,
+  OpenAISpecificSettings,
+  ImageGenerationSettings,
+  ResolvedImageGenerationSettings,
+  ImageUsage,
+  GeneratedImage,
+  ImageGenerationRequestBase,
+  ImageGenerationRequest,
+  ImageGenerationRequestWithPreset,
+  ImageGenerationResponse,
+  ImageFailureResponse,
+  ImageProviderCapabilities,
+  ImageModelInfo,
+  ImageProviderInfo,
+  ImagePreset,
+  ImageProviderAdapterConfig,
+  ImageProviderAdapter,
+  ImageServiceOptions,
+  CreatePromptResult,
+} from "./types/image";
 
 // --- Utilities ---
 export { renderTemplate } from "./prompting/template";

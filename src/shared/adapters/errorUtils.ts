@@ -2,7 +2,7 @@
 // Maps common HTTP status codes and network errors to standardized AdapterErrorCode and errorType.
 // Reduces duplication across OpenAI, Anthropic and other provider adapters.
 
-import { ADAPTER_ERROR_CODES, type AdapterErrorCode } from './types';
+import { ADAPTER_ERROR_CODES, type AdapterErrorCode } from '../../llm/clients/types';
 
 /**
  * Mapped error details returned by the utility function
