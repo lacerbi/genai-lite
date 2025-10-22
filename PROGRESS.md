@@ -170,6 +170,21 @@
 
 ---
 
+## Bug Fixes & Improvements ✅
+
+### 2025-01-22 18:10 - Post-Phase 3 Fixes
+- **Fixed Vite 404 error:** Moved index.html to project root (standard Vite location)
+  - Commit: c434d9f
+- **Added env var alias system:** openai-images accepts both OPENAI_IMAGES_API_KEY and OPENAI_API_KEY
+  - Implemented PROVIDER_ENV_VAR_ALIASES map in fromEnvironment.ts
+  - Extensible system - any provider can declare aliases
+  - Users can use standard OPENAI_API_KEY (matches OpenAI SDK)
+  - Updated .env.example with clarifying note
+  - Rebuilt library and reinstalled in demo
+  - Commit: 9e256f2
+
+---
+
 ## Next Steps (Phase 4 - Advanced Features)
 
 When ready to continue:

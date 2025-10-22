@@ -46,6 +46,8 @@ cp .env.example .env
 OPENAI_API_KEY=sk-your-key-here
 ```
 
+**Note:** OpenAI Images accepts both `OPENAI_API_KEY` (standard) and `OPENAI_IMAGES_API_KEY`.
+
 **For genai-electron (optional):**
 ```bash
 # Start genai-electron diffusion server on port 8081
