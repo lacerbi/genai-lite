@@ -407,70 +407,40 @@ Response: {
 └─────────────────────────────────────────────────┘
 ```
 
-### Phase 4: Advanced Features (Showcase)
+### Phase 4: Advanced Features (genai-lite Showcase)
 
-**Goal:** Demonstrate unique genai-lite ImageService capabilities
+**Goal:** Demonstrate core genai-lite ImageService features
 
 **Tasks:**
-1. **Image Preset Demo**
-   - Dropdown with library presets
-   - Show how settings come from preset
-   - "Load Preset" button populates settings
-   - Display preset description
+1. **Image Preset Integration**
+   - Dropdown with library presets (12 presets from image-presets.json)
+   - "Load Preset" button applies provider, model, and all settings
+   - Display preset description and current selection
+   - Show which settings came from the loaded preset
 
-2. **Batch Generation**
-   - Count slider (1-4 images)
-   - Show all generated images in gallery
-   - Display seeds for each image (reproducibility)
-   - Show total generation time
+2. **genai-electron Health Check**
+   - Server status indicator (green/red)
+   - Model info display (which model is loaded)
+   - "Test Connection" button
+   - Health check endpoint integration
 
-3. **Progress Monitoring (Diffusion)**
-   - Real-time progress bar
+3. **Real-Time Progress for Diffusion**
+   - Wire up ImageService progress callbacks to UI
+   - Real-time progress bar with actual data
    - Stage indicators (loading, diffusion, decoding)
-   - Step counter (18/30)
-   - Percentage display
-   - Time elapsed
-
-4. **Provider-Specific Settings**
-   - OpenAI section: quality, style toggles
-   - Diffusion section: negative prompt, advanced sliders
-   - Conditional display based on provider
-   - Setting validation and hints
-
-5. **Generation History**
-   - Keep last 20 generations in memory
-   - Show in gallery with timestamps
-   - Clear history button
-   - Export history as JSON
-
-6. **Seed Management**
-   - Display seed for each image
-   - "Reuse seed" button to regenerate exact image
-   - Random seed by default
-   - Manual seed input option
-
-7. **genai-electron Health Check**
-   - Server status indicator
-   - Model info display (which GGUF is loaded)
-   - Connection test button
+   - Step counter with actual steps (e.g., 18/30)
+   - Percentage display from progress callbacks
+   - Time elapsed during generation
 
 ### Phase 5: Polish & Documentation
 
 **Goal:** Production-ready demo
 
 **Tasks:**
-1. Add example prompts (10-15 good examples)
+1. Add example prompts (~5 good examples)
 2. Write comprehensive README for the demo
-3. Add helpful error messages with solutions
-4. Add "Download All" button
-5. Add "Clear Gallery" button
-6. Persist settings in localStorage
-7. Add loading animations for image generation
-8. Add image zoom/lightbox on click
-9. Test on different browsers
-10. Add screenshots to demo README
-11. Add keyboard shortcuts (Enter to generate, Esc to cancel)
-12. Add prompt history (last 10 prompts)
+3. Test on different browsers
+4. Final testing with both OpenAI and genai-electron providers
 
 ---
 
@@ -490,16 +460,14 @@ Response: {
 - ✅ Loading states
 - ✅ Clear gallery
 
-### Showcase Features (Should Have)
+### Showcase Features (genai-lite Library Features)
 
-- ✅ Image preset selection
+- ❌ Image preset selection (12 library presets) - **Phase 4 Task 1**
 - ✅ Negative prompts (diffusion)
-- ✅ Seed display and reuse
-- ✅ Generation metadata (time, settings used)
-- ✅ Progress stages (loading, diffusion, decoding)
-- ✅ Generation history
-- ✅ Settings persistence
-- ✅ Provider health status
+- ✅ Seed display (metadata)
+- ✅ Generation metadata (time, dimensions)
+- ❌ Progress stages (loading, diffusion, decoding) - **Phase 4 Task 3**
+- ❌ Provider health status - **Phase 4 Task 2**
 
 ### Nice to Have (Could Have)
 
@@ -895,7 +863,6 @@ imageRouter.post('/generate', async (req, res) => {
 - Character count with provider limit
 - Placeholder with example prompt
 - Clear button
-- Prompt history dropdown (last 10)
 
 ---
 
@@ -1046,7 +1013,6 @@ export function ProgressDisplay({
 **Solution:**
 - Backend converts Buffer to base64 efficiently
 - Frontend receives and caches images in memory
-- Consider implementing pagination for history (show last 20)
 - Clear old images from memory after a threshold
 
 ### Issue 2: genai-electron Server Not Running
@@ -1065,7 +1031,7 @@ export function ProgressDisplay({
 - Backend handles progress callbacks from ImageService
 - Option 1: Poll a `/api/generation-status/:id` endpoint from frontend
 - Option 2: Use Server-Sent Events (SSE) for real-time updates
-- Start with Option 1 (simpler), upgrade to SSE in Phase 5 if needed
+- Start with Option 1 (simpler), upgrade to SSE in Phase 4 if needed
 
 ### Issue 4: CORS Issues
 
@@ -1193,7 +1159,6 @@ After implementation:
 - [ ] Test progress monitoring for diffusion
 - [ ] Test error cases (missing API key, invalid settings)
 - [ ] Test responsive design (mobile, tablet, desktop)
-- [ ] Update demo README with screenshots
 - [ ] Test on different browsers (Chrome, Firefox, Safari)
 - [ ] Add to main genai-lite README as showcase
 

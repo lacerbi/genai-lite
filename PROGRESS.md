@@ -242,12 +242,63 @@
 
 ---
 
-## Next Steps (Phase 4 - Advanced Features)
+## Phase 4: Advanced Features (genai-lite Showcase) ❌ NOT STARTED
 
-When ready to continue:
-- ~~Implement preset selection UI~~ ✅ (Size presets added)
-- Add generation history with timestamps
-- Implement seed reuse functionality
-- Add genai-electron health check UI
-- Test complete flow with OpenAI API key
-- Test diffusion with genai-electron server
+**Goal:** Showcase core genai-lite ImageService library features
+
+### Task 1: Library Image Preset Integration ⭐
+- [ ] Add preset selector dropdown to SettingsPanel
+- [ ] Fetch 12 presets from /api/image-presets endpoint
+- [ ] "Load Preset" button applies provider, model, and all settings
+- [ ] Display preset description and current selection
+- [ ] Show which settings came from the loaded preset
+- [ ] Visual indicator when using a preset vs custom settings
+
+**Files to modify:**
+- `src/components/SettingsPanel.tsx` - Add preset dropdown section
+- `src/components/ImageGenInterface.tsx` - Preset state management
+- `src/types/index.ts` - Add ImagePreset type
+- `src/api/client.ts` - Already has getImagePresets() ✅
+
+### Task 2: genai-electron Health Check 🔶
+- [ ] Backend: Create /api/health/genai-electron endpoint
+- [ ] Backend: Test connection to genai-electron server
+- [ ] Backend: Return server status and loaded model info
+- [ ] Frontend: Add health indicator to ProviderSelector
+- [ ] Frontend: Green/red status dot
+- [ ] Frontend: Display loaded model name when available
+- [ ] Frontend: "Test Connection" button
+
+**Files to create/modify:**
+- `server/routes/health.ts` (new) - Health check endpoint
+- `server/index.ts` - Register health routes
+- `src/components/ProviderSelector.tsx` - Add health indicator
+- May add `src/components/HealthIndicator.tsx` (small component)
+
+### Task 3: Real-Time Progress for Diffusion ⚡
+- [ ] Backend: Pass progress callbacks through to frontend
+- [ ] Backend: Consider SSE or polling architecture for real-time updates
+- [ ] Frontend: Wire up actual progress data to ProgressDisplay
+- [ ] Frontend: Update stage (loading, diffusion, decoding)
+- [ ] Frontend: Display actual step count (currentStep/totalSteps)
+- [ ] Frontend: Show percentage from progress callbacks
+- [ ] Frontend: Update elapsed time during generation
+
+**Files to modify:**
+- `server/routes/image.ts` - Progress callback handling
+- `src/components/ImageGenInterface.tsx` - Receive progress updates
+- `src/components/ProgressDisplay.tsx` - Display actual progress data
+
+**Note:** ImageService already has progress callbacks built-in. We just need to wire them up through the backend to the frontend.
+
+---
+
+## Next Steps
+
+When ready to continue with Phase 4:
+1. Start with Task 1 (Library Preset Integration) - highest priority showcase feature
+2. Then Task 2 (Health Check) - demonstrates local provider support
+3. Finally Task 3 (Real-Time Progress) - wire up existing library callbacks
+
+After Phase 4:
+- Phase 5: Polish & Documentation (example prompts, README, testing)
