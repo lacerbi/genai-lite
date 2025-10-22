@@ -24,6 +24,7 @@ import { PresetManager } from '../shared/services/PresetManager';
 import { AdapterRegistry } from '../shared/services/AdapterRegistry';
 import { MockImageAdapter } from '../adapters/image/MockImageAdapter';
 import { OpenAIImageAdapter } from '../adapters/image/OpenAIImageAdapter';
+import { GenaiElectronImageAdapter } from '../adapters/image/GenaiElectronImageAdapter';
 import { ImageRequestValidator } from './services/ImageRequestValidator';
 import { ImageSettingsResolver } from './services/ImageSettingsResolver';
 import { ImageModelResolver } from './services/ImageModelResolver';
@@ -69,7 +70,16 @@ export class ImageService {
       })
     );
 
-    // Note: genai-electron-images adapter will be added in Phase 5
+    // Register genai-electron-images adapter
+    const electronConfig = IMAGE_ADAPTER_CONFIGS['genai-electron-images'];
+    const electronBaseURL = options.baseUrls?.['genai-electron-images'] || electronConfig.baseURL;
+    this.adapterRegistry.registerAdapter(
+      'genai-electron-images',
+      new GenaiElectronImageAdapter({
+        baseURL: electronBaseURL,
+        timeout: electronConfig.timeout,
+      })
+    );
 
     // Register custom adapters if provided
     if (options.adapters) {
@@ -82,7 +92,7 @@ export class ImageService {
     this.settingsResolver = new ImageSettingsResolver();
     this.modelResolver = new ImageModelResolver(this.presetManager);
 
-    console.log('ImageService: Initialized with OpenAI Images adapter');
+    console.log('ImageService: Initialized with OpenAI Images and genai-electron adapters');
   }
 
   /**
