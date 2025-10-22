@@ -1,9 +1,9 @@
 // --- Core Types ---
-export type { ApiKeyProvider } from "./types";
+export type { ApiKeyProvider, PresetMode } from "./types";
 
 // --- LLM Service ---
 export { LLMService } from "./llm/LLMService";
-export type { LLMServiceOptions, PresetMode, CreateMessagesResult } from "./llm/LLMService";
+export type { LLMServiceOptions, CreateMessagesResult } from "./llm/LLMService";
 
 // --- Model Presets ---
 export type { ModelPreset } from "./types/presets";

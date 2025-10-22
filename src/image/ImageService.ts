@@ -16,21 +16,27 @@ import type {
   ImageProviderId,
   ImagePreset,
   ImageServiceOptions,
+  ImageProviderAdapter,
 } from '../types/image';
 import { SUPPORTED_IMAGE_PROVIDERS, getImageModelsByProvider } from './config';
-import { ImagePresetManager } from './services/ImagePresetManager';
-import { ImageAdapterRegistry } from './services/ImageAdapterRegistry';
+import rawDefaultImagePresets from '../config/image-presets.json';
+import { PresetManager } from '../shared/services/PresetManager';
+import { AdapterRegistry } from '../shared/services/AdapterRegistry';
+import { MockImageAdapter } from '../adapters/image/MockImageAdapter';
 import { ImageRequestValidator } from './services/ImageRequestValidator';
 import { ImageSettingsResolver } from './services/ImageSettingsResolver';
 import { ImageModelResolver } from './services/ImageModelResolver';
+
+// Type assertion for the imported JSON
+const defaultImagePresets = rawDefaultImagePresets as ImagePreset[];
 
 /**
  * Main service for image generation operations
  */
 export class ImageService {
   private getApiKey: ApiKeyProvider;
-  private presetManager: ImagePresetManager;
-  private adapterRegistry: ImageAdapterRegistry;
+  private presetManager: PresetManager<ImagePreset>;
+  private adapterRegistry: AdapterRegistry<ImageProviderAdapter, ImageProviderId>;
   private requestValidator: ImageRequestValidator;
   private settingsResolver: ImageSettingsResolver;
   private modelResolver: ImageModelResolver;
@@ -39,8 +45,17 @@ export class ImageService {
     this.getApiKey = getApiKey;
 
     // Initialize helper services
-    this.presetManager = new ImagePresetManager(options.presets, options.presetMode);
-    this.adapterRegistry = new ImageAdapterRegistry();
+    this.presetManager = new PresetManager<ImagePreset>(
+      defaultImagePresets,
+      options.presets,
+      options.presetMode
+    );
+    this.adapterRegistry = new AdapterRegistry<ImageProviderAdapter, ImageProviderId>({
+      supportedProviders: SUPPORTED_IMAGE_PROVIDERS,
+      fallbackAdapter: new MockImageAdapter(),
+      // Note: Real adapters (OpenAI, Electron) will be added in Phases 4-5
+      // For now, all providers use the mock adapter
+    });
     this.requestValidator = new ImageRequestValidator();
     this.settingsResolver = new ImageSettingsResolver();
     this.modelResolver = new ImageModelResolver(this.presetManager);

@@ -1,5 +1,5 @@
-import { getCommonMappedErrorDetails } from './adapterErrorUtils';
-import { ADAPTER_ERROR_CODES } from './types';
+import { getCommonMappedErrorDetails } from './errorUtils';
+import { ADAPTER_ERROR_CODES } from '../../llm/clients/types';
 
 describe('adapterErrorUtils', () => {
   describe('getCommonMappedErrorDetails', () => {

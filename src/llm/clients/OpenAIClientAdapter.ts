@@ -9,7 +9,7 @@ import type {
   AdapterErrorCode,
 } from "./types";
 import { ADAPTER_ERROR_CODES } from "./types";
-import { getCommonMappedErrorDetails } from "./adapterErrorUtils";
+import { getCommonMappedErrorDetails } from "../../shared/adapters/errorUtils";
 
 /**
  * Client adapter for OpenAI API integration

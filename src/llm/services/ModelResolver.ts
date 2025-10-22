@@ -4,8 +4,10 @@ import type {
   ModelInfo,
   ApiProviderId
 } from "../types";
-import { PresetManager } from "./PresetManager";
-import { AdapterRegistry } from "./AdapterRegistry";
+import type { ILLMClientAdapter } from "../clients/types";
+import type { ModelPreset } from "../../types/presets";
+import { PresetManager } from "../../shared/services/PresetManager";
+import { AdapterRegistry } from "../../shared/services/AdapterRegistry";
 import {
   SUPPORTED_PROVIDERS,
   isProviderSupported,
@@ -41,8 +43,8 @@ export interface ModelResolution {
  */
 export class ModelResolver {
   constructor(
-    private presetManager: PresetManager,
-    private adapterRegistry: AdapterRegistry
+    private presetManager: PresetManager<ModelPreset>,
+    private adapterRegistry: AdapterRegistry<ILLMClientAdapter, ApiProviderId>
   ) {}
 
   /**

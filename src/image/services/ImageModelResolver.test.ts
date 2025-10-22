@@ -1,10 +1,10 @@
 import { ImageModelResolver } from './ImageModelResolver';
-import { ImagePresetManager } from './ImagePresetManager';
+import { PresetManager } from '../../shared/services/PresetManager';
 import type { ImageGenerationRequest, ImagePreset } from '../../types/image';
 
 describe('ImageModelResolver', () => {
   let resolver: ImageModelResolver;
-  let presetManager: ImagePresetManager;
+  let presetManager: PresetManager<ImagePreset>;
 
   beforeEach(() => {
     const customPresets: ImagePreset[] = [
@@ -18,7 +18,7 @@ describe('ImageModelResolver', () => {
         },
       },
     ];
-    presetManager = new ImagePresetManager(customPresets, 'replace');
+    presetManager = new PresetManager<ImagePreset>([], customPresets, 'replace');
     resolver = new ImageModelResolver(presetManager);
   });
 

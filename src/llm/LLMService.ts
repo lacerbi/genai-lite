@@ -1,7 +1,7 @@
 // AI Summary: Main process service for LLM operations, integrating with ApiKeyProvider for secure key access.
 // Orchestrates LLM requests through provider-specific client adapters with proper error handling.
 
-import type { ApiKeyProvider } from '../types';
+import type { ApiKeyProvider, PresetMode } from '../types';
 import type {
   LLMChatRequest,
   LLMChatRequestWithPreset,
@@ -19,18 +19,26 @@ import type {
   InternalLLMChatRequest,
 } from "./clients/types";
 import type { ModelPreset } from "../types/presets";
-import { SUPPORTED_PROVIDERS, getProviderById, getModelsByProvider } from "./config";
+import {
+  SUPPORTED_PROVIDERS,
+  ADAPTER_CONSTRUCTORS,
+  ADAPTER_CONFIGS,
+  getProviderById,
+  getModelsByProvider
+} from "./config";
 import { renderTemplate } from "../prompting/template";
 import { extractInitialTaggedContent, parseRoleTags, parseTemplateWithMetadata } from "../prompting/parser";
+import defaultPresets from "../config/presets.json";
+import { MockClientAdapter } from "./clients/MockClientAdapter";
 
 // Import the extracted services
-import { PresetManager, type PresetMode } from "./services/PresetManager";
-import { AdapterRegistry } from "./services/AdapterRegistry";
+import { PresetManager } from "../shared/services/PresetManager";
+import { AdapterRegistry } from "../shared/services/AdapterRegistry";
 import { RequestValidator } from "./services/RequestValidator";
 import { SettingsManager } from "./services/SettingsManager";
 import { ModelResolver } from "./services/ModelResolver";
 
-// Re-export PresetMode
+// Re-export PresetMode for backward compatibility
 export type { PresetMode };
 
 /**
@@ -69,8 +77,8 @@ export interface CreateMessagesResult {
 
 export class LLMService {
   private getApiKey: ApiKeyProvider;
-  private presetManager: PresetManager;
-  private adapterRegistry: AdapterRegistry;
+  private presetManager: PresetManager<ModelPreset>;
+  private adapterRegistry: AdapterRegistry<ILLMClientAdapter, ApiProviderId>;
   private requestValidator: RequestValidator;
   private settingsManager: SettingsManager;
   private modelResolver: ModelResolver;
@@ -79,8 +87,17 @@ export class LLMService {
     this.getApiKey = getApiKey;
 
     // Initialize services
-    this.presetManager = new PresetManager(options.presets, options.presetMode);
-    this.adapterRegistry = new AdapterRegistry();
+    this.presetManager = new PresetManager<ModelPreset>(
+      defaultPresets as ModelPreset[],
+      options.presets,
+      options.presetMode
+    );
+    this.adapterRegistry = new AdapterRegistry<ILLMClientAdapter, ApiProviderId>({
+      supportedProviders: SUPPORTED_PROVIDERS,
+      fallbackAdapter: new MockClientAdapter(),
+      adapterConstructors: ADAPTER_CONSTRUCTORS,
+      adapterConfigs: ADAPTER_CONFIGS,
+    });
     this.requestValidator = new RequestValidator();
     this.settingsManager = new SettingsManager();
     this.modelResolver = new ModelResolver(this.presetManager, this.adapterRegistry);

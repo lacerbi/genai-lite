@@ -5,9 +5,10 @@ import type {
   ImageModelInfo,
   ImageGenerationSettings,
   ImageFailureResponse,
+  ImagePreset,
 } from '../../types/image';
 import { getImageModelInfo } from '../config';
-import type { ImagePresetManager } from './ImagePresetManager';
+import { PresetManager } from '../../shared/services/PresetManager';
 
 /**
  * Result of model resolution
@@ -25,7 +26,7 @@ export interface ModelResolutionResult {
  */
 export class ImageModelResolver {
   constructor(
-    private presetManager: ImagePresetManager
+    private presetManager: PresetManager<ImagePreset>
   ) {}
 
   /**

@@ -8,7 +8,7 @@ import type {
   InternalLLMChatRequest,
 } from "./types";
 import { ADAPTER_ERROR_CODES } from "./types";
-import { getCommonMappedErrorDetails } from "./adapterErrorUtils";
+import { getCommonMappedErrorDetails } from "../../shared/adapters/errorUtils";
 import { LlamaCppServerClient } from "./LlamaCppServerClient";
 import { detectGgufCapabilities } from "../config";
 
