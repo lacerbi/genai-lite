@@ -103,7 +103,7 @@ Implementing first-class image generation capabilities for genai-lite following 
 **Dependencies:** Phase 2 ✅
 
 #### Tasks
-- [ ] Create `src/services/ImageService.ts` class
+- [ ] Create `src/image/ImageService.ts` class
 - [ ] Implement constructor
   - [ ] Accept `ApiKeyProvider` parameter
   - [ ] Accept `ImageServiceOptions` parameter
@@ -377,7 +377,7 @@ Implementing first-class image generation capabilities for genai-lite following 
 ## Next Steps
 
 **Current Phase:** Phase 3 - ImageService Core Implementation
-**Next Action:** Create `src/services/ImageService.ts` with core orchestration logic
+**Next Action:** Create `src/image/ImageService.ts` with core orchestration logic
 
 ---
 

@@ -610,7 +610,7 @@ await sharp(result.data[0].data).resize(512, 512).toFile('thumbnail.png');
 
 **Question:** Confirm whether `ImageService` should live in existing `src/services` folder alongside `LLMService` or new namespace.
 
-**Answer:** `ImageService` should live in `src/services/` alongside `LLMService`. Use the same organizational structure as LLM features.
+**Answer:** `ImageService` should live in `src/image/` parallel to `src/llm/LLMService`. Use the same organizational structure as LLM features.
 
 **Rationale:**
 - **Parallel architecture**: Both are service classes following the same patterns
@@ -621,22 +621,33 @@ await sharp(result.data[0].data).resize(512, 512).toFile('thumbnail.png');
 **Proposed file structure:**
 ```
 src/
-├── services/
-│   ├── llm-service.ts          # Existing
-│   └── image-service.ts         # New
-├── adapters/
-│   ├── llm/                     # Existing LLM adapters
-│   │   ├── openai.ts
-│   │   ├── anthropic.ts
+├── llm/
+│   ├── LLMService.ts            # Existing
+│   ├── config.ts                # Existing
+│   ├── types.ts                 # Existing
+│   ├── clients/                 # Existing client adapters
+│   │   ├── OpenAIClientAdapter.ts
+│   │   ├── AnthropicClientAdapter.ts
 │   │   └── ...
+│   └── services/                # Existing helper services
+│       ├── PresetManager.ts
+│       ├── AdapterRegistry.ts
+│       └── ...
+├── image/                       # New
+│   ├── ImageService.ts          # New
+│   ├── config.ts                # New
+│   └── services/                # New helper services
+│       ├── ImagePresetManager.ts
+│       ├── ImageAdapterRegistry.ts
+│       └── ...
+├── adapters/
 │   └── image/                   # New image adapters
-│       ├── openai-image.ts
-│       └── electron-diffusion.ts
+│       ├── OpenAIImageAdapter.ts
+│       └── ElectronDiffusionAdapter.ts
 ├── types/
-│   ├── llm.ts                   # Existing
-│   └── image.ts                 # New
+│   └── image.ts                 # New (LLM types in llm/types.ts)
 ├── config/
-│   ├── llm-presets.json         # Renamed from presets.json
+│   ├── presets.json             # Existing (to be renamed llm-presets.json)
 │   └── image-presets.json       # New
 └── index.ts                     # Export both services
 ```
@@ -644,8 +655,8 @@ src/
 **Package exports:**
 ```typescript
 // src/index.ts
-export { LLMService } from './services/llm-service.js';
-export { ImageService } from './services/image-service.js';
+export { LLMService } from './llm/LLMService.js';
+export { ImageService } from './image/ImageService.js';
 
 export type {
   ImageGenerationRequest,
