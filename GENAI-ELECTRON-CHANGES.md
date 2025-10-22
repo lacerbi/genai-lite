@@ -194,17 +194,28 @@ pending ──> in_progress ──> complete
 **Request Body:**
 ```json
 {
-  "prompt": "A serene mountain lake at sunrise",
-  "negativePrompt": "blurry, low quality",
-  "width": 1024,
-  "height": 1024,
-  "steps": 30,
-  "cfgScale": 7.5,
-  "seed": 42,
-  "sampler": "dpm++2m",
-  "count": 1
+  "prompt": "A serene mountain lake at sunrise",      // Required
+  "negativePrompt": "blurry, low quality",            // Optional
+  "width": 1024,                                      // Optional, default: 512
+  "height": 1024,                                     // Optional, default: 512
+  "steps": 30,                                        // Optional, default: 20
+  "cfgScale": 7.5,                                    // Optional, default: 7.5
+  "seed": 42,                                         // Optional, random if not provided
+  "sampler": "dpm++2m",                               // Optional, default: "euler_a"
+  "count": 1                                          // Optional, default: 1, max: 5 (see §4.2.1)
 }
 ```
+
+**Request Body Parameters:**
+- `prompt` **(required)**: Text description of the image to generate
+- `negativePrompt` (optional): Text to avoid in generation
+- `width` (optional): Image width in pixels (default: 512)
+- `height` (optional): Image height in pixels (default: 512)
+- `steps` (optional): Number of diffusion steps (default: 20, range: 10-50)
+- `cfgScale` (optional): Classifier-free guidance scale (default: 7.5, range: 1-20)
+- `seed` (optional): Random seed for reproducibility (default: random)
+- `sampler` (optional): Sampling algorithm (default: "euler_a", options: "euler_a", "dpm++2m", etc.)
+- `count` (optional): Number of images to generate (default: 1, max: 5, see §4.2.1 for details)
 
 **Response:** `201 Created`
 ```json
@@ -312,6 +323,161 @@ pending ──> in_progress ──> complete
   }
 }
 ```
+
+---
+
+### 4.2.1 Batch Generation (count Parameter)
+
+**Purpose:** Generate multiple images in a single request using the `count` parameter.
+
+**Parameter:**
+- `count?: number` - Number of images to generate (default: 1, recommended max: 5)
+- Optional field in POST request body
+- Must be >= 1
+- Server should enforce maximum limit (recommended: 5 images per request)
+
+**Implementation Phases:**
+
+**Phase 1 - Sequential Generation (Initial Implementation):**
+- Generate images one at a time in a simple loop
+- Easy to implement, predictable resource usage
+- Progress tracking works naturally (current image / total images)
+- Pseudocode:
+  ```typescript
+  const images = [];
+  for (let i = 0; i < count; i++) {
+    const image = await generateSingleImage({
+      ...config,
+      seed: config.seed ? config.seed + i : undefined,
+      onProgress: (progress) => {
+        // Report progress for current image + completed images
+        const overallPercentage = ((i + progress.percentage / 100) / count) * 100;
+        callback({ ...progress, currentImage: i + 1, totalImages: count, percentage: overallPercentage });
+      }
+    });
+    images.push(image);
+  }
+  ```
+
+**Phase 2 - True Batching (Future Optimization):**
+- Use stable-diffusion.cpp's `-b` batch flag for parallel generation
+- More efficient but more complex
+- Requires stable-diffusion.cpp 1.x+ with batch support
+- Can be implemented later without API changes
+
+**Seed Handling:**
+- If `seed` provided: Generate images with seed, seed+1, seed+2, ..., seed+(count-1)
+- If `seed` not provided: Use random seed for each image
+- Return actual seed used in each image's metadata
+
+**Progress Tracking for Batched Images:**
+
+When generating multiple images, progress updates should include:
+```json
+{
+  "currentStep": 15,
+  "totalSteps": 20,
+  "stage": "diffusion",
+  "percentage": 52.5,      // Overall: (completed + current progress) / total
+  "currentImage": 2,       // NEW: Which image we're generating (1-indexed)
+  "totalImages": 3         // NEW: Total images requested
+}
+```
+
+**Percentage Calculation:**
+```
+percentage = ((completedImages + currentImageProgress) / totalImages) * 100
+```
+
+Example: Generating 3 images, on image #2 at 50% progress:
+```
+percentage = ((1 + 0.5) / 3) * 100 = 50%
+```
+
+**Request Example (count=3):**
+```json
+{
+  "prompt": "A mountain lake",
+  "width": 1024,
+  "height": 1024,
+  "steps": 30,
+  "cfgScale": 7.5,
+  "seed": 42,
+  "sampler": "dpm++2m",
+  "count": 3
+}
+```
+
+**Response Example (in_progress with batch):**
+```json
+{
+  "id": "gen_abc123xyz",
+  "status": "in_progress",
+  "progress": {
+    "currentStep": 15,
+    "totalSteps": 30,
+    "stage": "diffusion",
+    "percentage": 52.5,
+    "currentImage": 2,
+    "totalImages": 3
+  }
+}
+```
+
+**Response Example (complete with 3 images):**
+```json
+{
+  "id": "gen_abc123xyz",
+  "status": "complete",
+  "result": {
+    "images": [
+      {
+        "image": "<base64_encoded_png>",
+        "seed": 42,
+        "width": 1024,
+        "height": 1024
+      },
+      {
+        "image": "<base64_encoded_png>",
+        "seed": 43,
+        "width": 1024,
+        "height": 1024
+      },
+      {
+        "image": "<base64_encoded_png>",
+        "seed": 44,
+        "width": 1024,
+        "height": 1024
+      }
+    ],
+    "format": "png",
+    "timeTaken": 18500  // Total time for all 3 images
+  }
+}
+```
+
+**Error Handling:**
+- If generation fails partway through (e.g., on image 2/3), mark entire request as error
+- Include context about which image failed: `"Gener ation failed on image 2 of 3"`
+- Don't return partial results - fail the entire batch for consistency
+
+**Validation:**
+```typescript
+if (count < 1) {
+  return error("count must be >= 1");
+}
+if (count > MAX_BATCH_SIZE) {  // e.g., 5
+  return error(`count must be <= ${MAX_BATCH_SIZE}`);
+}
+```
+
+**Testing Recommendations:**
+- Test with count=1 (default behavior)
+- Test with count=2, count=3, count=5
+- Test with provided seed (verify incremental seeds)
+- Test with random seed (verify different seeds)
+- Test error handling (what if generation fails on image 3/5)
+- Test progress tracking accuracy
 
 ---
 
@@ -708,7 +874,47 @@ const result = await diffusionServer.generateImage({
 });
 ```
 
-### 7.2 Error Mapping
+### 7.2 Type Updates for ImageGenerationConfig
+
+The `ImageGenerationConfig` type needs to be updated to include the `count` parameter:
+
+```typescript
+// Updated interface
+interface ImageGenerationConfig {
+  prompt: string;
+  negativePrompt?: string;
+  width?: number;           // default: 512
+  height?: number;          // default: 512
+  steps?: number;           // default: 20
+  cfgScale?: number;        // default: 7.5
+  seed?: number;            // default: random
+  sampler?: string;         // default: "euler_a"
+  count?: number;           // NEW: default: 1, max: 5 (see §4.2.1)
+
+  // Progress callback (unchanged)
+  onProgress?: (
+    currentStep: number,
+    totalSteps: number,
+    stage: ImageGenerationStage,
+    percentage?: number
+  ) => void;
+}
+
+type ImageGenerationStage = 'loading' | 'diffusion' | 'decoding';
+
+interface ImageGenerationResult {
+  image: Buffer;            // PNG bytes
+  format: 'png';
+  timeTaken: number;        // ms
+  seed: number;
+  width: number;
+  height: number;
+}
+```
+
+**Note:** When `count` > 1, the `generateImage` method should be called multiple times (sequential loop) and return an array of `ImageGenerationResult` objects (or update the response contract to accommodate multiple images).
+
+### 7.3 Error Mapping
 
 Map `DiffusionServerManager` errors to HTTP error codes:
 
@@ -1075,6 +1281,17 @@ IMAGE_POLL_INTERVAL_MS=500
 - [ ] Add `GET /v1/images/generations/:id` (returns status/progress/result)
 - [ ] Wire up `onProgress` callback to update registry
 - [ ] Implement error mapping
+- [ ] **Batch Generation Support (§4.2.1):**
+  - [ ] Add `count` parameter to `ImageGenerationConfig` type
+  - [ ] Implement sequential generation loop for count > 1
+  - [ ] Handle seed generation for multiple images (seed + i)
+  - [ ] Update progress tracking for batch generation
+  - [ ] Add `currentImage` and `totalImages` fields to progress
+  - [ ] Calculate overall percentage for batched images
+  - [ ] Add validation for count parameter (>= 1, <= 5)
+  - [ ] Test with count=1, count=2, count=3, count=5
+  - [ ] Test error handling (failure on image 2/3)
+  - [ ] Return array of images in result
 - [ ] Add cleanup logic (TTL-based)
 - [ ] Handle "server busy" (503) for concurrent requests
 - [ ] Update error responses with new codes
@@ -1106,14 +1323,16 @@ This document specifies the changes needed in genai-electron to support async im
 1. New endpoints: POST (start), GET (poll)
 2. Generation registry for state tracking
 3. Progress updates via existing callback mechanism
-4. Clean error handling and codes
-5. Memory management (TTL cleanup)
+4. **Batch generation support:** count parameter for multiple images (§4.2.1)
+5. Clean error handling and codes
+6. Memory management (TTL cleanup)
 
 **Effort Estimate:**
-- Core implementation: 4-6 hours
+- Core async API implementation: 4-6 hours
+- Batch generation support: 2-3 hours
 - Testing: 2-3 hours
 - Documentation: 1 hour
-- **Total:** 7-10 hours for experienced developer
+- **Total:** 9-13 hours for experienced developer
 
 **Next Steps:**
 1. Review this spec with genai-electron team
