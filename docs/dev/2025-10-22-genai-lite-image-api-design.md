@@ -704,6 +704,15 @@ const image = new ImageService(fromEnvironment);
    - Provide usage examples (cloud + local).
    - Cross-link from genai-electron docs.
 
+**Note:** After completing Phase 3 (ImageService Core Implementation), we identified common patterns that warrant abstraction. Before implementing the provider adapters (Phases 4-5), we will execute **Phase 3.5: Code Abstraction & Reuse** to:
+- Extract generic `PresetManager<TPreset>` to eliminate duplication between LLM and Image preset managers
+- Extract generic `AdapterRegistry<TAdapter, TProviderId>` to share adapter management logic
+- Move `PresetMode` type to shared location (`src/types.ts`)
+- Relocate error mapping utilities to `src/shared/adapters/errorUtils.ts` for reuse in image adapters
+- **Impact:** Reduces codebase by ~400 lines, establishes foundation for future services (audio, video, etc.)
+
+This refactor ensures Phases 4-5 (OpenAI Images and Electron Diffusion adapters) can leverage shared error handling and registry patterns from the start.
+
 ---
 
 ## 10. Developer Notes & References

@@ -38,6 +38,9 @@ export type {
 } from "./llm/clients/LlamaCppServerClient";
 
 // --- Image Generation ---
+// Export Image Service
+export { ImageService } from "./image/ImageService";
+
 // Export all image types
 export type {
   ImageProviderId,

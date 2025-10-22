@@ -98,59 +98,145 @@ Implementing first-class image generation capabilities for genai-lite following 
 
 ---
 
-### Phase 3: ImageService Core Implementation
-**Status:** Ready to Start
+### Phase 3: ImageService Core Implementation ✅ COMPLETE
+**Status:** Complete
+**Completed:** 2025-10-22
 **Dependencies:** Phase 2 ✅
 
 #### Tasks
-- [ ] Create `src/image/ImageService.ts` class
-- [ ] Implement constructor
-  - [ ] Accept `ApiKeyProvider` parameter
-  - [ ] Accept `ImageServiceOptions` parameter
-  - [ ] Initialize adapter registry
-  - [ ] Load default presets
-- [ ] Implement preset management
-  - [ ] `getPresets(): ImagePreset[]` method
-  - [ ] Preset resolution logic (by ID)
-  - [ ] Preset mode handling (extend/replace)
-- [ ] Implement provider/model management
-  - [ ] `getProviders(): Promise<ImageProviderInfo[]>` method
-  - [ ] `getModels(providerId): Promise<ImageModelInfo[]>` method
-  - [ ] `registerAdapter(id, adapter)` method
-  - [ ] Default adapter registration
-- [ ] Implement settings merge hierarchy
-  - [ ] Model defaults → Preset → Runtime
-  - [ ] Handle diffusion namespace properly
-- [ ] Implement error envelope handling
-  - [ ] Wrap adapter errors in `ImageFailureResponse`
-  - [ ] Reuse existing `GenaiLiteError` hierarchy
-- [ ] Implement `generateImage()` method (core orchestration)
-  - [ ] Validate request (providerId, modelId, prompt)
-  - [ ] Retrieve API key via provider
-  - [ ] Resolve settings hierarchy
-  - [ ] Route to appropriate adapter
-  - [ ] Handle errors and wrap responses
-- [ ] Implement `generateImages()` helper (optional)
-- [ ] Write unit tests for service orchestration
-  - [ ] Test preset loading and resolution
-  - [ ] Test settings merge hierarchy
-  - [ ] Test error handling
-  - [ ] Test adapter routing
-  - [ ] Mock adapters for isolated testing
-- [ ] Export `ImageService` from `src/index.ts`
-- [ ] Run tests: `npm test -- ImageService.test`
+- [x] Create helper service classes in `src/image/services/`
+  - [x] `ImagePresetManager.ts` - Manages image presets (12 tests, 93% coverage)
+  - [x] `ImageAdapterRegistry.ts` - Manages provider adapters (14 tests, 96% coverage)
+  - [x] `ImageRequestValidator.ts` - Validates requests (23 tests, 93% coverage)
+  - [x] `ImageSettingsResolver.ts` - Resolves settings hierarchy (8 tests, 100% coverage)
+  - [x] `ImageModelResolver.ts` - Resolves model info from presets (4 tests, 89% coverage)
+- [x] Create `src/image/config.ts`
+  - [x] Define SUPPORTED_IMAGE_PROVIDERS (OpenAI, Electron Diffusion)
+  - [x] Define default models and capabilities
+  - [x] Helper functions for provider/model lookup
+- [x] Create `MockImageAdapter` for testing and fallback
+- [x] Create `src/image/ImageService.ts` class
+- [x] Implement constructor
+  - [x] Accept `ApiKeyProvider` parameter
+  - [x] Accept `ImageServiceOptions` parameter
+  - [x] Initialize all helper services
+- [x] Implement preset management
+  - [x] `getPresets(): ImagePreset[]` method
+  - [x] Preset resolution via ImagePresetManager
+  - [x] Preset mode handling (extend/replace)
+- [x] Implement provider/model management
+  - [x] `getProviders(): Promise<ImageProviderInfo[]>` method
+  - [x] `getModels(providerId): Promise<ImageModelInfo[]>` method
+  - [x] `registerAdapter(id, adapter)` method
+- [x] Implement settings merge hierarchy
+  - [x] Model defaults → Preset → Runtime (via ImageSettingsResolver)
+  - [x] Handle diffusion namespace properly
+  - [x] Parse size strings into width/height for diffusion
+- [x] Implement error envelope handling
+  - [x] Wrap adapter errors in `ImageFailureResponse`
+  - [x] Consistent error format across all validation
+- [x] Implement `generateImage()` method (core orchestration)
+  - [x] Resolve model info via ImageModelResolver
+  - [x] Validate request via ImageRequestValidator
+  - [x] Resolve settings via ImageSettingsResolver
+  - [x] Retrieve API key via provider
+  - [x] Apply promptPrefix from presets
+  - [x] Route to appropriate adapter
+  - [x] Handle errors and wrap responses
+- [x] Export `ImageService` from `src/index.ts`
+- [x] All tests passing (511 tests total across entire codebase)
+- [x] Build successful with no errors
 
 #### Review Checkpoint
-- [ ] Service class compiles and exports correctly
-- [ ] All unit tests passing
-- [ ] Error handling comprehensive
-- [ ] Ready for adapter integration
+- [x] Service class compiles and exports correctly
+- [x] All unit tests passing (61 image-related tests)
+- [x] Error handling comprehensive
+- [x] Ready for adapter integration (Phase 4-5)
+
+#### Implementation Notes
+- **Architecture:** Followed same modular patterns as LLMService for consistency
+- **Helper Services:** Created 5 focused helper services for separation of concerns
+- **Test Coverage:** Achieved 85%+ coverage across all image service components
+- **Mock Adapter:** Provides fallback for providers without real adapters (Phases 4-5)
+- **Configuration:** image-presets.json created (empty, to be populated in Phase 6)
+- **Total Lines:** ~1,200 lines of implementation + ~600 lines of tests
+
+---
+
+### Phase 3.5: Code Abstraction & Reuse ⏳ PLANNED
+**Status:** Planned
+**Dependencies:** Phase 3 ✅
+**Estimated Time:** 1-2 hours
+
+#### Objective
+Extract and generify common patterns between LLM and Image services to eliminate duplication and establish shared utilities for future services.
+
+#### Abstractions to Create
+
+**1. Generic PresetManager** (~115 lines saved)
+- Location: `src/shared/services/PresetManager.ts`
+- Generic over preset type: `PresetManager<TPreset extends { id: string }>`
+- Replaces: `src/llm/services/PresetManager.ts` and `src/image/services/ImagePresetManager.ts`
+- Usage:
+  - LLM: `new PresetManager<ModelPreset>(defaults, custom, mode)`
+  - Image: `new PresetManager<ImagePreset>(defaults, custom, mode)`
+
+**2. Generic AdapterRegistry** (~250 lines saved)
+- Location: `src/shared/services/AdapterRegistry.ts`
+- Generic over adapter and provider ID types
+- Replaces: `src/llm/services/AdapterRegistry.ts` and `src/image/services/ImageAdapterRegistry.ts`
+- Usage:
+  - LLM: `new AdapterRegistry<ILLMClientAdapter, ApiProviderId>`
+  - Image: `new AdapterRegistry<ImageProviderAdapter, ImageProviderId>`
+
+**3. Shared PresetMode Type**
+- Location: `src/types.ts` (alongside ApiKeyProvider)
+- Single definition: `export type PresetMode = 'replace' | 'extend'`
+- Replaces: Duplicate definitions in both PresetManager files
+
+**4. Shared Error Utils**
+- Move: `src/llm/clients/adapterErrorUtils.ts` → `src/shared/adapters/errorUtils.ts`
+- Already generic, just needs relocation
+- Will be reused by image adapters in Phases 4-5
+
+#### Tasks
+- [ ] Create `src/shared/services/` directory
+- [ ] Implement generic `PresetManager<TPreset>`
+- [ ] Write tests for generic PresetManager
+- [ ] Update LLM to use generic PresetManager
+- [ ] Update Image to use generic PresetManager
+- [ ] Delete duplicate PresetManager files
+- [ ] Move PresetMode to `src/types.ts`
+- [ ] Implement generic `AdapterRegistry<TAdapter, TProviderId>`
+- [ ] Write tests for generic AdapterRegistry
+- [ ] Update LLM to use generic AdapterRegistry
+- [ ] Update Image to use generic AdapterRegistry
+- [ ] Delete duplicate AdapterRegistry files
+- [ ] Create `src/shared/adapters/` directory
+- [ ] Move error utils to shared location
+- [ ] Update all imports in LLM adapters
+- [ ] Verify all 511 tests still passing
+- [ ] Verify build succeeds
+- [ ] Update exports in `src/index.ts` if needed
+
+#### Review Checkpoint
+- [ ] All tests passing (no regressions)
+- [ ] Build successful
+- [ ] ~400 lines of code eliminated
+- [ ] No API changes (fully compatible)
+- [ ] Ready for Phase 4 (OpenAI Image Adapter)
+
+#### Implementation Notes
+- **Motivation:** PresetManager and AdapterRegistry are 95% and 85% duplicate respectively
+- **Approach:** Natural generics using TypeScript - straightforward, low-risk
+- **Benefits:** Single source of truth, easier maintenance, foundation for future services
+- **Not Abstracted:** Domain-specific services (validators, settings resolvers) remain separate
 
 ---
 
 ### Phase 4: OpenAI Images Adapter
 **Status:** Not Started
-**Dependencies:** Phase 3
+**Dependencies:** Phase 3.5
 
 #### Tasks
 - [ ] Implement `src/adapters/image/OpenAIImageAdapter.ts`
@@ -170,11 +256,12 @@ Implementing first-class image generation capabilities for genai-lite following 
   - [ ] Populate `GeneratedImage[]` array
   - [ ] Extract usage metadata (if available)
 - [ ] Implement error handling
-  - [ ] Map OpenAI errors to `GenaiLiteError` types
-  - [ ] Handle authentication errors
-  - [ ] Handle rate limits
-  - [ ] Handle network errors
+  - [ ] Use shared `errorUtils` from Phase 3.5 (`src/shared/adapters/errorUtils.ts`)
+  - [ ] Map OpenAI-specific errors using `getCommonMappedErrorDetails()`
+  - [ ] Handle HTTP 401 (authentication), 429 (rate limits), 5xx (server errors)
+  - [ ] Handle network errors (ECONNREFUSED, timeouts)
   - [ ] Include resolved base URL in error messages
+  - [ ] Return `ImageFailureResponse` format
 - [ ] Configuration
   - [ ] Support `OPENAI_API_BASE_URL` env var
   - [ ] Default to `https://api.openai.com/v1`
@@ -200,7 +287,7 @@ Implementing first-class image generation capabilities for genai-lite following 
 
 ### Phase 5: Electron Diffusion Adapter
 **Status:** Not Started
-**Dependencies:** Phase 4
+**Dependencies:** Phase 3.5, Phase 4
 
 #### Tasks
 - [ ] Implement `src/adapters/image/ElectronDiffusionAdapter.ts`
@@ -227,10 +314,12 @@ Implementing first-class image generation capabilities for genai-lite following 
   - [ ] Populate `GeneratedImage[]` with metadata (seed, width, height)
   - [ ] Extract usage data (timeTaken)
 - [ ] Implement error handling
-  - [ ] Map genai-electron errors to `GenaiLiteError`
-  - [ ] Handle network errors (server not running)
+  - [ ] Use shared `errorUtils` from Phase 3.5 (`src/shared/adapters/errorUtils.ts`)
+  - [ ] Map genai-electron errors using `getCommonMappedErrorDetails()`
+  - [ ] Handle network errors (server not running: ECONNREFUSED, ENOTFOUND)
   - [ ] Handle timeout errors
   - [ ] Include resolved base URL in errors
+  - [ ] Return `ImageFailureResponse` format
 - [ ] Configuration
   - [ ] Support `GENAI_ELECTRON_IMAGE_BASE_URL` env var
   - [ ] Default to `http://localhost:8081`
@@ -277,10 +366,11 @@ Implementing first-class image generation capabilities for genai-lite following 
     - [ ] Quality preset (steps: 30, cfgScale: 7.5)
     - [ ] Fast preset (steps: 20, cfgScale: 7.0)
     - [ ] Different sizes (512x512, 768x768, 1024x1024)
-- [ ] Update `ImageService` preset loading
-  - [ ] Load from `image-presets.json`
-  - [ ] Handle extend/replace modes
-  - [ ] Validate preset structure
+- [ ] Populate image presets in `image-presets.json`
+  - [ ] File already created (empty) in Phase 3
+  - [ ] Preset infrastructure already in place via generic `PresetManager` from Phase 3.5
+  - [ ] Add preset definitions (see OpenAI and Electron sections below)
+  - [ ] Validate preset JSON structure
 - [ ] Implement `createPrompt` utility (optional)
   - [ ] Accept template, variables, presetId
   - [ ] Render template with variables
@@ -321,7 +411,12 @@ Implementing first-class image generation capabilities for genai-lite following 
   - [ ] Update table of contents
 - [ ] Update `CLAUDE.md`
   - [ ] Add image service to architecture overview
-  - [ ] Document new directory structure (src/image/, src/adapters/image/, src/types/image.ts)
+  - [ ] Document new directory structure:
+    - [ ] `src/shared/` - Generic utilities (PresetManager, AdapterRegistry, errorUtils)
+    - [ ] `src/image/` - ImageService and image-specific services
+    - [ ] `src/adapters/image/` - Image provider adapters
+    - [ ] `src/types/image.ts` - Image type definitions
+  - [ ] Document Phase 3.5 abstractions and their benefits
   - [ ] Add development guidelines for image features
   - [ ] Document preset file split (llm-presets.json, image-presets.json)
   - [ ] Add testing guidelines for image adapters
