@@ -573,11 +573,11 @@ textarea.negative-prompt {
 }
 
 .modal-nav-btn.prev {
-  left: 20px;
+  left: -60px;
 }
 
 .modal-nav-btn.next {
-  right: 20px;
+  right: -60px;
 }
 
 /* Error Display */

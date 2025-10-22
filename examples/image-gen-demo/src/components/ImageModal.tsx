@@ -76,29 +76,35 @@ export function ImageModal({
           )}
           <span><strong>Time:</strong> {timeSeconds}s</span>
         </div>
+
+        {hasPrevious && onPrevious && (
+          <button
+            className="modal-nav-btn prev"
+            onClick={(e) => {
+              e.stopPropagation();
+              onPrevious();
+            }}
+            title="Previous image (←)"
+            aria-label="Previous image"
+          >
+            ◀
+          </button>
+        )}
+
+        {hasNext && onNext && (
+          <button
+            className="modal-nav-btn next"
+            onClick={(e) => {
+              e.stopPropagation();
+              onNext();
+            }}
+            title="Next image (→)"
+            aria-label="Next image"
+          >
+            ▶
+          </button>
+        )}
       </div>
-
-      {hasPrevious && onPrevious && (
-        <button
-          className="modal-nav-btn prev"
-          onClick={onPrevious}
-          title="Previous image (←)"
-          aria-label="Previous image"
-        >
-          ◀
-        </button>
-      )}
-
-      {hasNext && onNext && (
-        <button
-          className="modal-nav-btn next"
-          onClick={onNext}
-          title="Next image (→)"
-          aria-label="Next image"
-        >
-          ▶
-        </button>
-      )}
     </div>
   );
 }
