@@ -56,7 +56,7 @@ const llmService = new LLMService(async () => 'not-needed');
 
 const response = await llmService.sendMessage({
   providerId: 'llamacpp',
-  modelId: 'llama-3-8b-instruct',  // Must match your loaded model
+  modelId: 'llamacpp',  // Generic ID for whatever model is loaded
   messages: [
     { role: 'system', content: 'You are a helpful assistant.' },
     { role: 'user', content: 'Explain quantum computing briefly.' }
@@ -149,15 +149,12 @@ const llmService = new LLMService(myKeyProvider);
 
 ### llama.cpp (Local Models)
 
-Run models locally via [llama.cpp](https://github.com/ggml-org/llama.cpp) server. Model IDs can be any name—they're not validated since you load your own GGUF models.
+Run models locally via [llama.cpp](https://github.com/ggml-org/llama.cpp) server. Use the generic `'llamacpp'` model ID—the actual model is determined by what you loaded in the llama.cpp server.
 
 **Automatic Capability Detection:** genai-lite automatically detects capabilities (reasoning support, context windows, token limits) for known open-weights models (Qwen3, etc.) by matching the GGUF filename from the server. No configuration needed.
 
-**Example models:**
-- `llama-3-8b-instruct` - Llama 3 8B Instruct
-- `llama-3-70b-instruct` - Llama 3 70B Instruct
-- `mistral-7b-instruct` - Mistral 7B Instruct
-- `my-custom-model` - Any custom model you've loaded
+**Model ID:**
+- `llamacpp` - Generic ID for whatever model the llama.cpp server has loaded
 
 **Setup:**
 
@@ -175,7 +172,7 @@ const service = new LLMService(async () => 'not-needed');
 
 const response = await service.sendMessage({
   providerId: 'llamacpp',
-  modelId: 'llama-3-8b-instruct', // Must match your loaded model name
+  modelId: 'llamacpp', // Generic ID for loaded model
   messages: [{ role: 'user', content: 'Hello!' }]
 });
 ```
@@ -823,7 +820,7 @@ const service = new LLMService(async () => 'not-needed');
 
 const response = await service.sendMessage({
   providerId: 'llamacpp',
-  modelId: 'llama-3-8b-instruct',  // Arbitrary name matching your model
+  modelId: 'llamacpp',  // Generic ID for loaded model
   messages: [
     { role: 'system', content: 'You are a helpful assistant.' },
     { role: 'user', content: 'Explain quantum computing in simple terms.' }
@@ -872,7 +869,7 @@ service.registerAdapter(
 // Use them
 const response = await service.sendMessage({
   providerId: 'llamacpp-small',
-  modelId: 'llama-3-8b',
+  modelId: 'llamacpp',
   messages: [{ role: 'user', content: 'Hello!' }]
 });
 ```
@@ -993,7 +990,7 @@ if (response.object === 'error') {
 
 ### Best Practices
 
-1. **Model Naming**: Use descriptive model IDs (e.g., `llama-3-8b-instruct`) since llama.cpp accepts any name
+1. **Model ID**: Always use `'llamacpp'` as the model ID—the actual model is determined by what you loaded in the server
 2. **Context Size**: Set appropriate context (`-c` flag) when starting the server
 3. **Parallel Requests**: Configure slots (`-np`) based on your hardware
 4. **Health Monitoring**: Enable `checkHealth` for production to detect server issues early

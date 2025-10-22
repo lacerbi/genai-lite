@@ -150,7 +150,7 @@ const service = new LLMService(async () => 'not-needed');
 
 const response = await service.sendMessage({
   providerId: 'llamacpp',
-  modelId: 'llama-3-8b-instruct',  // Any model name you've loaded
+  modelId: 'llamacpp',  // Generic ID for loaded model
   messages: [{ role: 'user', content: 'Hello!' }]
 });
 ```

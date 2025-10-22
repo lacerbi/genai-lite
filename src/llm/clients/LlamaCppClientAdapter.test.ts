@@ -38,7 +38,7 @@ describe('LlamaCppClientAdapter', () => {
 
     basicRequest = {
       providerId: 'llamacpp',
-      modelId: 'llama-3-8b-instruct',
+      modelId: 'llamacpp',
       messages: [
         { role: 'user', content: 'Hello, how are you?' },
       ],
@@ -96,7 +96,7 @@ describe('LlamaCppClientAdapter', () => {
         id: 'chatcmpl-123',
         object: 'chat.completion',
         created: 1677652288,
-        model: 'llama-3-8b-instruct',
+        model: 'llamacpp',
         choices: [
           {
             index: 0,
@@ -590,7 +590,7 @@ describe('LlamaCppClientAdapter', () => {
 
       expect(mockCreate).toHaveBeenCalledWith(
         expect.objectContaining({
-          model: 'llama-3-8b-instruct',
+          model: 'llamacpp',
           temperature: 0.9,
           max_tokens: 2000,
           top_p: 0.8,

@@ -52,7 +52,7 @@ export interface LlamaCppClientConfig {
  * // Use via LLMService
  * const response = await service.sendMessage({
  *   providerId: 'llamacpp',
- *   modelId: 'llama-3-8b-instruct',
+ *   modelId: 'llamacpp',
  *   messages: [{ role: 'user', content: 'Hello!' }]
  * });
  * ```

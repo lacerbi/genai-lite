@@ -105,12 +105,10 @@ interface LlamaCppClientConfig {
 - Added to `ADAPTER_CONSTRUCTORS` map
 - Added to `ADAPTER_CONFIGS` with `LLAMACPP_API_BASE_URL` environment variable
 - Added to `SUPPORTED_PROVIDERS` array
-- Added 3 example models to `SUPPORTED_MODELS`:
-  - `llama-3-8b-instruct`
-  - `llama-3-70b-instruct`
-  - `mistral-7b-instruct`
+- Added generic model to `SUPPORTED_MODELS`:
+  - `llamacpp` - Generic model ID for whatever is loaded in the llama.cpp server
 
-**Note:** Model IDs are examples; users can use any loaded model name.
+**Note:** The model ID is generic since genai-lite doesn't control which model the server has loaded.
 
 #### 2. `src/index.ts`
 **Changes:** Added exports for llama.cpp integration
@@ -171,7 +169,7 @@ const service = new LLMService(async () => 'not-needed');
 
 const response = await service.sendMessage({
   providerId: 'llamacpp',
-  modelId: 'llama-3-8b-instruct',
+  modelId: 'llamacpp',
   messages: [{ role: 'user', content: 'Hello!' }]
 });
 ```
