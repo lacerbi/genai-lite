@@ -242,21 +242,24 @@ interface ImageProviderCapabilities {
    - Provides optional `n`, `size`, `quality`, `style`, `response_format`.
    - Returns `url` and `b64_json`; convert to `Buffer` when `responseFormat` includes binary.
 
-2. **GenAI Electron Diffusion Adapter**
-   - Communicates with genai-electron diffusion HTTP wrapper (`diffusionServer`).
+2. **GenAI Electron Diffusion Adapter** *(Async Polling Architecture)*
+   - Communicates with genai-electron diffusion HTTP wrapper via async polling pattern.
    - Default base URL from `GENAI_ELECTRON_IMAGE_BASE_URL` (default `http://localhost:8081`).
+   - **Async API Design:** Uses generation IDs with polling for non-blocking operations and progress updates.
    - HTTP endpoints exposed by the wrapper:
      - `GET /health` &rarr; `{ status: 'ok' | 'loading' | 'error', busy: boolean }`
-     - `POST /v1/images/generations` &rarr; accepts `ImageGenerationConfig` JSON body (fields documented below).
+     - `POST /v1/images/generations` &rarr; Starts generation, returns generation ID immediately
+     - `GET /v1/images/generations/:id` &rarr; Polls for status, progress, or final result
    - No API key required (`apiKey` ignored).
    - Supports `diffusion` settings (prompt, negativePrompt, width/height, steps, cfgScale, seed, sampler).
-   - Progress: Uses callback-based notifications via `onProgress` parameter (see §8.3 for rationale).
-   - Returns PNG buffer; add base64 variant when requested.
+   - Progress: Polling-based with callback invocation via `onProgress` parameter (see §8.3 and §8.8 for rationale).
+   - Returns PNG buffer(s); preserves base64 in response.
    - Surface metadata: `timeTaken`, `seed`, `width`, `height`.
    - Supports `count` parameter for generating multiple images (see §8.4 for implementation details).
 
-   **Request payload shape (JSON)**
+   **POST Request (Start Generation):**
    ```jsonc
+   // POST /v1/images/generations
    {
      "prompt": "A serene mountain lake at sunrise",
      "negativePrompt": "blurry, low quality",
@@ -270,23 +273,82 @@ interface ImageProviderCapabilities {
    }
    ```
 
-   **Response payload (JSON)**
+   **POST Response (Generation ID):**
    ```jsonc
    {
-     "images": [
-       {
-         "image": "<base64 PNG>",
-         "seed": 42,
-         "width": 1024,
-         "height": 1024
-       }
-       // Additional images if count > 1
-     ],
-     "format": "png",
-     "timeTaken": 5823
+     "id": "gen_1729612345678_x7k2p9q4m",
+     "status": "pending",
+     "createdAt": 1729612345678
    }
    ```
-   The adapter must convert the `image` field(s) back into `Buffer`(s), populate `GeneratedImage[]`, and optionally re-emit the base64 string when `responseFormat` requires it.
+
+   **GET Request (Poll Status):**
+   ```
+   GET /v1/images/generations/gen_1729612345678_x7k2p9q4m
+   ```
+
+   **GET Response (In Progress):**
+   ```jsonc
+   {
+     "id": "gen_1729612345678_x7k2p9q4m",
+     "status": "in_progress",
+     "createdAt": 1729612345678,
+     "updatedAt": 1729612346123,
+     "progress": {
+       "currentStep": 15,
+       "totalSteps": 30,
+       "stage": "diffusion",  // 'loading' | 'diffusion' | 'decoding'
+       "percentage": 52.5
+     }
+   }
+   ```
+
+   **GET Response (Complete):**
+   ```jsonc
+   {
+     "id": "gen_1729612345678_x7k2p9q4m",
+     "status": "complete",
+     "createdAt": 1729612345678,
+     "updatedAt": 1729612351501,
+     "result": {
+       "images": [
+         {
+           "image": "<base64 PNG>",
+           "seed": 42,
+           "width": 1024,
+           "height": 1024
+         }
+         // Additional images if count > 1
+       ],
+       "format": "png",
+       "timeTaken": 5823
+     }
+   }
+   ```
+
+   **GET Response (Error):**
+   ```jsonc
+   {
+     "id": "gen_1729612345678_x7k2p9q4m",
+     "status": "error",
+     "createdAt": 1729612345678,
+     "updatedAt": 1729612346789,
+     "error": {
+       "message": "Failed to spawn stable-diffusion.cpp",
+       "code": "BACKEND_ERROR"
+     }
+   }
+   ```
+
+   **Adapter Implementation:**
+   - POST to start generation (returns immediately with ID)
+   - Poll GET every 500ms for status updates
+   - Invoke `onProgress` callback when status is `in_progress`
+   - Convert base64 images to `Buffer`(s), populate `GeneratedImage[]`
+   - Extract usage data from `timeTaken` field
+   - Handle states: pending → in_progress → complete/error
+
+   **See Also:** Complete specification in `GENAI-ELECTRON-CHANGES.md` at project root.
 
 ### 5.3 Model & Preset Definitions
 ```ts
@@ -418,11 +480,12 @@ src/config/
 
 **Question:** Should `generateImage` support async iterable responses (for diffusion progress) or stick to callback-based notifications?
 
-**Answer:** Use callback-based notifications as currently specified in §4.5. The `onProgress` callback in the `diffusion` settings namespace is the correct design.
+**Answer:** Use callback-based notifications as specified in §4.5, implemented via **async polling** for HTTP transport. The `onProgress` callback in the `diffusion` settings namespace is invoked during polling loops.
 
 **Rationale:**
-- **Consistency with genai-electron**: The library already provides callbacks. genai-lite should pass these through rather than transforming the API
-- **Provider reality**: Only local diffusion benefits from progress updates. OpenAI returns a single response with no intermediate updates
+- **HTTP transport reality**: genai-lite uses HTTP to communicate with genai-electron, not in-process calls. Direct callback forwarding isn't possible over HTTP.
+- **Async polling chosen**: POST starts generation (returns ID), GET polls status every 500ms, callback invoked when progress updates arrive.
+- **Provider reality**: Only local diffusion benefits from progress updates. OpenAI returns a single response with no intermediate updates.
 - **UI framework compatibility**: Callbacks are easier to integrate with React, Vue, etc.:
   ```typescript
   const [progress, setProgress] = useState(0);
@@ -435,12 +498,18 @@ src/config/
     }
   });
   ```
-- **Optional by design**: Providers that don't support progress simply don't call the callback. No special handling needed
-- **Simpler implementation**: genai-lite's GenaiElectronImageAdapter just forwards the callback to genai-electron
+- **Optional by design**: Providers that don't support progress simply don't call the callback. No special handling needed.
+- **Non-blocking**: Async polling keeps the main thread free while waiting for long-running generation.
+
+**Implementation:**
+- genai-lite's GenaiElectronImageAdapter polls genai-electron's async API (see §8.8)
+- POST `/v1/images/generations` returns generation ID immediately
+- GET `/v1/images/generations/:id` polled every 500ms for status/progress
+- `onProgress` callback invoked when server returns `status: 'in_progress'` with progress data
 
 **Future extensibility:** If async iterables become necessary later (e.g., for real-time video generation), add a separate `generateImageStream()` method without breaking the existing callback-based `generateImage()` API.
 
-**Implementation note:** The current callback signature in §4.5 is correct and needs no changes.
+**Implementation note:** The current callback signature in §4.5 is correct and needs no changes. See §8.8 for full async polling architecture rationale.
 
 ---
 
@@ -675,6 +744,74 @@ const image = new ImageService(fromEnvironment);
 ```
 
 **Implementation note:** Follow the same class structure, method naming conventions, and error handling patterns as `LLMService` for consistency.
+
+---
+
+### ✅ 8. Async Polling Architecture Decision - RESOLVED
+
+**Context:** During Phase 5 implementation, we chose an async polling architecture for genai-electron image generation instead of the originally planned blocking HTTP endpoint.
+
+**Original Design (§5.2):**
+- Simple blocking POST endpoint: `/v1/images/generations`
+- Client sends request, server generates image, response returned after completion
+- Progress via direct HTTP callback (not feasible over HTTP)
+- Simpler but blocks for 20-120 seconds
+
+**Implemented Design:**
+- Async polling with generation IDs
+- POST `/v1/images/generations` returns immediately with generation ID
+- GET `/v1/images/generations/:id` polled every 500ms for status/progress/result
+- States: pending → in_progress → complete/error
+- Non-blocking, enables real-time progress updates
+
+**Decision Rationale:**
+
+**Why Async Polling:**
+1. **Non-blocking Operations**: Client doesn't wait on long HTTP connection (20-120 seconds)
+2. **Real Progress Updates**: Can poll and show live progress (loading, diffusion, decoding stages)
+3. **Better Error Handling**: Can distinguish between network errors and generation errors
+4. **Scalability**: Foundation for future features (cancellation, queuing, multiple concurrent generations)
+5. **Standard Pattern**: RESTful async job pattern widely understood
+
+**Tradeoffs Accepted:**
+1. **Complexity**: More complex than blocking endpoint (needs state management, cleanup)
+2. **Overhead**: Polling every 500ms adds HTTP requests (acceptable for long-running operations)
+3. **Coordination Required**: genai-electron must implement async API (see GENAI-ELECTRON-CHANGES.md)
+
+**Alternative Considered: HTTP Streaming (SSE/WebSocket)**
+- Would enable push-based progress instead of polling
+- More complex to implement and debug
+- Not necessary for current use case (500ms polling is sufficient)
+- Can be added later without breaking changes
+
+**Alternative Considered: Blocking Endpoint with Timeout**
+- Simpler to implement
+- Cannot show progress during generation
+- Risk of timeout errors on long generations
+- Rejected: Poor UX for 20-120 second generations
+
+**Implementation Details:**
+- genai-lite's `GenaiElectronImageAdapter` implements polling loop
+- Poll interval: 500ms (configurable)
+- Timeout: 120 seconds (configurable)
+- Progress callback invoked when `status: 'in_progress'`
+- Clean error messages with baseURL context
+
+**Documentation:**
+- Full async API specification: `GENAI-ELECTRON-CHANGES.md` (800+ lines)
+- Includes state management patterns (GenerationRegistry)
+- Error codes and handling
+- Implementation checklist for genai-electron team
+- Estimated effort: 7-10 hours
+
+**Status:** ✅ Implemented in Phase 5
+- GenaiElectronImageAdapter: 395 lines, 29 tests, 87.96% coverage
+- All tests passing
+- Ready for genai-electron team to implement server side
+
+**Next Steps:**
+- genai-electron team implements async API per specification
+- Optional: Add SSE/WebSocket streaming in future phase if polling overhead becomes an issue
 
 ---
 
