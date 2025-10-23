@@ -1,3 +1,15 @@
+/**
+ * Image Service - Backend wrapper for genai-lite ImageService
+ *
+ * Initializes and exposes the genai-lite ImageService with helper functions for:
+ * - Provider availability checking (API keys, server health)
+ * - Model retrieval
+ * - Preset management
+ * - Image generation with progress callbacks
+ *
+ * Note: Buffer to base64 conversion happens here for JSON transport to frontend.
+ */
+
 import { ImageService, fromEnvironment } from 'genai-lite';
 import type {
   ImageGenerationRequest,
@@ -74,7 +86,18 @@ export function getImagePresets(): ImagePreset[] {
 }
 
 /**
- * Generate image(s) from a prompt
+ * Generate image(s) from a prompt using genai-lite ImageService
+ *
+ * @param request - Generation request configuration
+ * @param request.providerId - Provider ID ('openai-images' or 'genai-electron-images')
+ * @param request.modelId - Model ID (e.g., 'gpt-image-1-mini', 'stable-diffusion')
+ * @param request.prompt - Text prompt describing the desired image
+ * @param request.count - Number of images to generate (1-4)
+ * @param request.settings - Universal and provider-specific settings
+ * @param request.onProgress - Optional callback for real-time progress (diffusion only)
+ * @returns Success/failure response with base64-encoded images or error details
+ *
+ * Note: Image Buffers are converted to base64 strings for JSON transport
  */
 export async function generateImage(request: {
   providerId: string;

@@ -1,3 +1,20 @@
+/**
+ * ImageGenInterface - Main orchestrator component for image generation
+ *
+ * This component manages the complete image generation workflow:
+ * - Provider/model selection
+ * - Prompt input and settings configuration
+ * - Image generation (streaming or standard based on provider)
+ * - Progress display for diffusion models
+ * - Image gallery with generated results
+ *
+ * Demonstrates genai-lite ImageService capabilities:
+ * - Multi-provider support (OpenAI, local diffusion)
+ * - Real-time progress via SSE for genai-electron
+ * - Preset loading and application
+ * - Batch generation
+ */
+
 import React, { useState, useEffect } from 'react';
 import { ProviderSelector } from './ProviderSelector';
 import { PromptInput } from './PromptInput';
@@ -120,15 +137,14 @@ export function ImageGenInterface() {
     };
 
     try {
-      // Use streaming for genai-electron to get real-time progress
+      // Streaming decision: Only genai-electron provides progress events
+      // OpenAI Images API doesn't support progress updates, so we use standard endpoint
       const useStreaming = providerId === 'genai-electron-images';
 
       let response;
       if (useStreaming) {
+        // Use SSE streaming for real-time progress updates during diffusion
         response = await generateImageStream(request, {
-          onStart: () => {
-            console.log('Generation started');
-          },
           onProgress: (progressUpdate: ProgressUpdate) => {
             // Update progress state with real-time data
             setProgressStage(progressUpdate.stage);
@@ -138,7 +154,8 @@ export function ImageGenInterface() {
           }
         });
       } else {
-        // For OpenAI, use standard endpoint (no progress updates)
+        // For OpenAI Images: use standard endpoint (no progress updates available)
+        // Generation happens server-side and we get the result when complete
         response = await generateImage(request);
       }
 
@@ -167,11 +184,6 @@ export function ImageGenInterface() {
     } finally {
       setIsGenerating(false);
     }
-  };
-
-  const handleDownload = (index: number) => {
-    // Download handled in ImageCard
-    console.log('Downloaded image', index);
   };
 
   const handleDelete = (index: number) => {
@@ -258,7 +270,6 @@ export function ImageGenInterface() {
 
       <ImageGallery
         images={images}
-        onDownload={handleDownload}
         onDelete={handleDelete}
         onClearAll={handleClearAll}
       />

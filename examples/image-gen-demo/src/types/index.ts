@@ -131,14 +131,12 @@ export interface SettingsPanelProps {
 
 export interface ImageGalleryProps {
   images: GeneratedImage[];
-  onDownload: (index: number) => void;
   onDelete: (index: number) => void;
   onClearAll: () => void;
 }
 
 export interface ImageCardProps {
   image: GeneratedImage;
-  onDownload: () => void;
   onDelete: () => void;
   onImageClick?: () => void;
 }

@@ -1,3 +1,14 @@
+/**
+ * Image Generation Routes
+ *
+ * Provides two endpoints for image generation:
+ * 1. POST /api/generate - Standard JSON response (for OpenAI)
+ * 2. POST /api/generate-stream - Server-Sent Events streaming (for genai-electron)
+ *
+ * The streaming endpoint provides real-time progress updates via SSE,
+ * while the standard endpoint returns the complete result in one response.
+ */
+
 import express from 'express';
 import { generateImage } from '../services/image.js';
 

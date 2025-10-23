@@ -1,18 +1,17 @@
 import React from 'react';
 import type { ImageCardProps } from '../types';
 
-export function ImageCard({ image, onDownload, onDelete, onImageClick }: ImageCardProps) {
+export function ImageCard({ image, onDelete, onImageClick }: ImageCardProps) {
   const timeSeconds = (image.generationTime / 1000).toFixed(1);
 
   const handleDownload = () => {
-    // Create a download link
+    // Create a download link and trigger download
     const link = document.createElement('a');
     link.href = `data:image/png;base64,${image.data}`;
     link.download = `generated-image-${image.index}-${Date.now()}.png`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    onDownload();
   };
 
   return (
