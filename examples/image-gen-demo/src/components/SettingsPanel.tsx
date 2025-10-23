@@ -6,6 +6,8 @@ const IMAGE_SIZE_PRESETS = [
   { label: '512×512 (Square, Small)', width: 512, height: 512 },
   { label: '768×768 (Square, Medium)', width: 768, height: 768 },
   { label: '1024×1024 (Square, Large)', width: 1024, height: 1024 },
+  { label: '512×768 (Portrait, Small)', width: 512, height: 768 },
+  { label: '768×512 (Landscape, Small)', width: 768, height: 512 },
   { label: '768×1024 (Portrait)', width: 768, height: 1024 },
   { label: '1024×768 (Landscape)', width: 1024, height: 768 },
   { label: '1024×1536 (Portrait, Tall)', width: 1024, height: 1536 },
@@ -274,8 +276,6 @@ export function SettingsPanel({
                 />
                 <div className="slider-value">{settings.diffusion?.cfgScale || 7.5}</div>
               </div>
-            </div>
-            <div className="settings-row">
               <div className="setting-field">
                 <label htmlFor="sampler">Sampler</label>
                 <select
