@@ -335,20 +335,14 @@ button {
 }
 
 /* Preset Controls */
-.preset-controls {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.preset-selector {
-  display: flex;
-  gap: 10px;
-  align-items: flex-end;
+.preset-selector-row {
+  display: grid;
+  grid-template-columns: minmax(250px, 1fr) 2fr;
+  gap: 15px;
+  align-items: center;
 }
 
 .preset-dropdown {
-  flex: 1;
   padding: 10px;
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -365,18 +359,10 @@ button {
   color: var(--text-secondary);
 }
 
-.active-preset-indicator {
-  padding: 8px 12px;
-  background: rgba(16, 185, 129, 0.1);
-  border: 1px solid var(--success);
-  border-radius: 6px;
-  font-size: 13px;
-  color: var(--success);
-}
-
-.active-preset-indicator strong {
-  color: var(--success);
-  font-weight: 600;
+@media (max-width: 768px) {
+  .preset-selector-row {
+    grid-template-columns: 1fr;
+  }
 }
 
 .dimension-display {

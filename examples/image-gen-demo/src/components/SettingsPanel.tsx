@@ -41,11 +41,11 @@ export function SettingsPanel({
     return presetIndex >= 0 ? presetIndex : IMAGE_SIZE_PRESETS.length - 1; // Default to "Custom"
   };
 
-  const [selectedPreset, setSelectedPreset] = useState<number>(getCurrentPresetIndex());
+  const [selectedSizePreset, setSelectedSizePreset] = useState<number>(getCurrentPresetIndex());
 
-  // Update preset when settings change externally
+  // Update size preset when settings change externally
   useEffect(() => {
-    setSelectedPreset(getCurrentPresetIndex());
+    setSelectedSizePreset(getCurrentPresetIndex());
   }, [settings.width, settings.height]);
 
   const updateSetting = <K extends keyof typeof settings>(
@@ -69,8 +69,8 @@ export function SettingsPanel({
     });
   };
 
-  const handlePresetChange = (index: number) => {
-    setSelectedPreset(index);
+  const handleSizePresetChange = (index: number) => {
+    setSelectedSizePreset(index);
     const preset = IMAGE_SIZE_PRESETS[index];
 
     // Only update dimensions if not "Custom"
@@ -83,18 +83,23 @@ export function SettingsPanel({
     }
   };
 
-  const isCustomSize = selectedPreset === IMAGE_SIZE_PRESETS.length - 1;
+  const isCustomSize = selectedSizePreset === IMAGE_SIZE_PRESETS.length - 1;
 
-  // Handle preset application
-  const handleApplyPreset = () => {
-    const preset = presets.find(p => p.id === selectedPresetId);
-    if (preset) {
-      onApplyPreset(preset);
+  // Handle preset selection - auto-apply when changed
+  const handlePresetSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const presetId = e.target.value;
+    setSelectedPresetId(presetId);
+
+    if (presetId) {
+      const preset = presets.find(p => p.id === presetId);
+      if (preset) {
+        onApplyPreset(preset);
+      }
     }
   };
 
-  // Get active preset details
-  const activePreset = presets.find(p => p.id === activePresetId);
+  // Get selected preset details for description
+  const selectedPreset = presets.find(p => p.id === selectedPresetId);
 
   return (
     <div className="settings-panel">
@@ -102,36 +107,22 @@ export function SettingsPanel({
       {presets.length > 0 && (
         <div className="settings-section">
           <h3>Library Presets</h3>
-          <div className="preset-controls">
-            <div className="preset-selector">
-              <select
-                value={selectedPresetId}
-                onChange={(e) => setSelectedPresetId(e.target.value)}
-                className="preset-dropdown"
-              >
-                <option value="">-- Select a preset --</option>
-                {presets.map((preset) => (
-                  <option key={preset.id} value={preset.id}>
-                    {preset.displayName}
-                  </option>
-                ))}
-              </select>
-              <button
-                className="btn-secondary"
-                onClick={handleApplyPreset}
-                disabled={!selectedPresetId}
-              >
-                Apply Preset
-              </button>
-            </div>
-            {selectedPresetId && (
+          <div className="preset-selector-row">
+            <select
+              value={selectedPresetId}
+              onChange={handlePresetSelect}
+              className="preset-dropdown"
+            >
+              <option value="">Select a preset (none selected)</option>
+              {presets.map((preset) => (
+                <option key={preset.id} value={preset.id}>
+                  {preset.displayName}
+                </option>
+              ))}
+            </select>
+            {selectedPreset && (
               <div className="preset-description">
-                {presets.find(p => p.id === selectedPresetId)?.description}
-              </div>
-            )}
-            {activePreset && (
-              <div className="active-preset-indicator">
-                ✓ Active: <strong>{activePreset.displayName}</strong>
+                {selectedPreset.description}
               </div>
             )}
           </div>
@@ -148,8 +139,8 @@ export function SettingsPanel({
               <label htmlFor="size-preset">Image Size</label>
               <select
                 id="size-preset"
-                value={selectedPreset}
-                onChange={(e) => handlePresetChange(parseInt(e.target.value))}
+                value={selectedSizePreset}
+                onChange={(e) => handleSizePresetChange(parseInt(e.target.value))}
               >
                 {IMAGE_SIZE_PRESETS.map((preset, index) => (
                   <option key={index} value={index}>
@@ -164,8 +155,8 @@ export function SettingsPanel({
                 <label htmlFor="size-preset">Image Size</label>
                 <select
                   id="size-preset"
-                  value={selectedPreset}
-                  onChange={(e) => handlePresetChange(parseInt(e.target.value))}
+                  value={selectedSizePreset}
+                  onChange={(e) => handleSizePresetChange(parseInt(e.target.value))}
                 >
                   {IMAGE_SIZE_PRESETS.map((preset, index) => (
                     <option key={index} value={index}>
