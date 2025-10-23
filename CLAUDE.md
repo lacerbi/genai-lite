@@ -22,6 +22,21 @@ node -e "const lib = require('./dist'); console.log('Exports:', Object.keys(lib)
 - The `dist/` folder is gitignored
 - `package-lock.json` is committed for reproducible CI builds
 
+## Documentation
+
+**User Documentation**: Complete API documentation and usage guides are in the **`genai-lite-docs/`** folder:
+- [Documentation Hub](genai-lite-docs/index.md) - Navigation and quick starts
+- [Core Concepts](genai-lite-docs/core-concepts.md) - API keys, presets, settings, errors
+- [LLM Service](genai-lite-docs/llm-service.md) - Text generation API
+- [Image Service](genai-lite-docs/image-service.md) - Image generation API
+- [llama.cpp Integration](genai-lite-docs/llamacpp-integration.md) - Local LLM setup
+- [Prompting Utilities](genai-lite-docs/prompting-utilities.md) - Template engine, parsing
+- [Providers & Models](genai-lite-docs/providers-and-models.md) - All supported providers
+- [TypeScript Reference](genai-lite-docs/typescript-reference.md) - Type definitions
+- [Troubleshooting](genai-lite-docs/troubleshooting.md) - Common issues
+
+**Note**: The docs folder is portable and self-contained - designed to be copied into other projects for AI-assisted development.
+
 ## Architecture Overview
 
 genai-lite is a lightweight, standalone Node.js/TypeScript library providing a unified interface for interacting with various Generative AI APIs, supporting both **Large Language Models (LLMs)** and **AI Image Generation**. The library has been successfully extracted from an Electron application (Athanor) and is now fully portable across different JavaScript environments.
@@ -110,125 +125,15 @@ This abstraction allows the library to work in any environment. Consumers can:
 - Use the built-in `fromEnvironment` provider for environment variables
 - Implement custom providers for their specific storage needs (databases, vaults, etc.)
 
-### Usage Examples
+### Basic Usage Patterns
 
-**Basic Usage:**
-```typescript
-import { LLMService, fromEnvironment } from 'genai-lite';
+See [genai-lite-docs/](genai-lite-docs/index.md) for comprehensive usage examples. Quick references:
 
-const service = new LLMService(fromEnvironment);
-const response = await service.sendMessage({
-  providerId: 'openai',
-  modelId: 'gpt-4',
-  messages: [{ role: 'user', content: 'Hello!' }]
-});
-```
-
-**Custom API Key Provider:**
-```typescript
-const customProvider: ApiKeyProvider = async (providerId) => {
-  // Your custom key retrieval logic
-  return await getKeyFromVault(providerId);
-};
-const service = new LLMService(customProvider);
-```
-
-**Using createMessages for Model-Aware Prompts:**
-```typescript
-const { messages, modelContext, settings } = await service.createMessages({
-  template: `
-    <META>
-    {
-      "settings": {
-        "temperature": 0.8,
-        "thinkingTagFallback": { "enabled": true }
-      }
-    }
-    </META>
-    <SYSTEM>
-      You are a helpful assistant.
-      {{ requires_tags_for_thinking ? ' For complex problems, write your reasoning in <thinking> tags before answering.' : '' }}
-    </SYSTEM>
-    <USER>{{ question }}</USER>
-  `,
-  variables: { question: 'Explain recursion' },
-  presetId: 'anthropic-claude-3-7-sonnet-20250219-thinking'
-});
-
-const response = await service.sendMessage({
-  presetId: 'anthropic-claude-3-7-sonnet-20250219-thinking',
-  messages,
-  settings // Includes settings from template metadata
-});
-```
-
-**Using llama.cpp for Local Models:**
-```typescript
-import { LLMService } from 'genai-lite';
-
-// Start llama.cpp server first: llama-server -m model.gguf --port 8080
-const service = new LLMService(async () => 'not-needed');
-
-const response = await service.sendMessage({
-  providerId: 'llamacpp',
-  modelId: 'llamacpp',  // Generic ID for loaded model
-  messages: [{ role: 'user', content: 'Hello!' }]
-});
-```
-
-**Using ImageService for AI Image Generation:**
-```typescript
-import { ImageService, fromEnvironment } from 'genai-lite';
-
-const imageService = new ImageService(fromEnvironment);
-
-// OpenAI image generation
-const result = await imageService.generateImage({
-  providerId: 'openai-images',
-  modelId: 'gpt-image-1-mini',
-  prompt: 'A serene mountain lake at sunrise',
-  settings: {
-    width: 1024,
-    height: 1024,
-    quality: 'high'
-  }
-});
-
-if (result.object === 'image.result') {
-  // Save image to file
-  require('fs').writeFileSync('output.png', result.data[0].data);
-}
-```
-
-**Using Local Diffusion with Progress Callbacks:**
-```typescript
-import { ImageService } from 'genai-lite';
-
-// Start genai-electron diffusion server on port 8081
-const imageService = new ImageService(async () => 'not-needed');
-
-const result = await imageService.generateImage({
-  providerId: 'genai-electron-images',
-  modelId: 'stable-diffusion',
-  prompt: 'A mystical forest with glowing mushrooms',
-  settings: {
-    width: 1024,
-    height: 1024,
-    diffusion: {
-      negativePrompt: 'blurry, low quality',
-      steps: 30,
-      cfgScale: 7.5,
-      sampler: 'dpm++2m',
-      onProgress: (progress) => {
-        console.log(`${progress.stage}: ${progress.percentage?.toFixed(1)}%`);
-      }
-    }
-  }
-});
-```
-
-**Interactive Demo Application:**
-For comprehensive usage examples, see `examples/chat-demo` - a full-featured React + Express application showcasing all library capabilities. The demo is kept up-to-date with new features and serves as both a showcase and quick-test environment.
+- **Basic LLM**: [index.md Quick Start](genai-lite-docs/index.md#quick-start-llm-cloud)
+- **Local llama.cpp**: [llamacpp-integration.md](genai-lite-docs/llamacpp-integration.md)
+- **Image Generation**: [image-service.md](genai-lite-docs/image-service.md)
+- **Template Engine**: [prompting-utilities.md](genai-lite-docs/prompting-utilities.md)
+- **Demo Apps**: [example-chat-demo.md](genai-lite-docs/example-chat-demo.md), [example-image-demo.md](genai-lite-docs/example-image-demo.md)
 
 ### Adding New AI Providers (LLM)
 
