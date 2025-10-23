@@ -118,6 +118,8 @@ export async function generateImageStream(
         }
 
         let isProcessing = true;
+        let currentEvent = '';
+        let currentData = '';
 
         const processChunk = async () => {
           try {
@@ -127,8 +129,6 @@ export async function generateImageStream(
               // Process any remaining events in the buffer before finishing
               if (buffer.trim()) {
                 const lines = buffer.split('\n');
-                let currentEvent = '';
-                let currentData = '';
 
                 for (const line of lines) {
                   if (line.startsWith('event:')) {
@@ -159,9 +159,6 @@ export async function generateImageStream(
             // Process complete events
             const lines = buffer.split('\n');
             buffer = lines.pop() || ''; // Keep incomplete line in buffer
-
-            let currentEvent = '';
-            let currentData = '';
 
             for (const line of lines) {
               if (line.startsWith('event:')) {
