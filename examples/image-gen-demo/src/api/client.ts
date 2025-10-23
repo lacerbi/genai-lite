@@ -144,6 +144,11 @@ export async function generateImageStream(
                     }
                   }
                 }
+
+                // Process final event if it exists (no trailing empty line case)
+                if (currentEvent && currentData) {
+                  handleEvent(currentEvent, currentData);
+                }
               }
               return;
             }
