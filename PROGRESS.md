@@ -59,7 +59,7 @@
 - [x] Health check endpoint responds correctly
 - [x] GET /api/image-providers returns 2 providers (OpenAI + genai-electron)
 - [x] GET /api/image-models/openai-images returns 4 models
-- [x] GET /api/image-presets returns 12 presets
+- [x] GET /api/image-presets returns 13 presets (updated in Phase 4)
 - [x] POST /api/generate validates requests and returns proper error without API key
 
 ---
@@ -97,7 +97,7 @@
   - Health check: ✅
   - Providers endpoint: ✅ Returns 2 providers with full model info
   - Models endpoint: ✅ Returns 4 OpenAI models
-  - Presets endpoint: ✅ Returns 12 image generation presets
+  - Presets endpoint: ✅ Returns 13 image generation presets (updated to 13 in Phase 4)
   - Generate endpoint: ✅ Validates and returns proper errors
 
 ### 2025-01-22 17:30 - Phase 3 Complete
@@ -222,7 +222,7 @@
 - Display metadata below image (size, seed, generation time)
 - Smooth animations: fade-in overlay, scale-in image
 - Body scroll prevention when modal open
-- Component: ImageModal.tsx (13th component)
+- Component: ImageModal.tsx (7th component created in Phase 3)
 
 **DALL-E 2 Compatibility Fix** ✅
 - Fixed critical bug where `quality` and `style` parameters were sent to DALL-E 2
@@ -238,42 +238,113 @@
 - Commit: 51ffbe6 - "feat: add image size presets and fix DALL-E 2 compatibility"
 - Changes: 4 library files + 1 new component, 207 insertions(+), 108 deletions(-)
 
-**Component Count:** 13 total (added ImageModal.tsx)
+**Component Count:** 10 total React components (added ImageModal.tsx as 7th in Phase 3, HealthIndicator.tsx as 10th in Phase 4)
+
+**All Components:**
+1. ErrorDisplay.tsx
+2. HealthIndicator.tsx (Phase 4)
+3. ImageCard.tsx
+4. ImageGallery.tsx
+5. ImageGenInterface.tsx
+6. ImageModal.tsx
+7. ProgressDisplay.tsx
+8. PromptInput.tsx
+9. ProviderSelector.tsx
+10. SettingsPanel.tsx
 
 ---
 
-## Phase 4: Advanced Features (genai-lite Showcase) ❌ NOT STARTED
+## Phase 4 Implementation (Advanced Features) ✅ 2/3 COMPLETE
+
+### 2025-01-23 Morning Session - Tasks 1 & 2 Complete
+
+**Task 1: Library Preset Integration** ✅
+- Implemented preset selector dropdown showing all 13 library presets
+- Auto-apply functionality - preset immediately applies when selected
+- Inline description display with responsive grid layout
+- Auto-clear when user manually changes settings
+- Commits: a81d615 (initial), 0ef8abf (bug fix), f61a6f4 (UX improvements)
+- Files modified: SettingsPanel.tsx, ImageGenInterface.tsx, types/index.ts, style.css
+
+**Task 2: genai-electron Health Check** ✅
+- Backend health check endpoint at /api/health/genai-electron
+- Frontend HealthIndicator component with status dot and pulse animation
+- Visual states: green (ok), red (error), yellow (checking)
+- "Test Connection" button for manual checks
+- Auto-check when genai-electron provider selected
+- Commit: 865d04c
+- New files: server/routes/health.ts, src/components/HealthIndicator.tsx
+- Files modified: server/index.ts, types/index.ts, api/client.ts, ProviderSelector.tsx, style.css
+
+**Additional Library Improvements:**
+- Added 13th image preset: "Local - SDXL Lightning (Medium)" at 768x768
+- Renamed original Lightning preset to "Lightning (Large)"
+- Adjusted CFG scale from 1.0 to 1.5 for Lightning presets (better prompt adherence)
+- Fixed all local diffusion preset model IDs to use generic 'stable-diffusion' ID
+- Commit: a2329df
+- File modified: src/config/image-presets.json
+
+**Summary:**
+- 2 Phase 4 tasks complete, 1 remaining (Real-Time Progress for Diffusion)
+- 2 new files created (health.ts, HealthIndicator.tsx)
+- ~15 files modified across frontend, backend, and library
+- Total presets now: 13 (was 12)
+- Total components now: 10 (added HealthIndicator.tsx)
+
+---
+
+## Phase 4: Advanced Features (genai-lite Showcase) 🔶 IN PROGRESS (2/3 Complete)
 
 **Goal:** Showcase core genai-lite ImageService library features
 
-### Task 1: Library Image Preset Integration ⭐
-- [ ] Add preset selector dropdown to SettingsPanel
-- [ ] Fetch 12 presets from /api/image-presets endpoint
-- [ ] "Load Preset" button applies provider, model, and all settings
-- [ ] Display preset description and current selection
-- [ ] Show which settings came from the loaded preset
-- [ ] Visual indicator when using a preset vs custom settings
+### Task 1: Library Image Preset Integration ✅ COMPLETE
 
-**Files to modify:**
-- `src/components/SettingsPanel.tsx` - Add preset dropdown section
-- `src/components/ImageGenInterface.tsx` - Preset state management
-- `src/types/index.ts` - Add ImagePreset type
-- `src/api/client.ts` - Already has getImagePresets() ✅
+**Implementation Details:**
+- [x] Preset selector dropdown in SettingsPanel showing all available presets
+- [x] Fetch 13 presets from /api/image-presets endpoint on component mount
+- [x] Auto-apply preset immediately when selected (no Apply button needed)
+- [x] Display preset description inline with dropdown
+- [x] Default option shows 'Select a preset (none selected)'
+- [x] Auto-clear active preset when user manually changes settings
 
-### Task 2: genai-electron Health Check 🔶
-- [ ] Backend: Create /api/health/genai-electron endpoint
-- [ ] Backend: Test connection to genai-electron server
-- [ ] Backend: Return server status and loaded model info
-- [ ] Frontend: Add health indicator to ProviderSelector
-- [ ] Frontend: Green/red status dot
-- [ ] Frontend: Display loaded model name when available
-- [ ] Frontend: "Test Connection" button
+**Commits:**
+- a81d615: Initial implementation with preset dropdown, apply button, active indicator
+- 0ef8abf: Bug fix - getImagePresets() returns array directly, not object
+- f61a6f4: UX improvements - auto-apply on selection, inline description, removed Apply button
 
-**Files to create/modify:**
-- `server/routes/health.ts` (new) - Health check endpoint
+**Files Modified:**
+- `src/components/SettingsPanel.tsx` - Preset section UI with dropdown and description
+- `src/components/ImageGenInterface.tsx` - Preset state management and auto-apply logic
+- `src/types/index.ts` - Added preset props to SettingsPanelProps
+- `src/style.css` - Styling for preset controls with responsive grid layout
+- `src/api/client.ts` - Already had getImagePresets() ✅
+
+### Task 2: genai-electron Health Check ✅ COMPLETE
+
+**Implementation Details:**
+- [x] Backend endpoint at /api/health/genai-electron with 5-second timeout
+- [x] Fetches status from genai-electron's /health endpoint
+- [x] Returns status ('ok'/'error'), busy state, and error messages
+- [x] New HealthIndicator component with visual status dot (green/red/yellow)
+- [x] Pulse animation for status dot
+- [x] Status text showing connection state and busy status
+- [x] "Test Connection" button for manual health checks
+- [x] Auto-check health when genai-electron provider selected
+- [x] Health indicator shown only for genai-electron provider
+
+**Commit:**
+- 865d04c: Full implementation of backend endpoint and frontend health indicator
+
+**New Files Created:**
+- `server/routes/health.ts` - Health check endpoint
+- `src/components/HealthIndicator.tsx` - Status display component (10th component)
+
+**Files Modified:**
 - `server/index.ts` - Register health routes
-- `src/components/ProviderSelector.tsx` - Add health indicator
-- May add `src/components/HealthIndicator.tsx` (small component)
+- `src/types/index.ts` - Add HealthStatus type
+- `src/api/client.ts` - Add getGenaiElectronHealth() function
+- `src/components/ProviderSelector.tsx` - Integrate health checking
+- `src/style.css` - Health indicator styling with pulse animation
 
 ### Task 3: Real-Time Progress for Diffusion ⚡
 - [ ] Backend: Pass progress callbacks through to frontend
@@ -295,10 +366,17 @@
 
 ## Next Steps
 
-When ready to continue with Phase 4:
-1. Start with Task 1 (Library Preset Integration) - highest priority showcase feature
-2. Then Task 2 (Health Check) - demonstrates local provider support
-3. Finally Task 3 (Real-Time Progress) - wire up existing library callbacks
+### Complete Phase 4 (Task 3 Remaining)
 
-After Phase 4:
+**Task 3: Real-Time Progress for Diffusion** - The final Phase 4 task
+- Wire up ImageService progress callbacks through backend to frontend
+- Implement SSE (Server-Sent Events) or polling architecture for real-time updates
+- Display actual progress data in ProgressDisplay component
+- Show stage transitions (loading → diffusion → decoding)
+- Update step counter with real values from genai-electron
+- Display actual percentage and elapsed time during generation
+
+This will complete the Phase 4 showcase of genai-lite's ImageService capabilities.
+
+### After Phase 4 (Phase 5):
 - Phase 5: Polish & Documentation (example prompts, README, testing)
