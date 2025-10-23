@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { fetchProviders, fetchModels } from '../api/client';
-import type { Provider, Model, ProviderSelectorProps } from '../types';
+import { fetchProviders, fetchModels, getGenaiElectronHealth } from '../api/client';
+import { HealthIndicator } from './HealthIndicator';
+import type { Provider, Model, ProviderSelectorProps, HealthStatus } from '../types';
 
 export function ProviderSelector({
   selectedProviderId,
@@ -11,6 +12,8 @@ export function ProviderSelector({
   const [providers, setProviders] = useState<Provider[]>([]);
   const [models, setModels] = useState<Model[]>([]);
   const [loading, setLoading] = useState(true);
+  const [health, setHealth] = useState<HealthStatus | null>(null);
+  const [healthLoading, setHealthLoading] = useState(false);
 
   // Load providers on mount
   useEffect(() => {
@@ -21,6 +24,13 @@ export function ProviderSelector({
   useEffect(() => {
     if (selectedProviderId) {
       loadModels(selectedProviderId);
+    }
+  }, [selectedProviderId]);
+
+  // Check health when genai-electron provider is selected
+  useEffect(() => {
+    if (selectedProviderId === 'genai-electron-images') {
+      checkHealth();
     }
   }, [selectedProviderId]);
 
@@ -55,6 +65,22 @@ export function ProviderSelector({
       }
     } catch (error) {
       console.error('Failed to load models:', error);
+    }
+  };
+
+  const checkHealth = async () => {
+    setHealthLoading(true);
+    try {
+      const healthData = await getGenaiElectronHealth();
+      setHealth(healthData);
+    } catch (error) {
+      setHealth({
+        status: 'error',
+        busy: false,
+        error: error instanceof Error ? error.message : 'Failed to check health'
+      });
+    } finally {
+      setHealthLoading(false);
     }
   };
 
@@ -114,6 +140,14 @@ export function ProviderSelector({
           <span>{isAvailable ? 'Available' : 'Unavailable'}</span>
         </div>
       </div>
+
+      {selectedProviderId === 'genai-electron-images' && (
+        <HealthIndicator
+          health={health}
+          isLoading={healthLoading}
+          onTest={checkHealth}
+        />
+      )}
     </div>
   );
 }

@@ -1,5 +1,11 @@
 // API Response Types
 
+export interface HealthStatus {
+  status: 'ok' | 'error';
+  busy: boolean;
+  error?: string;
+}
+
 export interface Provider {
   id: string;
   displayName: string;

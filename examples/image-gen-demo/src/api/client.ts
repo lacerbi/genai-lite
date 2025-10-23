@@ -1,4 +1,4 @@
-import type { Provider, Model, Preset, GenerateRequest, GenerateResponse } from '../types';
+import type { Provider, Model, Preset, GenerateRequest, GenerateResponse, HealthStatus } from '../types';
 
 const API_BASE = '/api';
 
@@ -29,7 +29,7 @@ export async function fetchModels(providerId: string): Promise<Model[]> {
 /**
  * Fetch all image generation presets
  */
-export async function fetchPresets(): Promise<Preset[]> {
+export async function getImagePresets(): Promise<Preset[]> {
   const response = await fetch(`${API_BASE}/image-presets`);
   if (!response.ok) {
     throw new Error(`Failed to fetch presets: ${response.statusText}`);
@@ -64,6 +64,17 @@ export async function checkHealth(): Promise<{ status: string; message: string }
   const response = await fetch(`${API_BASE}/health`);
   if (!response.ok) {
     throw new Error('Backend not reachable');
+  }
+  return await response.json();
+}
+
+/**
+ * Check genai-electron diffusion server health
+ */
+export async function getGenaiElectronHealth(): Promise<HealthStatus> {
+  const response = await fetch(`${API_BASE}/health/genai-electron`);
+  if (!response.ok) {
+    throw new Error('Failed to check genai-electron health');
   }
   return await response.json();
 }

@@ -102,6 +102,41 @@ body {
   cursor: pointer;
 }
 
+/* Health Indicator */
+.health-indicator {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 10px;
+  background: var(--background-secondary);
+  border-radius: 6px;
+}
+
+.health-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.status-text {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
 .provider-field select:disabled {
   background: var(--background-secondary);
   cursor: not-allowed;
