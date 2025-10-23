@@ -117,11 +117,34 @@ export async function generateImageStream(
           return;
         }
 
+        let isProcessing = true;
+
         const processChunk = async () => {
           try {
             const { done, value } = await reader.read();
 
             if (done) {
+              // Process any remaining events in the buffer before finishing
+              if (buffer.trim()) {
+                const lines = buffer.split('\n');
+                let currentEvent = '';
+                let currentData = '';
+
+                for (const line of lines) {
+                  if (line.startsWith('event:')) {
+                    currentEvent = line.slice(6).trim();
+                  } else if (line.startsWith('data:')) {
+                    currentData = line.slice(5).trim();
+                  } else if (line === '' || lines.indexOf(line) === lines.length - 1) {
+                    // Empty line or last line means end of event
+                    if (currentEvent && currentData) {
+                      handleEvent(currentEvent, currentData);
+                      currentEvent = '';
+                      currentData = '';
+                    }
+                  }
+                }
+              }
               return;
             }
 
@@ -150,8 +173,10 @@ export async function generateImageStream(
               }
             }
 
-            // Continue reading
-            processChunk();
+            // Continue reading if still processing
+            if (isProcessing) {
+              processChunk();
+            }
           } catch (error) {
             reject(error);
           }
@@ -171,6 +196,7 @@ export async function generateImageStream(
                 break;
 
               case 'complete':
+                isProcessing = false; // Stop processing loop
                 resolve({
                   success: true,
                   result: data.result,
@@ -178,6 +204,7 @@ export async function generateImageStream(
                 break;
 
               case 'error':
+                isProcessing = false; // Stop processing loop
                 resolve({
                   success: false,
                   error: data.error,
