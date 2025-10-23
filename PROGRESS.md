@@ -465,26 +465,58 @@ The `currentEvent` and `currentData` variables were scoped **inside** the `proce
 
 ---
 
+## Phase 5: Polish & Documentation 🎯 IN PROGRESS
+
+### 2025-01-23 Evening Session - Example Prompts ✅
+
+**Feature:** Quick-select example prompts in prompt input
+
+**Implementation:**
+- Added dropdown menu "Try an example..." in PromptInput component
+- 6 curated example prompts across different categories:
+  - **Photorealistic:** Mountain lake at golden hour
+  - **Artistic:** Impressionist medieval marketplace
+  - **Fantasy:** Dragon on mountain peak
+  - **Nature:** Rainforest with morning mist
+  - **Abstract:** Geometric shapes in neon colors
+  - **Product:** Smartwatch product photography
+- Clean UI integration next to Clear button
+- Selecting example immediately fills textarea
+- Dropdown resets after selection for repeated use
+
+**Benefits:**
+- New users can quickly try demo without writing prompts
+- Showcases variety of image generation capabilities
+- Professional prompts produce good results
+
+**Commit:** cd3d0f5
+
+**Files Modified:**
+- `examples/image-gen-demo/src/components/PromptInput.tsx` - Added EXAMPLE_PROMPTS and dropdown
+- `examples/image-gen-demo/src/style.css` - Added .prompt-actions and .example-prompt-select styles
+
+---
+
 ## Next Steps
 
-### Phase 5: Polish & Documentation 🎯 READY TO START
+### Phase 5: Polish & Documentation 🎯 IN PROGRESS (2/7 complete)
 
 **Goal:** Production-ready demo application
 
 **Tasks:**
-1. Add example prompts (~5 good examples for different use cases)
-2. Write comprehensive README for the demo (setup, usage, features)
-3. Test on different browsers (Chrome, Firefox, Safari)
-4. Final testing with both OpenAI and genai-electron providers
-5. Test all features end-to-end:
+1. ✅ Add example prompts (~5 good examples for different use cases) - COMPLETE
+2. ✅ Write comprehensive README for the demo (setup, usage, features) - COMPLETE (already done)
+3. ❓ Test on different browsers (Chrome, Firefox, Safari)
+4. ❓ Final testing with both OpenAI and genai-electron providers
+5. ❓ Test all features end-to-end:
    - Image generation with both providers
    - Batch generation (2-4 images)
    - Progress monitoring for diffusion
    - Preset loading and application
    - Health checking for genai-electron
    - Error handling
-6. Performance optimization if needed
-7. Final cleanup and code review
+6. ❓ Performance optimization if needed
+7. ❓ Final cleanup and code review
 
 **Expected Deliverables:**
 - Comprehensive README.md in image-gen-demo directory
