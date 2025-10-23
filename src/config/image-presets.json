@@ -177,6 +177,7 @@
   {
     "id": "genai-electron-sdxl-lightning",
     "displayName": "Local - SDXL Lightning (Large)",
+    "displayName": "Local - SDXL Lightning (Large)",
     "description": "Lightning-fast generation with quality (trained at 1024x1024, 2-8 steps)",
     "providerId": "genai-electron-images",
     "modelId": "stable-diffusion",
