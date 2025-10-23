@@ -318,6 +318,56 @@
 2. ✅ genai-electron Health Check
 3. ✅ Real-Time Progress for Diffusion
 
+### 2025-01-23 Evening Session - SSE Bug Fix ✅
+
+**Critical Bug:** Images not displaying after generation completes
+
+**Issue:**
+- Generation completed on backend successfully
+- Progress updates worked fine (UI reached ~100%)
+- But images never appeared in the gallery
+- The `complete` SSE event was not being processed by the frontend
+
+**Root Cause Analysis:**
+The `currentEvent` and `currentData` variables were scoped **inside** the `processChunk()` function, causing them to be recreated on each iteration. When the final chunk arrived:
+
+1. Buffer contained: `event: complete\ndata: {...}\n`
+2. Lines split and last empty line popped into buffer
+3. Loop processed lines: `currentEvent = 'complete'`, `currentData = '{...}'`
+4. No empty line in the lines array → `handleEvent()` never called
+5. Function returned → **local variables lost**
+6. Next iteration: `done: true`, buffer empty, no event data to process
+7. Complete event never handled → images never displayed
+
+**Initial Fix Attempt (commit f11f8e7):**
+- Added buffer processing when `done: true`
+- Added `isProcessing` flag to control recursive loop
+- **Result:** Partially fixed (progress worked better) but images still didn't display
+
+**Second Fix Attempt (commit 471edbc):**
+- Added check after for loop to process final buffered event
+- **Result:** Still didn't work - variables were still lost between iterations
+
+**Final Solution (commit 8fd172f):**
+- Moved `currentEvent` and `currentData` declarations **outside** `processChunk()`
+- Placed them alongside `buffer` and `isProcessing` (after line 120)
+- Removed duplicate declarations inside the function
+- Variables now persist across iterations
+
+**Result:**
+- ✅ Generation completes successfully
+- ✅ Progress updates work in real-time
+- ✅ Complete event processed immediately when stream ends
+- ✅ Images display in gallery instantly
+
+**Commits:**
+- f11f8e7: Initial attempt - process buffered events on stream end
+- 471edbc: Second attempt - explicit final event check
+- 8fd172f: Final fix - persist event state across iterations ✅
+
+**Files Modified:**
+- `examples/image-gen-demo/src/api/client.ts` - Variable scoping fix
+
 ---
 
 ## Phase 4: Advanced Features (genai-lite Showcase) ✅ COMPLETE
