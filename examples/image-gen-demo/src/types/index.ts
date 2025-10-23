@@ -117,6 +117,10 @@ export interface SettingsPanelProps {
   count: number;
   onSettingsChange: (settings: ImageSettings) => void;
   onCountChange: (count: number) => void;
+  // Preset support
+  presets: Preset[];
+  activePresetId: string | null;
+  onApplyPreset: (preset: Preset) => void;
 }
 
 export interface ImageGalleryProps {

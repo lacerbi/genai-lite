@@ -299,6 +299,51 @@ button {
   margin-top: 2px;
 }
 
+/* Preset Controls */
+.preset-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.preset-selector {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+}
+
+.preset-dropdown {
+  flex: 1;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 14px;
+  background: var(--background);
+}
+
+.preset-description {
+  padding: 10px 12px;
+  background: var(--background-secondary);
+  border-left: 3px solid var(--primary-color);
+  border-radius: 4px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.active-preset-indicator {
+  padding: 8px 12px;
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid var(--success);
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--success);
+}
+
+.active-preset-indicator strong {
+  color: var(--success);
+  font-weight: 600;
+}
+
 .dimension-display {
   padding: 10px 12px;
   background: var(--background-secondary);

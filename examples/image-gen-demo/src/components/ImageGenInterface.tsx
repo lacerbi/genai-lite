@@ -1,12 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ProviderSelector } from './ProviderSelector';
 import { PromptInput } from './PromptInput';
 import { SettingsPanel } from './SettingsPanel';
 import { ImageGallery } from './ImageGallery';
 import { ProgressDisplay } from './ProgressDisplay';
 import { ErrorDisplay } from './ErrorDisplay';
-import { generateImage } from '../api/client';
-import type { ImageSettings, GeneratedImage } from '../types';
+import { generateImage, getImagePresets } from '../api/client';
+import type { ImageSettings, GeneratedImage, Preset } from '../types';
 
 export function ImageGenInterface() {
   // Provider & Model
@@ -15,6 +15,10 @@ export function ImageGenInterface() {
 
   // Prompt
   const [prompt, setPrompt] = useState('');
+
+  // Presets
+  const [presets, setPresets] = useState<Preset[]>([]);
+  const [activePresetId, setActivePresetId] = useState<string | null>(null);
 
   // Settings
   const [settings, setSettings] = useState<ImageSettings>({
@@ -42,6 +46,39 @@ export function ImageGenInterface() {
   // Images & Errors
   const [images, setImages] = useState<GeneratedImage[]>([]);
   const [error, setError] = useState<{ message: string; code?: string; type?: string } | null>(null);
+
+  // Fetch presets on mount
+  useEffect(() => {
+    const fetchPresets = async () => {
+      try {
+        const response = await getImagePresets();
+        if (response.presets) {
+          setPresets(response.presets);
+        }
+      } catch (err) {
+        console.error('Failed to fetch presets:', err);
+      }
+    };
+    fetchPresets();
+  }, []);
+
+  // Handle preset application
+  const handleApplyPreset = (preset: Preset) => {
+    // Apply provider and model
+    setProviderId(preset.providerId);
+    setModelId(preset.modelId);
+    // Apply all settings from preset
+    setSettings(preset.settings);
+    // Mark this preset as active
+    setActivePresetId(preset.id);
+  };
+
+  // Clear active preset when settings are manually changed
+  const handleSettingsChange = (newSettings: ImageSettings) => {
+    setSettings(newSettings);
+    // Clear active preset since user manually changed settings
+    setActivePresetId(null);
+  };
 
   // Get max prompt length based on provider/model
   const getMaxPromptLength = (): number => {
@@ -154,8 +191,11 @@ export function ImageGenInterface() {
         providerId={providerId}
         settings={settings}
         count={count}
-        onSettingsChange={setSettings}
+        onSettingsChange={handleSettingsChange}
         onCountChange={setCount}
+        presets={presets}
+        activePresetId={activePresetId}
+        onApplyPreset={handleApplyPreset}
       />
 
       <div style={{ marginBottom: '20px' }}>

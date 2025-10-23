@@ -20,10 +20,16 @@ export function SettingsPanel({
   settings,
   count,
   onSettingsChange,
-  onCountChange
+  onCountChange,
+  presets,
+  activePresetId,
+  onApplyPreset
 }: SettingsPanelProps) {
   const isOpenAI = providerId === 'openai-images';
   const isDiffusion = providerId === 'genai-electron-images';
+
+  // State for selected preset (dropdown value)
+  const [selectedPresetId, setSelectedPresetId] = useState<string>('');
 
   // Determine initial preset selection
   const getCurrentPresetIndex = () => {
@@ -79,8 +85,59 @@ export function SettingsPanel({
 
   const isCustomSize = selectedPreset === IMAGE_SIZE_PRESETS.length - 1;
 
+  // Handle preset application
+  const handleApplyPreset = () => {
+    const preset = presets.find(p => p.id === selectedPresetId);
+    if (preset) {
+      onApplyPreset(preset);
+    }
+  };
+
+  // Get active preset details
+  const activePreset = presets.find(p => p.id === activePresetId);
+
   return (
     <div className="settings-panel">
+      {/* Library Presets Section */}
+      {presets.length > 0 && (
+        <div className="settings-section">
+          <h3>Library Presets</h3>
+          <div className="preset-controls">
+            <div className="preset-selector">
+              <select
+                value={selectedPresetId}
+                onChange={(e) => setSelectedPresetId(e.target.value)}
+                className="preset-dropdown"
+              >
+                <option value="">-- Select a preset --</option>
+                {presets.map((preset) => (
+                  <option key={preset.id} value={preset.id}>
+                    {preset.displayName}
+                  </option>
+                ))}
+              </select>
+              <button
+                className="btn-secondary"
+                onClick={handleApplyPreset}
+                disabled={!selectedPresetId}
+              >
+                Apply Preset
+              </button>
+            </div>
+            {selectedPresetId && (
+              <div className="preset-description">
+                {presets.find(p => p.id === selectedPresetId)?.description}
+              </div>
+            )}
+            {activePreset && (
+              <div className="active-preset-indicator">
+                ✓ Active: <strong>{activePreset.displayName}</strong>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Image Settings: Dimensions + Batch Generation */}
       <div className="settings-section">
         <h3>Image Settings</h3>
