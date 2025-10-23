@@ -220,6 +220,39 @@ body {
   color: var(--error);
 }
 
+.prompt-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.example-prompt-select {
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--background);
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.example-prompt-select:hover:not(:disabled) {
+  border-color: var(--primary);
+  background: var(--background-secondary);
+}
+
+.example-prompt-select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.example-prompt-select:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1);
+}
+
 /* Buttons */
 button {
   padding: 10px 20px;
