@@ -5,6 +5,7 @@ import { providersRouter } from './routes/providers.js';
 import { modelsRouter } from './routes/models.js';
 import { presetsRouter } from './routes/presets.js';
 import { imageRouter } from './routes/image.js';
+import { healthRouter } from './routes/health.js';
 
 // Load environment variables
 dotenv.config();
@@ -29,6 +30,7 @@ app.get('/api/health', (req, res) => {
 app.use('/api/image-providers', providersRouter);
 app.use('/api/image-models', modelsRouter);
 app.use('/api/image-presets', presetsRouter);
+app.use('/api/health', healthRouter);
 app.use('/api', imageRouter);
 
 // Start server

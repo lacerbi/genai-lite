@@ -6,6 +6,8 @@ const IMAGE_SIZE_PRESETS = [
   { label: '512×512 (Square, Small)', width: 512, height: 512 },
   { label: '768×768 (Square, Medium)', width: 768, height: 768 },
   { label: '1024×1024 (Square, Large)', width: 1024, height: 1024 },
+  { label: '512×768 (Portrait, Small)', width: 512, height: 768 },
+  { label: '768×512 (Landscape, Small)', width: 768, height: 512 },
   { label: '768×1024 (Portrait)', width: 768, height: 1024 },
   { label: '1024×768 (Landscape)', width: 1024, height: 768 },
   { label: '1024×1536 (Portrait, Tall)', width: 1024, height: 1536 },
@@ -18,10 +20,16 @@ export function SettingsPanel({
   settings,
   count,
   onSettingsChange,
-  onCountChange
+  onCountChange,
+  presets,
+  activePresetId,
+  onApplyPreset
 }: SettingsPanelProps) {
   const isOpenAI = providerId === 'openai-images';
   const isDiffusion = providerId === 'genai-electron-images';
+
+  // State for selected preset (dropdown value)
+  const [selectedPresetId, setSelectedPresetId] = useState<string>('');
 
   // Determine initial preset selection
   const getCurrentPresetIndex = () => {
@@ -33,11 +41,11 @@ export function SettingsPanel({
     return presetIndex >= 0 ? presetIndex : IMAGE_SIZE_PRESETS.length - 1; // Default to "Custom"
   };
 
-  const [selectedPreset, setSelectedPreset] = useState<number>(getCurrentPresetIndex());
+  const [selectedSizePreset, setSelectedSizePreset] = useState<number>(getCurrentPresetIndex());
 
-  // Update preset when settings change externally
+  // Update size preset when settings change externally
   useEffect(() => {
-    setSelectedPreset(getCurrentPresetIndex());
+    setSelectedSizePreset(getCurrentPresetIndex());
   }, [settings.width, settings.height]);
 
   const updateSetting = <K extends keyof typeof settings>(
@@ -61,8 +69,8 @@ export function SettingsPanel({
     });
   };
 
-  const handlePresetChange = (index: number) => {
-    setSelectedPreset(index);
+  const handleSizePresetChange = (index: number) => {
+    setSelectedSizePreset(index);
     const preset = IMAGE_SIZE_PRESETS[index];
 
     // Only update dimensions if not "Custom"
@@ -75,10 +83,52 @@ export function SettingsPanel({
     }
   };
 
-  const isCustomSize = selectedPreset === IMAGE_SIZE_PRESETS.length - 1;
+  const isCustomSize = selectedSizePreset === IMAGE_SIZE_PRESETS.length - 1;
+
+  // Handle preset selection - auto-apply when changed
+  const handlePresetSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const presetId = e.target.value;
+    setSelectedPresetId(presetId);
+
+    if (presetId) {
+      const preset = presets.find(p => p.id === presetId);
+      if (preset) {
+        onApplyPreset(preset);
+      }
+    }
+  };
+
+  // Get selected preset details for description
+  const selectedPreset = presets.find(p => p.id === selectedPresetId);
 
   return (
     <div className="settings-panel">
+      {/* Library Presets Section */}
+      {presets.length > 0 && (
+        <div className="settings-section">
+          <h3>Library Presets</h3>
+          <div className="preset-selector-row">
+            <select
+              value={selectedPresetId}
+              onChange={handlePresetSelect}
+              className="preset-dropdown"
+            >
+              <option value="">Select a preset (none selected)</option>
+              {presets.map((preset) => (
+                <option key={preset.id} value={preset.id}>
+                  {preset.displayName}
+                </option>
+              ))}
+            </select>
+            {selectedPreset && (
+              <div className="preset-description">
+                {selectedPreset.description}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Image Settings: Dimensions + Batch Generation */}
       <div className="settings-section">
         <h3>Image Settings</h3>
@@ -89,8 +139,8 @@ export function SettingsPanel({
               <label htmlFor="size-preset">Image Size</label>
               <select
                 id="size-preset"
-                value={selectedPreset}
-                onChange={(e) => handlePresetChange(parseInt(e.target.value))}
+                value={selectedSizePreset}
+                onChange={(e) => handleSizePresetChange(parseInt(e.target.value))}
               >
                 {IMAGE_SIZE_PRESETS.map((preset, index) => (
                   <option key={index} value={index}>
@@ -105,8 +155,8 @@ export function SettingsPanel({
                 <label htmlFor="size-preset">Image Size</label>
                 <select
                   id="size-preset"
-                  value={selectedPreset}
-                  onChange={(e) => handlePresetChange(parseInt(e.target.value))}
+                  value={selectedSizePreset}
+                  onChange={(e) => handleSizePresetChange(parseInt(e.target.value))}
                 >
                   {IMAGE_SIZE_PRESETS.map((preset, index) => (
                     <option key={index} value={index}>
@@ -274,8 +324,6 @@ export function SettingsPanel({
                 />
                 <div className="slider-value">{settings.diffusion?.cfgScale || 7.5}</div>
               </div>
-            </div>
-            <div className="settings-row">
               <div className="setting-field">
                 <label htmlFor="sampler">Sampler</label>
                 <select

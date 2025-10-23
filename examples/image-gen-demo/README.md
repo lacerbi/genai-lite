@@ -12,7 +12,7 @@ An interactive web application demonstrating the image generation capabilities o
 - 🔍 **Image Lightbox** - Click images to view full-screen with keyboard navigation
 - 🖼️ **Gallery View** - Responsive grid display with auto-scroll to latest
 - 💾 **Image Management** - Download, delete, and view detailed metadata
-- 🎯 **Preset System** - 12 built-in presets for common use cases
+- 🎯 **Preset System** - 13 built-in presets for common use cases
 
 ## Prerequisites
 

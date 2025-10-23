@@ -11,10 +11,10 @@ const imagePresets = rawImagePresets as ImagePreset[];
 
 describe('Image Presets Configuration', () => {
   describe('Preset Loading', () => {
-    it('should load all 12 image presets', () => {
+    it('should load all 13 image presets', () => {
       expect(imagePresets).toBeDefined();
       expect(Array.isArray(imagePresets)).toBe(true);
-      expect(imagePresets.length).toBe(12);
+      expect(imagePresets.length).toBe(13);
     });
 
     it('should load 6 OpenAI presets', () => {
@@ -22,9 +22,9 @@ describe('Image Presets Configuration', () => {
       expect(openaiPresets.length).toBe(6);
     });
 
-    it('should load 6 genai-electron presets', () => {
+    it('should load 7 genai-electron presets', () => {
       const electronPresets = imagePresets.filter(p => p.providerId === 'genai-electron-images');
-      expect(electronPresets.length).toBe(6);
+      expect(electronPresets.length).toBe(7);
     });
   });
 
@@ -160,7 +160,7 @@ describe('Image Presets Configuration', () => {
     it('should have sdxl-turbo preset with correct settings', () => {
       const preset = imagePresets.find(p => p.id === 'genai-electron-sdxl-turbo');
       expect(preset).toBeDefined();
-      expect(preset?.modelId).toBe('sdxl-turbo');
+      expect(preset?.modelId).toBe('stable-diffusion');
       expect(preset?.settings?.width).toBe(512);
       expect(preset?.settings?.height).toBe(512);
       expect(preset?.settings?.diffusion?.steps).toBe(4);
@@ -171,11 +171,22 @@ describe('Image Presets Configuration', () => {
     it('should have sdxl-lightning preset with correct settings', () => {
       const preset = imagePresets.find(p => p.id === 'genai-electron-sdxl-lightning');
       expect(preset).toBeDefined();
-      expect(preset?.modelId).toBe('sdxl-lightning');
+      expect(preset?.modelId).toBe('stable-diffusion');
       expect(preset?.settings?.width).toBe(1024);
       expect(preset?.settings?.height).toBe(1024);
       expect(preset?.settings?.diffusion?.steps).toBe(8);
-      expect(preset?.settings?.diffusion?.cfgScale).toBe(1.0);
+      expect(preset?.settings?.diffusion?.cfgScale).toBe(1.5);
+      expect(preset?.settings?.diffusion?.sampler).toBe('euler_a');
+    });
+
+    it('should have sdxl-lightning-medium preset with correct settings', () => {
+      const preset = imagePresets.find(p => p.id === 'genai-electron-sdxl-lightning-medium');
+      expect(preset).toBeDefined();
+      expect(preset?.modelId).toBe('stable-diffusion');
+      expect(preset?.settings?.width).toBe(768);
+      expect(preset?.settings?.height).toBe(768);
+      expect(preset?.settings?.diffusion?.steps).toBe(8);
+      expect(preset?.settings?.diffusion?.cfgScale).toBe(1.5);
       expect(preset?.settings?.diffusion?.sampler).toBe('euler_a');
     });
   });

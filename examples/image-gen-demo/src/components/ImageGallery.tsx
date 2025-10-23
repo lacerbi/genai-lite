@@ -3,7 +3,7 @@ import { ImageCard } from './ImageCard';
 import { ImageModal } from './ImageModal';
 import type { ImageGalleryProps } from '../types';
 
-export function ImageGallery({ images, onDownload, onDelete, onClearAll }: ImageGalleryProps) {
+export function ImageGallery({ images, onDelete, onClearAll }: ImageGalleryProps) {
   const galleryRef = useRef<HTMLDivElement>(null);
   const [selectedImageIndex, setSelectedImageIndex] = useState<number | null>(null);
 
@@ -65,7 +65,6 @@ export function ImageGallery({ images, onDownload, onDelete, onClearAll }: Image
           <ImageCard
             key={`${image.generatedAt}-${image.index}`}
             image={image}
-            onDownload={() => onDownload(index)}
             onDelete={() => onDelete(index)}
             onImageClick={() => handleImageClick(index)}
           />

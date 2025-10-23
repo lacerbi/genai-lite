@@ -162,7 +162,7 @@
     "displayName": "Local - SDXL Turbo",
     "description": "Real-time generation with SDXL Turbo (optimal at 512x512, 1-4 steps)",
     "providerId": "genai-electron-images",
-    "modelId": "sdxl-turbo",
+    "modelId": "stable-diffusion",
     "settings": {
       "width": 512,
       "height": 512,
@@ -176,17 +176,35 @@
   },
   {
     "id": "genai-electron-sdxl-lightning",
-    "displayName": "Local - SDXL Lightning",
+    "displayName": "Local - SDXL Lightning (Large)",
+    "displayName": "Local - SDXL Lightning (Large)",
     "description": "Lightning-fast generation with quality (trained at 1024x1024, 2-8 steps)",
     "providerId": "genai-electron-images",
-    "modelId": "sdxl-lightning",
+    "modelId": "stable-diffusion",
     "settings": {
       "width": 1024,
       "height": 1024,
       "responseFormat": "buffer",
       "diffusion": {
         "steps": 8,
-        "cfgScale": 1.0,
+        "cfgScale": 1.5,
+        "sampler": "euler_a"
+      }
+    }
+  },
+  {
+    "id": "genai-electron-sdxl-lightning-medium",
+    "displayName": "Local - SDXL Lightning (Medium)",
+    "description": "Lightning-fast generation at medium size (trained at 1024x1024, 2-8 steps)",
+    "providerId": "genai-electron-images",
+    "modelId": "stable-diffusion",
+    "settings": {
+      "width": 768,
+      "height": 768,
+      "responseFormat": "buffer",
+      "diffusion": {
+        "steps": 8,
+        "cfgScale": 1.5,
         "sampler": "euler_a"
       }
     }

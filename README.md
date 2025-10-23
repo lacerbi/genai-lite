@@ -183,7 +183,7 @@ export GENAI_ELECTRON_IMAGE_BASE_URL=http://localhost:8081
 
 #### Using Image Presets
 
-genai-lite includes 12 built-in presets for common use cases:
+genai-lite includes 13 built-in presets for common use cases:
 
 ```typescript
 const imageService = new ImageService(fromEnvironment);
@@ -214,7 +214,7 @@ const result = await imageService.generateImage({
 
 **Available Presets:**
 - **OpenAI:** `openai-gpt-image-1-mini-default`, `openai-gpt-image-1-quality`, `openai-dalle-3-hd`, `openai-dalle-3-natural`, `openai-dalle-2-default`, `openai-dalle-2-fast`
-- **Local Diffusion:** `genai-electron-sdxl-quality`, `genai-electron-sdxl-balanced`, `genai-electron-sdxl-fast`, `genai-electron-sdxl-portrait`, `genai-electron-sdxl-turbo`, `genai-electron-sdxl-lightning`
+- **Local Diffusion:** `genai-electron-sdxl-quality`, `genai-electron-sdxl-balanced`, `genai-electron-sdxl-fast`, `genai-electron-sdxl-portrait`, `genai-electron-sdxl-turbo`, `genai-electron-sdxl-lightning`, `genai-electron-sdxl-lightning-medium`
 
 #### Progress Callbacks (Local Diffusion)
 
