@@ -32,7 +32,8 @@
   "homepage": "https://github.com/lacerbi/genai-lite#readme",
   "files": [
     "dist",
-    "src/config/presets.json"
+    "src/config/llm-presets.json",
+    "src/config/image-presets.json"
   ],
   "scripts": {
     "build": "tsc",
