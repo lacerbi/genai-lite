@@ -51,10 +51,8 @@ export function ImageGenInterface() {
   useEffect(() => {
     const fetchPresets = async () => {
       try {
-        const response = await getImagePresets();
-        if (response.presets) {
-          setPresets(response.presets);
-        }
+        const presets = await getImagePresets();
+        setPresets(presets);
       } catch (err) {
         console.error('Failed to fetch presets:', err);
       }
