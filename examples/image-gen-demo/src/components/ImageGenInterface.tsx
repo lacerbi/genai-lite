@@ -5,7 +5,7 @@ import { SettingsPanel } from './SettingsPanel';
 import { ImageGallery } from './ImageGallery';
 import { ProgressDisplay } from './ProgressDisplay';
 import { ErrorDisplay } from './ErrorDisplay';
-import { generateImage, getImagePresets } from '../api/client';
+import { generateImage, generateImageStream, getImagePresets, type ProgressUpdate } from '../api/client';
 import type { ImageSettings, GeneratedImage, Preset } from '../types';
 
 export function ImageGenInterface() {
@@ -41,6 +41,9 @@ export function ImageGenInterface() {
   // Generation state
   const [isGenerating, setIsGenerating] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [progressStage, setProgressStage] = useState<'loading' | 'diffusion' | 'decoding'>('loading');
+  const [currentStep, setCurrentStep] = useState(0);
+  const [totalSteps, setTotalSteps] = useState(0);
   const [startTime, setStartTime] = useState(0);
 
   // Images & Errors
@@ -98,21 +101,46 @@ export function ImageGenInterface() {
       return;
     }
 
-    // Clear previous error
+    // Clear previous error and reset progress
     setError(null);
     setIsGenerating(true);
     setProgress(0);
+    setProgressStage('loading');
+    setCurrentStep(0);
+    setTotalSteps(0);
     const start = Date.now();
     setStartTime(start);
 
+    const request = {
+      providerId,
+      modelId,
+      prompt,
+      count,
+      settings
+    };
+
     try {
-      const response = await generateImage({
-        providerId,
-        modelId,
-        prompt,
-        count,
-        settings
-      });
+      // Use streaming for genai-electron to get real-time progress
+      const useStreaming = providerId === 'genai-electron-images';
+
+      let response;
+      if (useStreaming) {
+        response = await generateImageStream(request, {
+          onStart: () => {
+            console.log('Generation started');
+          },
+          onProgress: (progressUpdate: ProgressUpdate) => {
+            // Update progress state with real-time data
+            setProgressStage(progressUpdate.stage);
+            setCurrentStep(progressUpdate.currentStep);
+            setTotalSteps(progressUpdate.totalSteps);
+            setProgress(progressUpdate.percentage || 0);
+          }
+        });
+      } else {
+        // For OpenAI, use standard endpoint (no progress updates)
+        response = await generateImage(request);
+      }
 
       if (response.success && response.result) {
         // Calculate generation time
@@ -221,7 +249,9 @@ export function ImageGenInterface() {
 
       <ProgressDisplay
         isGenerating={isGenerating}
-        stage="loading"
+        stage={progressStage}
+        currentStep={currentStep}
+        totalSteps={totalSteps}
         percentage={progress}
         elapsed={elapsed}
       />

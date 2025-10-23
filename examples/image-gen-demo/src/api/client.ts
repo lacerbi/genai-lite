@@ -39,7 +39,7 @@ export async function getImagePresets(): Promise<Preset[]> {
 }
 
 /**
- * Generate image(s) from prompt
+ * Generate image(s) from prompt (standard endpoint)
  */
 export async function generateImage(request: GenerateRequest): Promise<GenerateResponse> {
   const response = await fetch(`${API_BASE}/generate`, {
@@ -55,6 +55,145 @@ export async function generateImage(request: GenerateRequest): Promise<GenerateR
 
   // Return the response as-is (includes success field)
   return data;
+}
+
+/**
+ * Progress callback for streaming generation
+ */
+export interface ProgressUpdate {
+  stage: 'loading' | 'diffusion' | 'decoding';
+  currentStep: number;
+  totalSteps: number;
+  percentage?: number;
+  currentImage?: number;
+  totalImages?: number;
+  elapsed: number;
+}
+
+export interface StreamCallbacks {
+  onProgress?: (progress: ProgressUpdate) => void;
+  onStart?: () => void;
+}
+
+/**
+ * Generate image(s) with real-time progress via Server-Sent Events
+ * Returns a promise that resolves with the final result
+ */
+export async function generateImageStream(
+  request: GenerateRequest,
+  callbacks?: StreamCallbacks
+): Promise<GenerateResponse> {
+  return new Promise((resolve, reject) => {
+    // We need to use fetch with streaming response
+    fetch(`${API_BASE}/generate-stream`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(request),
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          // If not OK and not SSE, parse as JSON error
+          const error = await response.json();
+          reject(new Error(error.error?.message || 'Generation failed'));
+          return;
+        }
+
+        // Check if response is SSE
+        const contentType = response.headers.get('content-type');
+        if (!contentType?.includes('text/event-stream')) {
+          reject(new Error('Expected SSE response'));
+          return;
+        }
+
+        // Read the stream
+        const reader = response.body?.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        if (!reader) {
+          reject(new Error('No response body'));
+          return;
+        }
+
+        const processChunk = async () => {
+          try {
+            const { done, value } = await reader.read();
+
+            if (done) {
+              return;
+            }
+
+            // Decode and append to buffer
+            buffer += decoder.decode(value, { stream: true });
+
+            // Process complete events
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || ''; // Keep incomplete line in buffer
+
+            let currentEvent = '';
+            let currentData = '';
+
+            for (const line of lines) {
+              if (line.startsWith('event:')) {
+                currentEvent = line.slice(6).trim();
+              } else if (line.startsWith('data:')) {
+                currentData = line.slice(5).trim();
+              } else if (line === '') {
+                // Empty line means end of event
+                if (currentEvent && currentData) {
+                  handleEvent(currentEvent, currentData);
+                  currentEvent = '';
+                  currentData = '';
+                }
+              }
+            }
+
+            // Continue reading
+            processChunk();
+          } catch (error) {
+            reject(error);
+          }
+        };
+
+        const handleEvent = (eventType: string, dataStr: string) => {
+          try {
+            const data = JSON.parse(dataStr);
+
+            switch (eventType) {
+              case 'start':
+                callbacks?.onStart?.();
+                break;
+
+              case 'progress':
+                callbacks?.onProgress?.(data);
+                break;
+
+              case 'complete':
+                resolve({
+                  success: true,
+                  result: data.result,
+                });
+                break;
+
+              case 'error':
+                resolve({
+                  success: false,
+                  error: data.error,
+                });
+                break;
+            }
+          } catch (error) {
+            console.error('Failed to parse SSE event:', error);
+          }
+        };
+
+        // Start processing
+        processChunk();
+      })
+      .catch(reject);
+  });
 }
 
 /**
