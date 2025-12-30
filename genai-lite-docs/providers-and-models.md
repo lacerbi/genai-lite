@@ -95,16 +95,20 @@ Complete reference of all supported AI providers and models in genai-lite.
 **Gemini 2.5 Series:**
 - `gemini-2.5-pro` - Gemini 2.5 Pro (1M context, multimodal, native reasoning always on)
 - `gemini-2.5-flash` - Gemini 2.5 Flash (1M context, multimodal, native reasoning optional)
-- `gemini-2.5-flash-lite-preview-06-17` - Gemini 2.5 Flash-Lite (1M context, multimodal, native reasoning optional)
+- `gemini-2.5-flash-lite` - Gemini 2.5 Flash-Lite (1M context, multimodal, native reasoning optional)
 
 **Gemini 2.0 Series:**
 - `gemini-2.0-flash` - Gemini 2.0 Flash (1M context, multimodal, no native reasoning)
 - `gemini-2.0-flash-lite` - Gemini 2.0 Flash-Lite (1M context, multimodal, no native reasoning)
 
+**Gemma 3 (Open Weights, Free):**
+- `gemma-3-27b-it` - Gemma 3 27B (128K context, multimodal, free via Gemini API)
+
 **Notes:**
 - Role naming: `user`/`model` instead of `user`/`assistant`
 - Unique safety settings structure
-- All models support multimodal (text, images, audio, video)
+- Gemini models support multimodal (text, images, audio, video)
+- Gemma 3 27B is open-weight and **free** via the Gemini API (no API costs)
 
 ---
 
@@ -212,7 +216,7 @@ Some models support advanced reasoning capabilities for enhanced problem-solving
 
 **Anthropic**: `claude-opus-4-5-20251101`, `claude-sonnet-4-5-20250929`, `claude-haiku-4-5-20251001`, `claude-sonnet-4-20250514`, `claude-opus-4-20250514`, `claude-3-7-sonnet-20250219`
 
-**Google Gemini**: `gemini-3-pro-preview` (always on), `gemini-3-flash-preview`, `gemini-2.5-pro` (always on), `gemini-2.5-flash`, `gemini-2.5-flash-lite-preview-06-17`
+**Google Gemini**: `gemini-3-pro-preview` (always on), `gemini-3-flash-preview`, `gemini-2.5-pro` (always on), `gemini-2.5-flash`, `gemini-2.5-flash-lite`
 
 **OpenAI**: `gpt-5.2`, `gpt-5.1`, `gpt-5-mini-2025-08-07`, `gpt-5-nano-2025-08-07`, `o4-mini` (always on)
 

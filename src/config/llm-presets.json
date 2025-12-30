@@ -321,11 +321,11 @@
     }
   },
   {
-    "id": "google-gemini-2.5-flash-lite-preview",
-    "displayName": "Google - Gemini 2.5 Flash-Lite Preview",
+    "id": "google-gemini-2.5-flash-lite",
+    "displayName": "Google - Gemini 2.5 Flash-Lite",
     "description": "Default preset for Gemini 2.5 Flash-Lite.",
     "providerId": "gemini",
-    "modelId": "gemini-2.5-flash-lite-preview-06-17",
+    "modelId": "gemini-2.5-flash-lite",
     "settings": {
       "temperature": 0.7,
       "geminiSafetySettings": [
@@ -346,11 +346,11 @@
     }
   },
   {
-    "id": "google-gemini-2.5-flash-lite-preview-thinking",
-    "displayName": "Google - Gemini 2.5 Flash-Lite Preview (Thinking)",
+    "id": "google-gemini-2.5-flash-lite-thinking",
+    "displayName": "Google - Gemini 2.5 Flash-Lite (Thinking)",
     "description": "Gemini 2.5 Flash-Lite with dynamic reasoning for efficient thinking.",
     "providerId": "gemini",
-    "modelId": "gemini-2.5-flash-lite-preview-06-17",
+    "modelId": "gemini-2.5-flash-lite",
     "settings": {
       "temperature": 0.7,
       "geminiSafetySettings": [
@@ -398,6 +398,28 @@
     "description": "Default preset for Gemini 2.0 Flash Lite.",
     "providerId": "gemini",
     "modelId": "gemini-2.0-flash-lite",
+    "settings": {
+      "temperature": 0.7,
+      "geminiSafetySettings": [
+        { "category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE" },
+        {
+          "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+          "threshold": "BLOCK_NONE"
+        },
+        {
+          "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+          "threshold": "BLOCK_NONE"
+        },
+        { "category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE" }
+      ]
+    }
+  },
+  {
+    "id": "google-gemma-3-27b-default",
+    "displayName": "Google - Gemma 3 27B (Free)",
+    "description": "Default preset for Gemma 3 27B. Open-weight multimodal model, free via Gemini API.",
+    "providerId": "gemini",
+    "modelId": "gemma-3-27b-it",
     "settings": {
       "temperature": 0.7,
       "geminiSafetySettings": [

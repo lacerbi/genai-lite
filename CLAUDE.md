@@ -49,7 +49,7 @@ genai-lite is a lightweight, standalone Node.js/TypeScript library providing a u
 ### Supported Providers
 
 **LLM Providers:**
-- **Cloud:** OpenAI (GPT-5.x, GPT-4.1, o4-mini), Anthropic (Claude 4.5, Claude 4, Claude 3.x), Google Gemini (3 Pro/Flash, 2.5 Pro/Flash), Mistral (Codestral, Devstral)
+- **Cloud:** OpenAI (GPT-5.x, GPT-4.1, o4-mini), Anthropic (Claude 4.5, Claude 4, Claude 3.x), Google Gemini (3 Pro/Flash, 2.5 Pro/Flash, Gemma 3), Mistral (Codestral, Devstral)
 - **Local:** llama.cpp - Run any GGUF model locally with no API keys required. Includes `LlamaCppClientAdapter` for chat completions and `LlamaCppServerClient` for server utilities (tokenization, embeddings, health checks, metrics).
 
 **Image Generation Providers:**
@@ -105,7 +105,7 @@ genai-lite is a lightweight, standalone Node.js/TypeScript library providing a u
 - Eliminates ~390 lines of duplicate code between LLM and Image implementations
 
 **Configuration System:**
-- **LLM:** `src/llm/config.ts` + `src/config/llm-presets.json` (24 presets)
+- **LLM:** `src/llm/config.ts` + `src/config/llm-presets.json` (40+ presets)
 - **Image:** `src/image/config.ts` + `src/config/image-presets.json` (12 presets)
 - Each model has default settings (max tokens, temperature ranges, dimensions, etc.)
 - New providers/models are registered in respective config files
@@ -237,7 +237,7 @@ src/
 ├── providers/                    # API key providers
 │   └── fromEnvironment.ts        # Environment variable provider
 └── config/                       # Configuration files
-    ├── llm-presets.json          # LLM presets (24 presets)
+    ├── llm-presets.json          # LLM presets (40+ presets)
     └── image-presets.json        # Image presets (12 presets)
 ```
 

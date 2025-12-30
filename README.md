@@ -127,7 +127,7 @@ Comprehensive documentation is available in the **[`genai-lite-docs`](./genai-li
 ### LLM Providers
 - **OpenAI** - GPT-5 (5.2, 5.1, mini, nano), GPT-4.1, o4-mini
 - **Anthropic** - Claude 4.5 (Opus, Sonnet, Haiku), Claude 4, Claude 3.7, Claude 3.5
-- **Google Gemini** - Gemini 3 (Pro, Flash preview), Gemini 2.5, Gemini 2.0
+- **Google Gemini** - Gemini 3 (Pro, Flash preview), Gemini 2.5, Gemini 2.0, Gemma 3 (free)
 - **Mistral** - Codestral, Devstral
 - **llama.cpp** - Run any GGUF model locally (no API keys required)
 

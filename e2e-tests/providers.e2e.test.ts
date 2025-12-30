@@ -53,10 +53,10 @@ const anthropicApiKey = process.env.E2E_ANTHROPIC_API_KEY;
 // --- Gemini Tests ---
 const geminiApiKey = process.env.E2E_GEMINI_API_KEY;
 (geminiApiKey ? describe : describe.skip)('Gemini E2E', () => {
-  it('should receive a valid response from gemini-2.0-flash-lite', async () => {
+  it('should receive a valid response from gemini-2.5-flash-lite', async () => {
     const response = await llmService.sendMessage({
       providerId: 'gemini',
-      modelId: 'gemini-2.0-flash-lite',
+      modelId: 'gemini-2.5-flash-lite',
       messages: [{ role: 'user', content: 'What is 3 + 3? Respond with the numerical answer only.' }],
       settings: { temperature: 0 }
     });
@@ -66,6 +66,22 @@ const geminiApiKey = process.env.E2E_GEMINI_API_KEY;
       const content = response.choices[0].message.content;
       expect(content).toBeDefined();
       expect(content).toContain('6');
+    }
+  });
+
+  it('should receive a valid response from gemma-3-27b-it (free open model)', async () => {
+    const response = await llmService.sendMessage({
+      providerId: 'gemini',
+      modelId: 'gemma-3-27b-it',
+      messages: [{ role: 'user', content: 'What is 4 + 4? Respond with the numerical answer only.' }],
+      settings: { temperature: 0 }
+    });
+
+    expect(response.object).toBe('chat.completion');
+    if (response.object === 'chat.completion') {
+      const content = response.choices[0].message.content;
+      expect(content).toBeDefined();
+      expect(content).toContain('8');
     }
   });
 });
