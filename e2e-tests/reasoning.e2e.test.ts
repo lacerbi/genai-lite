@@ -59,7 +59,7 @@ const geminiApiKey = process.env.E2E_GEMINI_API_KEY;
   it('should receive reasoning output from gemini-2.5-flash-lite with effort level', async () => {
     const response = await llmService.sendMessage({
       providerId: 'gemini',
-      modelId: 'gemini-2.5-flash-lite-preview-06-17',
+      modelId: 'gemini-2.5-flash-lite',
       messages: [{ 
         role: 'user', 
         content: 'Is 17 a prime number? Explain your reasoning.' 

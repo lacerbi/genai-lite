@@ -9,6 +9,8 @@ Guide for adding new models and providers to genai-lite.
 | Add cloud LLM model | `src/llm/config.ts` → `SUPPORTED_MODELS` | [Adding Cloud LLM Models](#pipeline-for-adding-cloud-llm-models) |
 | Add GGUF pattern (llama.cpp) | `src/llm/config.ts` → `KNOWN_GGUF_MODELS` | [Adding GGUF Models](#pipeline-for-adding-gguf-models-llamacpp) |
 | Add image model | `src/image/config.ts` | [Adding Image Models](#adding-image-models) |
+| Add LLM presets | `src/config/llm-presets.json` | [Adding Presets](#adding-presets) |
+| Add image presets | `src/config/image-presets.json` | [Adding Presets](#adding-presets) |
 | Add new LLM provider | `src/llm/clients/` + `src/llm/config.ts` | [Adding LLM Providers](#adding-new-llm-providers) |
 | Add new image provider | `src/adapters/image/` + `src/image/config.ts` | [Adding Image Providers](#adding-new-image-providers) |
 | Model info reference | [Cline api.ts](https://github.com/cline/cline/blob/main/src/shared/api.ts) | [Cline Reference](#cline-reference-format) |
@@ -90,6 +92,10 @@ cd examples/chat-demo && npm run dev
 # Or run unit tests
 npm test
 ```
+
+### 5. Add Presets (Recommended)
+
+Add at least a default preset in `src/config/llm-presets.json`. For models with reasoning support, add both default and "Thinking" variants. See [Adding Presets](#adding-presets) for details and examples.
 
 ## Pipeline for Adding GGUF Models (llama.cpp)
 
@@ -368,8 +374,186 @@ For image models on existing providers:
 
 1. Update model list in `src/image/config.ts` under the provider's configuration
 2. Add model-specific defaults (dimensions, quality settings, etc.)
-3. Add presets to `src/config/image-presets.json` if desired
+3. Add presets to `src/config/image-presets.json` (see [Adding Presets](#adding-presets))
 4. Test with the new model ID
+
+## Adding Presets
+
+Presets provide pre-configured settings for models, making it easier for users to get started with common use cases. When adding a new model or provider, consider adding associated presets.
+
+### When to Add Presets
+
+- **New LLM model**: Add at least a default preset; add a "Thinking" variant if the model supports reasoning
+- **New image model**: Add presets for common quality/speed trade-offs and aspect ratios
+- **New provider**: Add presets for all supported models on that provider
+
+### LLM Preset Structure
+
+Edit `src/config/llm-presets.json`:
+
+```json
+{
+  "id": "provider-model-variant",
+  "displayName": "Provider - Model Name (Variant)",
+  "description": "Brief description of the preset's purpose.",
+  "providerId": "provider-id",
+  "modelId": "model-id-from-config",
+  "settings": {
+    "temperature": 0.7,
+    "reasoning": {
+      "enabled": false
+    }
+  }
+}
+```
+
+### LLM Preset Naming Conventions
+
+| Pattern | Example | Use Case |
+|---------|---------|----------|
+| `{provider}-{model}-default` | `anthropic-claude-opus-4-5-20251101-default` | Standard model settings |
+| `{provider}-{model}-thinking` | `anthropic-claude-opus-4-5-20251101-thinking` | Reasoning enabled |
+| `{provider}-{model}-{use-case}` | `openai-gpt-4.1-creative` | Specialized settings |
+
+### LLM Preset Examples
+
+**Standard model (no reasoning):**
+```json
+{
+  "id": "openai-gpt-4.1-default",
+  "displayName": "OpenAI - GPT-4.1",
+  "description": "Default preset for GPT-4.1.",
+  "providerId": "openai",
+  "modelId": "gpt-4.1",
+  "settings": {
+    "temperature": 0.7
+  }
+}
+```
+
+**Model with reasoning support (create both variants):**
+```json
+{
+  "id": "anthropic-claude-sonnet-4-5-20250929-default",
+  "displayName": "Anthropic - Claude Sonnet 4.5",
+  "description": "Default preset for Claude Sonnet 4.5.",
+  "providerId": "anthropic",
+  "modelId": "claude-sonnet-4-5-20250929",
+  "settings": {
+    "temperature": 0.7,
+    "reasoning": { "enabled": false }
+  }
+},
+{
+  "id": "anthropic-claude-sonnet-4-5-20250929-thinking",
+  "displayName": "Anthropic - Claude Sonnet 4.5 (Thinking)",
+  "description": "Claude Sonnet 4.5 with reasoning enabled for step-by-step thinking.",
+  "providerId": "anthropic",
+  "modelId": "claude-sonnet-4-5-20250929",
+  "settings": {
+    "temperature": 0.7,
+    "reasoning": { "enabled": true }
+  }
+}
+```
+
+**Gemini preset (with safety settings):**
+```json
+{
+  "id": "google-gemini-2.5-flash",
+  "displayName": "Google - Gemini 2.5 Flash",
+  "description": "Default preset for Gemini 2.5 Flash.",
+  "providerId": "gemini",
+  "modelId": "gemini-2.5-flash",
+  "settings": {
+    "temperature": 0.7,
+    "geminiSafetySettings": [
+      { "category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE" },
+      { "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE" },
+      { "category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE" },
+      { "category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE" }
+    ],
+    "reasoning": { "enabled": false }
+  }
+}
+```
+
+### Image Preset Structure
+
+Edit `src/config/image-presets.json`:
+
+```json
+{
+  "id": "provider-model-variant",
+  "displayName": "Provider - Model (Variant)",
+  "description": "Brief description of the preset.",
+  "providerId": "provider-id",
+  "modelId": "model-id",
+  "settings": {
+    "width": 1024,
+    "height": 1024,
+    "quality": "auto",
+    "responseFormat": "buffer",
+    "openai": { ... },
+    "diffusion": { ... }
+  }
+}
+```
+
+### Image Preset Examples
+
+**OpenAI Images preset:**
+```json
+{
+  "id": "openai-gpt-image-1-quality",
+  "displayName": "OpenAI - GPT-Image 1 (High Quality)",
+  "description": "Highest quality OpenAI image model with advanced features",
+  "providerId": "openai-images",
+  "modelId": "gpt-image-1",
+  "settings": {
+    "width": 1024,
+    "height": 1024,
+    "quality": "high",
+    "responseFormat": "buffer",
+    "openai": {
+      "outputFormat": "png",
+      "background": "auto",
+      "moderation": "auto"
+    }
+  }
+}
+```
+
+**Local diffusion preset:**
+```json
+{
+  "id": "genai-electron-sdxl-quality",
+  "displayName": "Local - SDXL Quality",
+  "description": "High-quality SDXL generation for final production images",
+  "providerId": "genai-electron-images",
+  "modelId": "stable-diffusion",
+  "settings": {
+    "width": 1024,
+    "height": 1024,
+    "responseFormat": "buffer",
+    "diffusion": {
+      "steps": 30,
+      "cfgScale": 7.5,
+      "sampler": "dpm++2m"
+    }
+  }
+}
+```
+
+### Preset Best Practices
+
+1. **Always include `responseFormat: "buffer"`** for image presets (returns raw image data)
+2. **Use provider-specific namespaces** (`openai`, `diffusion`) for specialized settings
+3. **Create reasoning variants** for LLM models that support thinking
+4. **Include quality tiers** for image presets (fast, balanced, quality)
+5. **Add aspect ratio variants** for image presets when useful (portrait, landscape, square)
+6. **Keep descriptions concise** but informative about the preset's purpose
+7. **Test presets** with the chat-demo or image-demo applications
 
 ## Adding New LLM Providers
 
@@ -383,6 +567,7 @@ For entirely new LLM providers (not just models):
    - Add to `SUPPORTED_PROVIDERS`
 4. Add provider-specific dependencies to `package.json`
 5. Export any new types from `src/index.ts` if needed
+6. Add presets to `src/config/llm-presets.json` (see [Adding Presets](#adding-presets))
 
 ## Adding New Image Providers
 
@@ -411,7 +596,7 @@ For entirely new image generation providers:
    - Import adapter class
    - Instantiate with configuration (baseURL, timeout, etc.)
    - Call `adapterRegistry.registerAdapter(providerId, adapter)`
-5. Add presets to `src/config/image-presets.json` (optional but recommended)
+5. Add presets to `src/config/image-presets.json` (see [Adding Presets](#adding-presets))
 6. Export any new types from `src/index.ts` if needed
 7. Write comprehensive tests:
    - Test adapter implementation with mocked HTTP clients
@@ -436,9 +621,10 @@ For entirely new image generation providers:
 
 ## Updating Documentation
 
-After adding models, update:
+After adding models or providers, update:
 1. `genai-lite-docs/providers-and-models.md` - User-facing model list
-2. Run tests to ensure nothing broke: `npm test`
+2. `src/config/llm-presets.json` or `src/config/image-presets.json` - Add associated presets (see [Adding Presets](#adding-presets))
+3. Run tests to ensure nothing broke: `npm test`
 
 ## Related Documentation
 

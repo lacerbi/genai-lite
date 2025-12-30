@@ -604,8 +604,8 @@ export const SUPPORTED_MODELS: ModelInfo[] = [
     },
   },
   {
-    id: "gemini-2.5-flash-lite-preview-06-17",
-    name: "Gemini 2.5 Flash-Lite Preview",
+    id: "gemini-2.5-flash-lite",
+    name: "Gemini 2.5 Flash-Lite",
     providerId: "gemini",
     contextWindow: 1000000,
     inputPrice: 0.1,
@@ -651,6 +651,20 @@ export const SUPPORTED_MODELS: ModelInfo[] = [
     inputPrice: 0.075,
     outputPrice: 0.3,
     description: "Lightweight version of Gemini 2.0 Flash",
+    maxTokens: 8192,
+    supportsImages: true,
+    supportsPromptCache: false,
+  },
+  // Google Gemma 3 Models (Open weights, free via Gemini API)
+  {
+    id: "gemma-3-27b-it",
+    name: "Gemma 3 27B",
+    providerId: "gemini",
+    contextWindow: 131072,
+    inputPrice: 0.0,
+    outputPrice: 0.0,
+    description:
+      "Google's largest open model with multimodal capabilities and 128K context (free via Gemini API)",
     maxTokens: 8192,
     supportsImages: true,
     supportsPromptCache: false,
