@@ -118,7 +118,7 @@ llama-server -m model.gguf --jinja --reasoning-format deepseek --port 8080
 
 See [llama.cpp Integration](llamacpp-integration.md#troubleshooting) for detailed setup.
 
-For reasoning extraction details, see `docs/dev/2025-10-17_llamacpp-reasoning-extraction.md`.
+For reasoning extraction details, see `docs/devlog/2025-10-17_llamacpp-reasoning-extraction.md`.
 
 **Problem**: Model loading fails / Out of memory
 
@@ -162,7 +162,7 @@ export GENAI_ELECTRON_IMAGE_BASE_URL=http://localhost:8081
 
 **Solution**: Wait for current generation to complete before starting another
 
-For async API details, see `docs/dev/2025-10-22-genai-electron-changes.md`.
+For async API details, see `docs/devlog/2025-10-22-genai-electron-changes.md`.
 
 **Problem**: Progress callbacks not firing
 
@@ -228,7 +228,7 @@ For llama.cpp reasoning extraction, ensure:
 2. Model supports reasoning (Qwen3, DeepSeek-R1, GPT-OSS)
 3. Request includes `settings.reasoning.enabled: true`
 
-See `docs/dev/2025-10-17_llamacpp-reasoning-extraction.md` for implementation details.
+See `docs/devlog/2025-10-17_llamacpp-reasoning-extraction.md` for implementation details.
 
 ## Network Issues
 
@@ -271,6 +271,6 @@ From `errorUtils.ts:92-102`:
 ### Developer Documentation
 
 For in-depth technical details:
-- **llama.cpp reasoning extraction**: `docs/dev/2025-10-17_llamacpp-reasoning-extraction.md`
-- **genai-electron async API**: `docs/dev/2025-10-22-genai-electron-changes.md`
+- **llama.cpp reasoning extraction**: `docs/devlog/2025-10-17_llamacpp-reasoning-extraction.md`
+- **genai-electron async API**: `docs/devlog/2025-10-22-genai-electron-changes.md`
 - **Error mapping**: `src/shared/adapters/errorUtils.ts`

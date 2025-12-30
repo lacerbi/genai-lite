@@ -2,7 +2,7 @@
  * Type definitions for image generation API
  *
  * This module contains all types for the ImageService and image generation adapters.
- * Based on the design specification in docs/dev/2025-10-22-genai-lite-image-api-design.md
+ * Based on the design specification in docs/devlog/2025-10-22-genai-lite-image-api-design.md
  */
 
 /**
