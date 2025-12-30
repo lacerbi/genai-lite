@@ -1,6 +1,6 @@
 {
   "name": "genai-lite",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "description": "A lightweight, portable toolkit for interacting with various Generative AI APIs.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

@@ -146,10 +146,9 @@ llamacppRouter.get('/models', async (req, res) => {
     const model = data.data[0];
     const modelId = model.id;
 
-    // Strip "models/" prefix if present and remove .gguf extension for cleaner display
-    const cleanModelId = modelId
-      .replace(/^models\//, '')
-      .replace(/\.gguf$/, '');
+    // Extract filename from full path (handles Unix and Windows paths) and remove .gguf extension
+    const fileName = modelId.split(/[/\\]/).pop() || modelId;
+    const cleanModelId = fileName.replace(/\.gguf$/i, '');
 
     res.json({
       success: true,

@@ -49,7 +49,7 @@ genai-lite is a lightweight, standalone Node.js/TypeScript library providing a u
 ### Supported Providers
 
 **LLM Providers:**
-- **Cloud:** OpenAI (GPT-4.1, o4-mini), Anthropic (Claude 4, Claude 3.x), Google Gemini (2.5 Pro, 2.5 Flash), Mistral (Codestral, Devstral)
+- **Cloud:** OpenAI (GPT-5.x, GPT-4.1, o4-mini), Anthropic (Claude 4.5, Claude 4, Claude 3.x), Google Gemini (3 Pro/Flash, 2.5 Pro/Flash), Mistral (Codestral, Devstral)
 - **Local:** llama.cpp - Run any GGUF model locally with no API keys required. Includes `LlamaCppClientAdapter` for chat completions and `LlamaCppServerClient` for server utilities (tokenization, embeddings, health checks, metrics).
 
 **Image Generation Providers:**
@@ -65,7 +65,7 @@ genai-lite is a lightweight, standalone Node.js/TypeScript library providing a u
 - **Unified Prompt Creation** - `createMessages()` method combines template rendering, model context injection, and role tag parsing
 
 **Advanced Reasoning:**
-- **Native Reasoning Support** - Unified `reasoning` field for models with built-in thinking capabilities (Claude 4, Claude 3.7, Gemini 2.5 Pro, o4-mini)
+- **Native Reasoning Support** - Unified `reasoning` field for models with built-in thinking capabilities (Claude 4.5, Claude 4, Claude 3.7, GPT-5.x, Gemini 3, Gemini 2.5 Pro, o4-mini)
 - **Thinking Extraction** - Automatic extraction of reasoning from `<thinking>` tags (or custom tags) for models without native support
 - **Smart Enforcement** - Auto mode intelligently decides when to require thinking tags based on model capabilities
 
@@ -135,62 +135,13 @@ See [genai-lite-docs/](genai-lite-docs/index.md) for comprehensive usage example
 - **Template Engine**: [prompting-utilities.md](genai-lite-docs/prompting-utilities.md)
 - **Demo Apps**: [example-chat-demo.md](genai-lite-docs/example-chat-demo.md), [example-image-demo.md](genai-lite-docs/example-image-demo.md)
 
-### Adding New AI Providers (LLM)
+### Adding Models and Providers
 
-1. Create adapter in `src/llm/clients/[Provider]ClientAdapter.ts`
-2. Implement `ILLMClientAdapter` interface
-3. Register in `src/llm/config.ts`:
-   - Add to `ADAPTER_CONSTRUCTORS` map
-   - Define models in `defaultProviderConfigs`
-   - Add to `SUPPORTED_PROVIDERS`
-4. Add provider-specific dependencies to `package.json`
-5. Export any new types from `src/index.ts` if needed
-
-### Adding New Image Providers
-
-1. Create adapter in `src/adapters/image/[Provider]ImageAdapter.ts`
-2. Implement `ImageProviderAdapter` interface:
-   ```typescript
-   interface ImageProviderAdapter {
-     readonly id: ImageProviderId;
-     readonly supports: ImageProviderCapabilities;
-     generate(config: {
-       request: ImageGenerationRequest;
-       resolvedPrompt: string;
-       settings: ResolvedImageGenerationSettings;
-       apiKey: string | null;
-     }): Promise<ImageGenerationResponse>;
-     getModels?(): Promise<ImageModelInfo[]>;
-   }
-   ```
-3. Register in `src/image/config.ts`:
-   - Add to `SUPPORTED_IMAGE_PROVIDERS`
-   - Define models in provider configuration
-   - Add to `IMAGE_ADAPTER_CONFIGS` with constructor
-4. Register in `ImageService` constructor:
-   - Import adapter class
-   - Instantiate with configuration (baseURL, timeout, etc.)
-   - Call `adapterRegistry.registerAdapter(providerId, adapter)`
-5. Add presets to `src/config/image-presets.json` (optional but recommended)
-6. Export any new types from `src/index.ts` if needed
-7. Write comprehensive tests:
-   - Test adapter implementation with mocked HTTP clients
-   - Test error handling for all error types
-   - Test settings mapping and validation
-   - Test response processing (Buffer conversion, metadata extraction)
-   - Aim for 85%+ coverage
-
-**Example: OpenAI Images Adapter**
-- See `src/adapters/image/OpenAIImageAdapter.ts` for reference implementation
-- 29 tests, 95.41% coverage
-- Handles multiple models (gpt-image-1, dall-e-3, dall-e-2) with different APIs
-- Uses shared `errorUtils` for consistent error handling
-
-**Example: genai-electron Diffusion Adapter**
-- See `src/adapters/image/GenaiElectronImageAdapter.ts` for async polling pattern
-- 29 tests, 87.96% coverage
-- Implements progress callbacks via polling
-- Coordinates with genai-electron's async API (see `docs/dev/2025-10-22-genai-electron-changes.md`)
+See [docs/dev/adding-models-and-providers.md](docs/dev/adding-models-and-providers.md) for the complete guide on:
+- Adding new LLM models (cloud and local GGUF)
+- Adding new image models
+- Adding entirely new LLM or image providers
+- Using [Cline's api.ts](https://github.com/cline/cline/blob/main/src/shared/api.ts) as a reference for model specs
 
 ### Type System
 
@@ -383,7 +334,7 @@ The `examples/chat-demo` application provides a quick way to test library change
 - Progress callbacks via polling (500ms interval, 120s timeout)
 - Batch generation support (count parameter)
 - Configure via `GENAI_ELECTRON_IMAGE_BASE_URL` environment variable (default: http://localhost:8081)
-- See `docs/dev/2025-10-22-genai-electron-changes.md` for async API specification
+- See `docs/devlog/2025-10-22-genai-electron-changes.md` for async API specification
 
 ### Error Handling
 
@@ -436,16 +387,7 @@ All adapters should use `adapterErrorUtils.ts` patterns:
 
 ## Common Development Tasks
 
-**Adding a new LLM model to an existing provider:**
-1. Update model list in `src/llm/config.ts` under the provider's configuration
-2. Add model-specific defaults if needed
-3. Test with the new model ID
-
-**Adding a new image model to an existing provider:**
-1. Update model list in `src/image/config.ts` under the provider's configuration
-2. Add model-specific defaults (dimensions, quality settings, etc.)
-3. Add presets to `src/config/image-presets.json` if desired
-4. Test with the new model ID
+**Adding models or providers:** See [docs/dev/adding-models-and-providers.md](docs/dev/adding-models-and-providers.md) for the complete pipeline for LLM models, image models, and new providers.
 
 **Debugging provider issues:**
 1. Check console logs - adapters log API calls and responses
