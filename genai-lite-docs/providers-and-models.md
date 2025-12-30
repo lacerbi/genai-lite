@@ -33,8 +33,16 @@ Complete reference of all supported AI providers and models in genai-lite.
 
 **Models:**
 
+**Claude 4.5 Series (Latest):**
+- `claude-opus-4-5-20251101` - Claude 4.5 Opus (200K context, native reasoning)
+- `claude-sonnet-4-5-20250929` - Claude 4.5 Sonnet (200K context, native reasoning)
+- `claude-haiku-4-5-20251001` - Claude 4.5 Haiku (200K context, native reasoning)
+
+**Claude 4 Series:**
 - `claude-sonnet-4-20250514` - Claude 4 Sonnet (200K context, native reasoning)
 - `claude-opus-4-20250514` - Claude 4 Opus (200K context, native reasoning)
+
+**Claude 3.x Series:**
 - `claude-3-7-sonnet-20250219` - Claude 3.7 Sonnet (200K context, native reasoning)
 - `claude-3-5-sonnet-20241022` - Claude 3.5 Sonnet (200K context, no native reasoning)
 - `claude-3-5-haiku-20241022` - Claude 3.5 Haiku (200K context, no native reasoning)
@@ -53,7 +61,16 @@ Complete reference of all supported AI providers and models in genai-lite.
 
 **Models:**
 
+**GPT-5 Series (Latest):**
+- `gpt-5.2` - GPT-5.2 (272K context, native reasoning)
+- `gpt-5.1` - GPT-5.1 (272K context, native reasoning)
+- `gpt-5-mini-2025-08-07` - GPT-5 Mini (272K context, native reasoning)
+- `gpt-5-nano-2025-08-07` - GPT-5 Nano (272K context, native reasoning)
+
+**o-Series (Reasoning):**
 - `o4-mini` - o4-mini (200K context, native reasoning always on, reasoning tokens billed separately)
+
+**GPT-4.1 Series:**
 - `gpt-4.1` - GPT-4.1 (1M context, no native reasoning)
 - `gpt-4.1-mini` - GPT-4.1 Mini (1M context, no native reasoning)
 - `gpt-4.1-nano` - GPT-4.1 Nano (1M context, no native reasoning)
@@ -71,9 +88,16 @@ Complete reference of all supported AI providers and models in genai-lite.
 
 **Models:**
 
-- `gemini-2.5-pro` - Gemini 2.5 Pro (2M context, multimodal, native reasoning always on)
+**Gemini 3 Series (Preview):**
+- `gemini-3-pro-preview` - Gemini 3 Pro Preview (1M context, multimodal, native reasoning always on)
+- `gemini-3-flash-preview` - Gemini 3 Flash Preview (1M context, multimodal, native reasoning optional)
+
+**Gemini 2.5 Series:**
+- `gemini-2.5-pro` - Gemini 2.5 Pro (1M context, multimodal, native reasoning always on)
 - `gemini-2.5-flash` - Gemini 2.5 Flash (1M context, multimodal, native reasoning optional)
 - `gemini-2.5-flash-lite-preview-06-17` - Gemini 2.5 Flash-Lite (1M context, multimodal, native reasoning optional)
+
+**Gemini 2.0 Series:**
 - `gemini-2.0-flash` - Gemini 2.0 Flash (1M context, multimodal, no native reasoning)
 - `gemini-2.0-flash-lite` - Gemini 2.0 Flash-Lite (1M context, multimodal, no native reasoning)
 
@@ -186,11 +210,11 @@ Some models support advanced reasoning capabilities for enhanced problem-solving
 
 ### Models with Native Reasoning
 
-**Anthropic**: `claude-sonnet-4-20250514`, `claude-opus-4-20250514`, `claude-3-7-sonnet-20250219`
+**Anthropic**: `claude-opus-4-5-20251101`, `claude-sonnet-4-5-20250929`, `claude-haiku-4-5-20251001`, `claude-sonnet-4-20250514`, `claude-opus-4-20250514`, `claude-3-7-sonnet-20250219`
 
-**Google Gemini**: `gemini-2.5-pro` (always on), `gemini-2.5-flash`, `gemini-2.5-flash-lite-preview-06-17`
+**Google Gemini**: `gemini-3-pro-preview` (always on), `gemini-3-flash-preview`, `gemini-2.5-pro` (always on), `gemini-2.5-flash`, `gemini-2.5-flash-lite-preview-06-17`
 
-**OpenAI**: `o4-mini` (always on)
+**OpenAI**: `gpt-5.2`, `gpt-5.1`, `gpt-5-mini-2025-08-07`, `gpt-5-nano-2025-08-07`, `o4-mini` (always on)
 
 **llama.cpp**: Qwen3 models (requires `--reasoning-format deepseek` server flag)
 

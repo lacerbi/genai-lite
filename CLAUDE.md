@@ -49,7 +49,7 @@ genai-lite is a lightweight, standalone Node.js/TypeScript library providing a u
 ### Supported Providers
 
 **LLM Providers:**
-- **Cloud:** OpenAI (GPT-4.1, o4-mini), Anthropic (Claude 4, Claude 3.x), Google Gemini (2.5 Pro, 2.5 Flash), Mistral (Codestral, Devstral)
+- **Cloud:** OpenAI (GPT-5.x, GPT-4.1, o4-mini), Anthropic (Claude 4.5, Claude 4, Claude 3.x), Google Gemini (3 Pro/Flash, 2.5 Pro/Flash), Mistral (Codestral, Devstral)
 - **Local:** llama.cpp - Run any GGUF model locally with no API keys required. Includes `LlamaCppClientAdapter` for chat completions and `LlamaCppServerClient` for server utilities (tokenization, embeddings, health checks, metrics).
 
 **Image Generation Providers:**
@@ -65,7 +65,7 @@ genai-lite is a lightweight, standalone Node.js/TypeScript library providing a u
 - **Unified Prompt Creation** - `createMessages()` method combines template rendering, model context injection, and role tag parsing
 
 **Advanced Reasoning:**
-- **Native Reasoning Support** - Unified `reasoning` field for models with built-in thinking capabilities (Claude 4, Claude 3.7, Gemini 2.5 Pro, o4-mini)
+- **Native Reasoning Support** - Unified `reasoning` field for models with built-in thinking capabilities (Claude 4.5, Claude 4, Claude 3.7, GPT-5.x, Gemini 3, Gemini 2.5 Pro, o4-mini)
 - **Thinking Extraction** - Automatic extraction of reasoning from `<thinking>` tags (or custom tags) for models without native support
 - **Smart Enforcement** - Auto mode intelligently decides when to require thinking tags based on model capabilities
 
