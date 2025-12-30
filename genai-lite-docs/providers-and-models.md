@@ -97,10 +97,6 @@ Complete reference of all supported AI providers and models in genai-lite.
 - `gemini-2.5-flash` - Gemini 2.5 Flash (1M context, multimodal, native reasoning optional)
 - `gemini-2.5-flash-lite` - Gemini 2.5 Flash-Lite (1M context, multimodal, native reasoning optional)
 
-**Gemini 2.0 Series:**
-- `gemini-2.0-flash` - Gemini 2.0 Flash (1M context, multimodal, no native reasoning)
-- `gemini-2.0-flash-lite` - Gemini 2.0 Flash-Lite (1M context, multimodal, no native reasoning)
-
 **Gemma 3 (Open Weights, Free):**
 - `gemma-3-27b-it` - Gemma 3 27B (128K context, multimodal, free via Gemini API)
 

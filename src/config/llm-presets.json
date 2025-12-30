@@ -371,50 +371,6 @@
     }
   },
   {
-    "id": "google-gemini-2.0-flash-default",
-    "displayName": "Google - Gemini 2.0 Flash",
-    "description": "Default preset for Gemini 2.0 Flash.",
-    "providerId": "gemini",
-    "modelId": "gemini-2.0-flash",
-    "settings": {
-      "temperature": 0.7,
-      "geminiSafetySettings": [
-        { "category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE" },
-        {
-          "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-          "threshold": "BLOCK_NONE"
-        },
-        {
-          "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
-          "threshold": "BLOCK_NONE"
-        },
-        { "category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE" }
-      ]
-    }
-  },
-  {
-    "id": "google-gemini-2.0-flash-lite-default",
-    "displayName": "Google - Gemini 2.0 Flash Lite",
-    "description": "Default preset for Gemini 2.0 Flash Lite.",
-    "providerId": "gemini",
-    "modelId": "gemini-2.0-flash-lite",
-    "settings": {
-      "temperature": 0.7,
-      "geminiSafetySettings": [
-        { "category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE" },
-        {
-          "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-          "threshold": "BLOCK_NONE"
-        },
-        {
-          "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
-          "threshold": "BLOCK_NONE"
-        },
-        { "category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE" }
-      ]
-    }
-  },
-  {
     "id": "google-gemma-3-27b-default",
     "displayName": "Google - Gemma 3 27B (Free)",
     "description": "Default preset for Gemma 3 27B. Open-weight multimodal model, free via Gemini API.",

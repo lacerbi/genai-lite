@@ -106,7 +106,7 @@ describe('LLMService Presets', () => {
           id: 'custom-preset-default',
           displayName: 'Custom Default',
           providerId: 'gemini',
-          modelId: 'gemini-2.0-flash',
+          modelId: 'gemini-2.5-flash',
           settings: { temperature: 0.3 }
         }
       ];
@@ -217,7 +217,7 @@ describe('LLMService Presets', () => {
           id: 'gemini-complex',
           displayName: 'Gemini Complex',
           providerId: 'gemini',
-          modelId: 'gemini-2.0-flash',
+          modelId: 'gemini-2.5-flash',
           settings: {
             temperature: 0.5,
             maxTokens: 2000,

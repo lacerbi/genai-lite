@@ -103,7 +103,7 @@ describe('SettingsManager', () => {
         ],
       };
 
-      const result = settingsManager.mergeSettingsForModel('gemini-2.0-flash', 'gemini', userSettings);
+      const result = settingsManager.mergeSettingsForModel('gemini-2.5-flash', 'gemini', userSettings);
 
       expect(result.temperature).toBe(0.5);
       expect(result.geminiSafetySettings).toHaveLength(1);
