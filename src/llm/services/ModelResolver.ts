@@ -6,6 +6,8 @@ import type {
 } from "../types";
 import type { ILLMClientAdapter } from "../clients/types";
 import type { ModelPreset } from "../../types/presets";
+import type { Logger } from "../../logging/types";
+import { createDefaultLogger } from "../../logging/defaultLogger";
 import { PresetManager } from "../../shared/services/PresetManager";
 import { AdapterRegistry } from "../../shared/services/AdapterRegistry";
 import {
@@ -42,10 +44,15 @@ export interface ModelResolution {
  * Resolves model information from presets or direct provider/model IDs
  */
 export class ModelResolver {
+  private logger: Logger;
+
   constructor(
     private presetManager: PresetManager<ModelPreset>,
-    private adapterRegistry: AdapterRegistry<ILLMClientAdapter, ApiProviderId>
-  ) {}
+    private adapterRegistry: AdapterRegistry<ILLMClientAdapter, ApiProviderId>,
+    logger?: Logger
+  ) {
+    this.logger = logger ?? createDefaultLogger();
+  }
 
   /**
    * Resolves model information from either a preset ID or provider/model IDs
@@ -150,7 +157,7 @@ export class ModelResolver {
             detectedCapabilities = capabilities || undefined;
           }
         } catch (error) {
-          console.warn('Failed to detect GGUF model capabilities:', error);
+          this.logger.warn('Failed to detect GGUF model capabilities:', error);
           // Continue with fallback
         }
       }
@@ -160,8 +167,8 @@ export class ModelResolver {
         modelInfo = createFallbackModelInfo(options.modelId, options.providerId, detectedCapabilities);
       } else {
         // Strict provider - warn but allow
-        console.warn(
-          `⚠️  Unknown model "${options.modelId}" for provider "${options.providerId}". ` +
+        this.logger.warn(
+          `Unknown model "${options.modelId}" for provider "${options.providerId}". ` +
           `Using default settings. This may fail at the provider API if the model doesn't exist.`
         );
         modelInfo = createFallbackModelInfo(options.modelId, options.providerId, detectedCapabilities);

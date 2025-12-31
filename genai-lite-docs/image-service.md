@@ -26,6 +26,17 @@ import { ImageService, fromEnvironment } from 'genai-lite';
 
 const imageService = new ImageService(fromEnvironment);
 
+// With debug logging for troubleshooting
+const imageServiceDebug = new ImageService(fromEnvironment, {
+  logLevel: 'debug'
+});
+```
+
+See [Logging](logging.md) for custom logger integration.
+
+**Generate an image**:
+
+```typescript
 const result = await imageService.generateImage({
   providerId: 'openai-images',
   modelId: 'gpt-image-1-mini',

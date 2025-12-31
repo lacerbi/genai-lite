@@ -14,6 +14,9 @@ import type {
 } from "./types";
 import { ADAPTER_ERROR_CODES } from "./types";
 import { getCommonMappedErrorDetails } from "../../shared/adapters/errorUtils";
+import { createDefaultLogger } from "../../logging/defaultLogger";
+
+const logger = createDefaultLogger();
 
 /**
  * Client adapter for Google Gemini API integration
@@ -57,8 +60,8 @@ export class GeminiClientAdapter implements ILLMClientAdapter {
       const { contents, generationConfig, safetySettings, systemInstruction } =
         this.formatInternalRequestToGemini(request);
 
-      console.log(`Making Gemini API call for model: ${request.modelId}`);
-      console.log(`Gemini API parameters:`, {
+      logger.info(`Making Gemini API call for model: ${request.modelId}`);
+      logger.debug(`Gemini API parameters:`, {
         model: request.modelId,
         temperature: generationConfig.temperature,
         maxOutputTokens: generationConfig.maxOutputTokens,
@@ -78,12 +81,12 @@ export class GeminiClientAdapter implements ILLMClientAdapter {
         },
       });
 
-      console.log(`Gemini API call successful, processing response`);
+      logger.info(`Gemini API call successful, processing response`);
 
       // Convert to standardized response format
       return this.createSuccessResponse(result, request);
     } catch (error) {
-      console.error("Gemini API error:", error);
+      logger.error("Gemini API error:", error);
       return this.createErrorResponse(error, request);
     }
   }

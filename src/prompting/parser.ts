@@ -1,11 +1,15 @@
 /**
  * Response parsing utilities for structured LLM output
- * 
+ *
  * This module provides utilities for parsing structured text that is returned
  * from an LLM. It helps deconstruct LLM responses into usable data structures.
  */
 
 import type { LLMSettings } from '../llm/types';
+import { createDefaultLogger } from '../logging/defaultLogger';
+
+// Module-level logger for utility functions
+const logger = createDefaultLogger();
 
 /**
  * Metadata structure that can be embedded in templates
@@ -217,7 +221,7 @@ export function parseTemplateWithMetadata(template: string): {
   } catch (error) {
     // If the JSON is invalid, we warn the developer and treat the <META> block
     // as regular text to avoid crashing.
-    console.warn('Could not parse <META> block in template. Treating it as content.', error);
+    logger.warn('Could not parse <META> block in template. Treating it as content.', error);
     return { metadata: { settings: {} }, content: template };
   }
 }

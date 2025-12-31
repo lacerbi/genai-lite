@@ -25,6 +25,7 @@ Complete documentation for genai-lite - A lightweight, portable TypeScript libra
 
 ### Utilities & Advanced
 - **[Prompting Utilities](prompting-utilities.md)** - Template engine, token counting, content parsing
+- **[Logging](logging.md)** - Configure logging and debugging
 - **[TypeScript Reference](typescript-reference.md)** - Type definitions
 
 ### Provider Reference
@@ -90,6 +91,18 @@ export LLAMACPP_API_BASE_URL=http://localhost:8080
 # genai-electron base URL (optional, default: http://localhost:8081)
 export GENAI_ELECTRON_IMAGE_BASE_URL=http://localhost:8081
 ```
+
+### Logging Configuration (Optional)
+
+Control genai-lite's logging verbosity:
+
+```bash
+# Default is 'warn' - errors and warnings only
+export GENAI_LITE_LOG_LEVEL=debug  # Enable verbose logging
+export GENAI_LITE_LOG_LEVEL=silent # Suppress all logs
+```
+
+Valid levels: `silent`, `error`, `warn`, `info`, `debug`. See [Logging](logging.md) for details.
 
 See [Providers & Models](providers-and-models.md) for provider-specific setup details.
 

@@ -259,6 +259,77 @@ From `errorUtils.ts:92-102`:
 - `ECONNREFUSED`: Server not listening (check if server is running)
 - `ETIMEDOUT`: Connection timed out (check network/firewall)
 
+## Debugging with Logs
+
+### Enabling Debug Logging
+
+When troubleshooting issues, enable debug logging to see internal operations:
+
+```bash
+# Via environment variable
+export GENAI_LITE_LOG_LEVEL=debug
+
+# Then run your application
+node app.js
+```
+
+Or programmatically:
+
+```typescript
+const llmService = new LLMService(fromEnvironment, {
+  logLevel: 'debug'
+});
+```
+
+### Log Output Examples
+
+Debug logs show:
+- API request parameters
+- Provider adapter selection
+- Settings resolution
+- Error context
+
+Example output:
+```
+[genai-lite:debug] Merged settings for openai/gpt-4.1-mini
+[genai-lite:info] Making OpenAI API call for model: gpt-4.1-mini
+[genai-lite:info] OpenAI API call successful, response ID: chatcmpl-...
+[genai-lite:warn] Unknown model, using default settings
+```
+
+### Suppressing Logs in Tests
+
+```typescript
+import { silentLogger, LLMService, fromEnvironment } from 'genai-lite';
+
+const llmService = new LLMService(fromEnvironment, {
+  logger: silentLogger
+});
+```
+
+### Capturing Logs for Analysis
+
+Inject a custom logger to capture logs:
+
+```typescript
+const logBuffer: string[] = [];
+const captureLogger = {
+  debug: (msg: string) => logBuffer.push(`DEBUG: ${msg}`),
+  info: (msg: string) => logBuffer.push(`INFO: ${msg}`),
+  warn: (msg: string) => logBuffer.push(`WARN: ${msg}`),
+  error: (msg: string) => logBuffer.push(`ERROR: ${msg}`)
+};
+
+const llmService = new LLMService(fromEnvironment, {
+  logger: captureLogger
+});
+
+// After operations
+console.log('Captured logs:', logBuffer);
+```
+
+See [Logging](logging.md) for complete documentation.
+
 ## Related Documentation
 
 ### Detailed Guides

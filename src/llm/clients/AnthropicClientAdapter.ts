@@ -10,6 +10,9 @@ import type {
 } from "./types";
 import { ADAPTER_ERROR_CODES } from "./types";
 import { getCommonMappedErrorDetails } from "../../shared/adapters/errorUtils";
+import { createDefaultLogger } from "../../logging/defaultLogger";
+
+const logger = createDefaultLogger();
 
 /**
  * Client adapter for Anthropic API integration
@@ -107,8 +110,8 @@ export class AnthropicClientAdapter implements ILLMClientAdapter {
         }
       }
 
-      console.log(`Making Anthropic API call for model: ${request.modelId}`);
-      console.log(`Anthropic API parameters:`, {
+      logger.info(`Making Anthropic API call for model: ${request.modelId}`);
+      logger.debug(`Anthropic API parameters:`, {
         model: messageParams.model,
         temperature: messageParams.temperature,
         max_tokens: messageParams.max_tokens,
@@ -121,14 +124,14 @@ export class AnthropicClientAdapter implements ILLMClientAdapter {
       // Make the API call
       const completion = await anthropic.messages.create(messageParams);
 
-      console.log(
+      logger.info(
         `Anthropic API call successful, response ID: ${completion.id}`
       );
 
       // Convert to standardized response format
       return this.createSuccessResponse(completion, request);
     } catch (error) {
-      console.error("Anthropic API error:", error);
+      logger.error("Anthropic API error:", error);
       return this.createErrorResponse(error, request);
     }
   }
@@ -194,7 +197,7 @@ export class AnthropicClientAdapter implements ILLMClientAdapter {
     // Anthropic requires messages to start with 'user' role
     // If the first message is not from user, we need to handle this
     if (messages.length > 0 && messages[0].role !== "user") {
-      console.warn(
+      logger.warn(
         "Anthropic API requires first message to be from user. Adjusting message order."
       );
       // Find the first user message and move it to the front, or create a default one
@@ -242,7 +245,7 @@ export class AnthropicClientAdapter implements ILLMClientAdapter {
         // If roles don't alternate properly, we might need to combine messages
         // or insert a placeholder. For now, we'll skip non-alternating messages
         // and log a warning.
-        console.warn(
+        logger.warn(
           `Skipping message with unexpected role: expected ${expectedRole}, got ${message.role}`
         );
       }

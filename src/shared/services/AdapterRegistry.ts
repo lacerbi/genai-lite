@@ -1,3 +1,6 @@
+import type { Logger } from "../../logging/types";
+import { createDefaultLogger } from "../../logging/defaultLogger";
+
 /**
  * Information about a registered adapter
  */
@@ -52,16 +55,19 @@ export class AdapterRegistry<TAdapter, TProviderId extends string> {
   private adapters: Map<TProviderId, TAdapter>;
   private fallbackAdapter: TAdapter;
   private supportedProviders: readonly MinimalProviderInfo<TProviderId>[];
+  private logger: Logger;
 
   /**
    * Creates a new AdapterRegistry
    *
    * @param config - Configuration for the registry
+   * @param logger - Optional logger instance
    */
-  constructor(config: AdapterRegistryConfig<TAdapter, TProviderId>) {
+  constructor(config: AdapterRegistryConfig<TAdapter, TProviderId>, logger?: Logger) {
     this.adapters = new Map();
     this.fallbackAdapter = config.fallbackAdapter;
     this.supportedProviders = config.supportedProviders;
+    this.logger = logger ?? createDefaultLogger();
 
     // Register custom adapters first if provided
     if (config.customAdapters) {
@@ -94,7 +100,7 @@ export class AdapterRegistry<TAdapter, TProviderId extends string> {
 
       // Skip if adapter is already registered (from custom adapters)
       if (this.adapters.has(providerId)) {
-        console.log(
+        this.logger.debug(
           `AdapterRegistry: Skipping constructor initialization for '${provider.id}' ` +
           `(custom adapter already registered)`
         );
@@ -110,14 +116,14 @@ export class AdapterRegistry<TAdapter, TProviderId extends string> {
           registeredCount++;
           successfullyRegisteredProviders.push(provider.id);
         } catch (error) {
-          console.error(
+          this.logger.error(
             `AdapterRegistry: Failed to instantiate adapter for provider '${provider.id}'. ` +
             `This provider will use the fallback adapter. Error:`,
             error
           );
         }
       } else {
-        console.warn(
+        this.logger.warn(
           `AdapterRegistry: No adapter constructor found for supported provider '${provider.id}'. ` +
           `This provider will use the fallback adapter.`
         );
@@ -125,12 +131,12 @@ export class AdapterRegistry<TAdapter, TProviderId extends string> {
     }
 
     if (registeredCount > 0) {
-      console.log(
+      this.logger.debug(
         `AdapterRegistry: Initialized with ${registeredCount} dynamically registered adapter(s) ` +
         `for: ${successfullyRegisteredProviders.join(', ')}.`
       );
     } else {
-      console.log(
+      this.logger.debug(
         `AdapterRegistry: No real adapters were dynamically registered. ` +
         `All providers will use the fallback adapter.`
       );
@@ -145,7 +151,7 @@ export class AdapterRegistry<TAdapter, TProviderId extends string> {
    */
   registerAdapter(providerId: TProviderId, adapter: TAdapter): void {
     this.adapters.set(providerId, adapter);
-    console.log(`AdapterRegistry: Registered adapter for provider: ${providerId}`);
+    this.logger.debug(`AdapterRegistry: Registered adapter for provider: ${providerId}`);
   }
 
   /**
@@ -158,12 +164,12 @@ export class AdapterRegistry<TAdapter, TProviderId extends string> {
     // Check for registered real adapters first
     const registeredAdapter = this.adapters.get(providerId);
     if (registeredAdapter) {
-      console.log(`AdapterRegistry: Using registered adapter for provider: ${providerId}`);
+      this.logger.debug(`AdapterRegistry: Using registered adapter for provider: ${providerId}`);
       return registeredAdapter;
     }
 
     // Fall back to fallback adapter for unsupported providers
-    console.log(
+    this.logger.debug(
       `AdapterRegistry: No real adapter found for ${providerId}, using fallback adapter`
     );
     return this.fallbackAdapter;

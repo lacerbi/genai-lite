@@ -79,3 +79,7 @@ export { parseStructuredContent, parseRoleTags, extractInitialTaggedContent, par
 export type { TemplateMetadata } from "./prompting/parser";
 export { createFallbackModelInfo, detectGgufCapabilities, KNOWN_GGUF_MODELS } from "./llm/config";
 export type { GgufModelPattern } from "./llm/config";
+
+// --- Logging ---
+export type { Logger, LogLevel, LoggingConfig } from "./logging/types";
+export { createDefaultLogger, DEFAULT_LOG_LEVEL, silentLogger } from "./logging/defaultLogger";

@@ -26,6 +26,9 @@ import type {
   ImageProgressCallback,
 } from '../../types/image';
 import { getCommonMappedErrorDetails } from '../../shared/adapters/errorUtils';
+import { createDefaultLogger } from '../../logging/defaultLogger';
+
+const logger = createDefaultLogger();
 
 /**
  * genai-electron generation status response
@@ -105,7 +108,7 @@ export class GenaiElectronImageAdapter implements ImageProviderAdapter {
       // Build request payload
       const payload = this.buildRequestPayload(resolvedPrompt, request, settings);
 
-      console.log(`GenaiElectron Image API: Starting generation`, {
+      logger.debug(`GenaiElectron Image API: Starting generation`, {
         prompt: resolvedPrompt.substring(0, 100),
         count: payload.count,
         dimensions: `${payload.width}x${payload.height}`,
@@ -115,7 +118,7 @@ export class GenaiElectronImageAdapter implements ImageProviderAdapter {
       // Start generation (returns immediately with ID)
       const generationId = await this.startGeneration(payload);
 
-      console.log(`GenaiElectron Image API: Generation started with ID: ${generationId}`);
+      logger.info(`GenaiElectron Image API: Generation started with ID: ${generationId}`);
 
       // Poll for completion
       const result = await this.pollForCompletion(
@@ -123,12 +126,12 @@ export class GenaiElectronImageAdapter implements ImageProviderAdapter {
         settings.diffusion?.onProgress
       );
 
-      console.log(`GenaiElectron Image API: Generation complete (${result.timeTaken}ms)`);
+      logger.info(`GenaiElectron Image API: Generation complete (${result.timeTaken}ms)`);
 
       // Convert to ImageGenerationResponse
       return this.convertToResponse(result, request);
     } catch (error) {
-      console.error('GenaiElectron Image API error:', error);
+      logger.error('GenaiElectron Image API error:', error);
       throw this.handleError(error, request);
     }
   }

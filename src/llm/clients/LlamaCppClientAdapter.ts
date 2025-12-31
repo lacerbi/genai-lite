@@ -11,6 +11,9 @@ import { ADAPTER_ERROR_CODES } from "./types";
 import { getCommonMappedErrorDetails } from "../../shared/adapters/errorUtils";
 import { LlamaCppServerClient } from "./LlamaCppServerClient";
 import { detectGgufCapabilities } from "../config";
+import { createDefaultLogger } from "../../logging/defaultLogger";
+
+const logger = createDefaultLogger();
 
 /**
  * Configuration options for LlamaCppClientAdapter
@@ -96,11 +99,11 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
 
     // Attempt detection
     try {
-      console.log(`Detecting model capabilities from llama.cpp server at ${this.baseURL}`);
+      logger.debug(`Detecting model capabilities from llama.cpp server at ${this.baseURL}`);
       const { data } = await this.serverClient.getModels();
 
       if (!data || data.length === 0) {
-        console.warn('No models loaded in llama.cpp server');
+        logger.warn('No models loaded in llama.cpp server');
         this.detectionAttempted = true;
         return null;
       }
@@ -113,14 +116,14 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
       this.detectionAttempted = true;
 
       if (capabilities) {
-        console.log(`Cached model capabilities for: ${ggufFilename}`);
+        logger.debug(`Cached model capabilities for: ${ggufFilename}`);
       } else {
-        console.log(`No known pattern matched for: ${ggufFilename}`);
+        logger.debug(`No known pattern matched for: ${ggufFilename}`);
       }
 
       return capabilities;
     } catch (error) {
-      console.warn('Failed to detect model capabilities:', error);
+      logger.warn('Failed to detect model capabilities:', error);
       this.detectionAttempted = true;
       return null;
     }
@@ -135,7 +138,7 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
   clearModelCache(): void {
     this.cachedModelCapabilities = null;
     this.detectionAttempted = false;
-    console.log('Cleared model capabilities cache');
+    logger.debug('Cleared model capabilities cache');
   }
 
   /**
@@ -167,7 +170,7 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
             };
           }
         } catch (healthError) {
-          console.warn('Health check failed, proceeding with request anyway:', healthError);
+          logger.warn('Health check failed, proceeding with request anyway:', healthError);
         }
       }
 
@@ -199,7 +202,7 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
         }),
       };
 
-      console.log(`llama.cpp API parameters:`, {
+      logger.debug(`llama.cpp API parameters:`, {
         baseURL: this.baseURL,
         model: completionParams.model,
         temperature: completionParams.temperature,
@@ -207,20 +210,20 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
         top_p: completionParams.top_p,
       });
 
-      console.log(`Making llama.cpp API call for model: ${request.modelId}`);
+      logger.info(`Making llama.cpp API call for model: ${request.modelId}`);
 
       // Make the API call
       const completion = await openai.chat.completions.create(completionParams);
 
       // Type guard to ensure we have a non-streaming response
       if ('id' in completion && 'choices' in completion) {
-        console.log(`llama.cpp API call successful, response ID: ${completion.id}`);
+        logger.info(`llama.cpp API call successful, response ID: ${completion.id}`);
         return this.createSuccessResponse(completion as OpenAI.Chat.Completions.ChatCompletion, request);
       } else {
         throw new Error('Unexpected streaming response from llama.cpp server');
       }
     } catch (error) {
-      console.error("llama.cpp API error:", error);
+      logger.error("llama.cpp API error:", error);
 
       // Clear cache on connection errors so we re-detect on next request
       const errorMessage = (error as any)?.message || String(error);

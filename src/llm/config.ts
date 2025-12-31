@@ -15,6 +15,9 @@ import { OpenAIClientAdapter } from "./clients/OpenAIClientAdapter";
 import { AnthropicClientAdapter } from "./clients/AnthropicClientAdapter";
 import { GeminiClientAdapter } from "./clients/GeminiClientAdapter";
 import { LlamaCppClientAdapter } from "./clients/LlamaCppClientAdapter";
+import { createDefaultLogger } from "../logging/defaultLogger";
+
+const logger = createDefaultLogger();
 // Placeholder for future imports:
 // import { MistralClientAdapter } from './clients/MistralClientAdapter';
 
@@ -304,7 +307,7 @@ export function detectGgufCapabilities(
   // First match wins (array is pre-ordered from specific to generic)
   for (const model of KNOWN_GGUF_MODELS) {
     if (lowerFilename.includes(model.pattern.toLowerCase())) {
-      console.log(`Detected GGUF model: ${model.name} (pattern: ${model.pattern})`);
+      logger.debug(`Detected GGUF model: ${model.name} (pattern: ${model.pattern})`);
       return model.capabilities;
     }
   }
