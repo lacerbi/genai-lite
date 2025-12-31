@@ -475,7 +475,7 @@ describe('parseTemplateWithMetadata', () => {
     expect(result.metadata).toEqual({ settings: {} });
     expect(result.content).toBe(template); // Original template returned on error
     expect(consoleWarnSpy).toHaveBeenCalledWith(
-      'Could not parse <META> block in template. Treating it as content.',
+      '[genai-lite:warn] Could not parse <META> block in template. Treating it as content.',
       expect.any(Error)
     );
     

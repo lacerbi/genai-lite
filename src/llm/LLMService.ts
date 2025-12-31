@@ -2,6 +2,8 @@
 // Orchestrates LLM requests through provider-specific client adapters with proper error handling.
 
 import type { ApiKeyProvider, PresetMode } from '../types';
+import type { Logger, LogLevel } from '../logging/types';
+import { createDefaultLogger } from '../logging/defaultLogger';
 import type {
   LLMChatRequest,
   LLMChatRequestWithPreset,
@@ -49,6 +51,10 @@ export interface LLMServiceOptions {
   presets?: ModelPreset[];
   /** The strategy for integrating custom presets. Defaults to 'extend'. */
   presetMode?: PresetMode;
+  /** Log level for filtering messages. Defaults to GENAI_LITE_LOG_LEVEL env var or 'warn'. */
+  logLevel?: LogLevel;
+  /** Custom logger implementation. If provided, logLevel is ignored. */
+  logger?: Logger;
 }
 
 /**
@@ -77,6 +83,7 @@ export interface CreateMessagesResult {
 
 export class LLMService {
   private getApiKey: ApiKeyProvider;
+  private logger: Logger;
   private presetManager: PresetManager<ModelPreset>;
   private adapterRegistry: AdapterRegistry<ILLMClientAdapter, ApiProviderId>;
   private requestValidator: RequestValidator;
@@ -86,7 +93,10 @@ export class LLMService {
   constructor(getApiKey: ApiKeyProvider, options: LLMServiceOptions = {}) {
     this.getApiKey = getApiKey;
 
-    // Initialize services
+    // Initialize logger - custom logger takes precedence over logLevel
+    this.logger = options.logger ?? createDefaultLogger(options.logLevel);
+
+    // Initialize services with logger
     this.presetManager = new PresetManager<ModelPreset>(
       defaultPresets as ModelPreset[],
       options.presets,
@@ -97,10 +107,10 @@ export class LLMService {
       fallbackAdapter: new MockClientAdapter(),
       adapterConstructors: ADAPTER_CONSTRUCTORS,
       adapterConfigs: ADAPTER_CONFIGS,
-    });
+    }, this.logger);
     this.requestValidator = new RequestValidator();
-    this.settingsManager = new SettingsManager();
-    this.modelResolver = new ModelResolver(this.presetManager, this.adapterRegistry);
+    this.settingsManager = new SettingsManager(this.logger);
+    this.modelResolver = new ModelResolver(this.presetManager, this.adapterRegistry, this.logger);
   }
 
   /**
@@ -109,7 +119,7 @@ export class LLMService {
    * @returns Promise resolving to array of provider information
    */
   async getProviders(): Promise<ProviderInfo[]> {
-    console.log("LLMService.getProviders called");
+    this.logger.debug("LLMService.getProviders called");
     return [...SUPPORTED_PROVIDERS]; // Return a copy to prevent external modification
   }
 
@@ -120,16 +130,16 @@ export class LLMService {
    * @returns Promise resolving to array of model information
    */
   async getModels(providerId: ApiProviderId): Promise<ModelInfo[]> {
-    console.log(`LLMService.getModels called for provider: ${providerId}`);
+    this.logger.debug(`LLMService.getModels called for provider: ${providerId}`);
 
     // Validate provider exists
     const models = getModelsByProvider(providerId);
     if (models.length === 0) {
-      console.warn(`Requested models for unsupported provider: ${providerId}`);
+      this.logger.warn(`Requested models for unsupported provider: ${providerId}`);
       return [];
     }
 
-    console.log(`Found ${models.length} models for provider: ${providerId}`);
+    this.logger.debug(`Found ${models.length} models for provider: ${providerId}`);
     return [...models]; // Return a copy to prevent external modification
   }
 
@@ -142,7 +152,7 @@ export class LLMService {
   async sendMessage(
     request: LLMChatRequest | LLMChatRequestWithPreset
   ): Promise<LLMResponse | LLMFailureResponse> {
-    console.log(
+    this.logger.info(
       `LLMService.sendMessage called with presetId: ${(request as LLMChatRequestWithPreset).presetId}, provider: ${request.providerId}, model: ${request.modelId}`
     );
 
@@ -225,7 +235,7 @@ export class LLMService {
         settings: filteredSettings as Required<LLMSettings>,
       };
 
-      console.log(
+      this.logger.debug(
         `Processing LLM request with (potentially filtered) settings:`,
         {
           provider: providerId,
@@ -268,7 +278,7 @@ export class LLMService {
           };
         }
 
-        console.log(
+        this.logger.info(
           `Making LLM request with ${clientAdapter.constructor.name} for provider: ${providerId}`
         );
         const result = await clientAdapter.sendMessage(internalRequest, apiKey);
@@ -295,7 +305,7 @@ export class LLMService {
 
             if (extracted !== null) {
               // Success: thinking tag found
-              console.log(`Extracted <${tagName}> block from response.`);
+              this.logger.debug(`Extracted <${tagName}> block from response.`);
 
               // Handle the edge case: append to existing reasoning if present (e.g., native reasoning + thinking tags)
               const existingReasoning = choice.reasoning || '';
@@ -345,12 +355,12 @@ export class LLMService {
           }
         }
 
-        console.log(
+        this.logger.info(
           `LLM request completed successfully for model: ${modelId}`
         );
         return result;
       } catch (error) {
-        console.error("Error in LLMService.sendMessage:", error);
+        this.logger.error("Error in LLMService.sendMessage:", error);
         return {
           provider: providerId!,
           model: modelId!,
@@ -367,7 +377,7 @@ export class LLMService {
         };
       }
     } catch (error) {
-      console.error("Error in LLMService.sendMessage (outer):", error);
+      this.logger.error("Error in LLMService.sendMessage (outer):", error);
 
       return {
         provider: request.providerId || (request as LLMChatRequestWithPreset).presetId || 'unknown',
@@ -451,7 +461,7 @@ export class LLMService {
     modelId?: string;
     settings?: Partial<LLMSettings>;
   }): Promise<CreateMessagesResult> {
-    console.log('LLMService.createMessages called');
+    this.logger.debug('LLMService.createMessages called');
 
     // NEW: Step 1 - Parse the template for metadata and content
     const { metadata, content: templateContent } = parseTemplateWithMetadata(options.template);
@@ -472,7 +482,7 @@ export class LLMService {
 
       if (resolved.error) {
         // If resolution fails, proceed without model context
-        console.warn('Model resolution failed, proceeding without model context:', resolved.error);
+        this.logger.warn('Model resolution failed, proceeding without model context:', resolved.error);
       } else {
         const { providerId, modelId, modelInfo, settings } = resolved;
         

@@ -11,6 +11,7 @@ Complete type definitions and interfaces for genai-lite.
 - [Image Types](#image-types)
 - [llama.cpp Types](#llamacpp-types)
 - [Utility Types](#utility-types)
+- [Logging Types](#logging-types)
 
 ## Overview
 
@@ -47,7 +48,17 @@ import { LlamaCppClientAdapter, LlamaCppServerClient } from 'genai-lite';
 // Core types
 import type {
   ApiKeyProvider,
-  PresetMode
+  PresetMode,
+  Logger,
+  LogLevel,
+  LoggingConfig
+} from 'genai-lite';
+
+// Logging utilities
+import {
+  createDefaultLogger,
+  silentLogger,
+  DEFAULT_LOG_LEVEL
 } from 'genai-lite';
 
 // LLM types
@@ -451,3 +462,53 @@ function parseTemplateWithMetadata(
   template: string
 ): { template: string; metadata: TemplateMetadata };
 ```
+
+## Logging Types
+
+### Logger
+
+Interface for custom logger injection. Compatible with pino, winston, bunyan, and console.
+
+```typescript
+interface Logger {
+  debug(message: string, ...args: unknown[]): void;
+  info(message: string, ...args: unknown[]): void;
+  warn(message: string, ...args: unknown[]): void;
+  error(message: string, ...args: unknown[]): void;
+}
+```
+
+### LogLevel
+
+```typescript
+type LogLevel = 'silent' | 'error' | 'warn' | 'info' | 'debug';
+```
+
+### LoggingConfig
+
+```typescript
+interface LoggingConfig {
+  /** Log level threshold - messages below this level are suppressed */
+  level: LogLevel;
+  /** Custom logger implementation (optional) */
+  logger?: Logger;
+}
+```
+
+### Logging Utilities
+
+```typescript
+/**
+ * Creates a console-based logger with level filtering
+ * @param level - Minimum log level (defaults to env var or 'warn')
+ */
+function createDefaultLogger(level?: LogLevel): Logger;
+
+/** Default log level from GENAI_LITE_LOG_LEVEL env var or 'warn' */
+const DEFAULT_LOG_LEVEL: LogLevel;
+
+/** Logger that discards all output - useful for testing */
+const silentLogger: Logger;
+```
+
+See [Logging](logging.md) for usage examples and custom logger integration.

@@ -24,6 +24,9 @@ import type {
   GeneratedImage,
 } from '../../types/image';
 import { getCommonMappedErrorDetails } from '../../shared/adapters/errorUtils';
+import { createDefaultLogger } from '../../logging/defaultLogger';
+
+const logger = createDefaultLogger();
 
 /**
  * Prompt length limits per model
@@ -118,7 +121,7 @@ export class OpenAIImageAdapter implements ImageProviderAdapter {
         this.addDalleParams(params, settings);
       }
 
-      console.log(`OpenAI Image API call for model: ${request.modelId}`, {
+      logger.debug(`OpenAI Image API call for model: ${request.modelId}`, {
         model: params.model,
         promptLength: resolvedPrompt.length,
         n: params.n,
@@ -132,12 +135,12 @@ export class OpenAIImageAdapter implements ImageProviderAdapter {
         throw new Error('OpenAI API returned no images in response');
       }
 
-      console.log(`OpenAI Image API call successful, generated ${response.data.length} images`);
+      logger.info(`OpenAI Image API call successful, generated ${response.data.length} images`);
 
       // Process response
       return await this.processResponse(response, request, isGptImageModel);
     } catch (error) {
-      console.error('OpenAI Image API error:', error);
+      logger.error('OpenAI Image API error:', error);
       throw this.handleError(error, request);
     }
   }

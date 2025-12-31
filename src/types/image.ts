@@ -5,6 +5,8 @@
  * Based on the design specification in docs/devlog/2025-10-22-genai-lite-image-api-design.md
  */
 
+import type { Logger, LogLevel } from '../logging/types';
+
 /**
  * Image provider ID type - represents a unique identifier for an image generation provider
  */
@@ -430,6 +432,10 @@ export interface ImageServiceOptions {
   adapters?: Record<ImageProviderId, ImageProviderAdapter>;
   /** Override default base URLs per provider */
   baseUrls?: Record<ImageProviderId, string>;
+  /** Log level for filtering messages. Defaults to GENAI_LITE_LOG_LEVEL env var or 'warn'. */
+  logLevel?: LogLevel;
+  /** Custom logger implementation. If provided, logLevel is ignored. */
+  logger?: Logger;
 }
 
 /**

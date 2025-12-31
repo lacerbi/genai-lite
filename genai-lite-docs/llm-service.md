@@ -39,7 +39,20 @@ import { LLMService, fromEnvironment } from 'genai-lite';
 
 // Create service with environment variable API key provider
 const llmService = new LLMService(fromEnvironment);
+
+// With debug logging
+const llmServiceDebug = new LLMService(fromEnvironment, {
+  logLevel: 'debug'
+});
+
+// With custom logger (pino, winston, etc.)
+import pino from 'pino';
+const llmServicePino = new LLMService(fromEnvironment, {
+  logger: pino({ level: 'info' })
+});
 ```
+
+See [Logging](logging.md) for complete logging configuration.
 
 ### Sending Messages
 

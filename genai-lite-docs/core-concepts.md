@@ -371,6 +371,38 @@ const response = await service.sendMessage({
 });
 ```
 
+## Logging Configuration
+
+genai-lite provides configurable logging for debugging and monitoring.
+
+### Environment Variable
+
+```bash
+export GENAI_LITE_LOG_LEVEL=debug  # Options: silent, error, warn, info, debug
+```
+
+### Service Options
+
+```typescript
+const llmService = new LLMService(fromEnvironment, {
+  logLevel: 'info',      // Override env var
+  logger: customLogger   // Inject pino/winston/bunyan
+});
+```
+
+### Logger Interface
+
+```typescript
+interface Logger {
+  debug(message: string, ...args: unknown[]): void;
+  info(message: string, ...args: unknown[]): void;
+  warn(message: string, ...args: unknown[]): void;
+  error(message: string, ...args: unknown[]): void;
+}
+```
+
+See [Logging](logging.md) for complete details, custom logger examples, and testing patterns.
+
 ## Related Documentation
 
 ### Using These Concepts

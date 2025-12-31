@@ -189,6 +189,7 @@ See [docs/dev/adding-models-and-providers.md](docs/dev/adding-models-and-provide
   - **llama.cpp:** `LlamaCppClientAdapter`, `LlamaCppServerClient`, and related types
   - **Helpers:** `createFallbackModelInfo`, `detectGgufCapabilities`, `KNOWN_GGUF_MODELS`
   - **Shared Types:** `PresetMode`
+  - **Logging:** `Logger`, `LogLevel`, `LoggingConfig` types, `createDefaultLogger`, `DEFAULT_LOG_LEVEL`, `silentLogger`
 
 **Directory Structure:**
 ```
@@ -230,6 +231,10 @@ src/
 │   │   └── AdapterRegistry.ts    # Generic adapter registration
 │   └── adapters/                 # Shared adapter utilities
 │       └── errorUtils.ts         # Error mapping/normalization
+├── logging/                      # Logging system
+│   ├── types.ts                  # Logger, LogLevel, LoggingConfig interfaces
+│   ├── defaultLogger.ts          # Console logger with level filtering
+│   └── index.ts                  # Barrel exports
 ├── prompting/                    # Prompt engineering utilities
 │   ├── template.ts               # Template rendering
 │   ├── content.ts                # Token counting, text preview
@@ -314,6 +319,7 @@ The `examples/chat-demo` application provides a quick way to test library change
 - Additional endpoints: tokenization, embeddings, health checks, server metrics
 - Hybrid architecture: `LlamaCppClientAdapter` for chat, `LlamaCppServerClient` for utilities
 - Configure via `LLAMACPP_API_BASE_URL` environment variable (default: http://localhost:8080)
+- Logging: Set `GENAI_LITE_LOG_LEVEL` environment variable (`silent`, `error`, `warn`, `info`, `debug`; default: `warn`)
 
 **Image Provider Considerations:**
 

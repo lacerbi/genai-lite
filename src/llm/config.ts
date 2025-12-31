@@ -15,6 +15,9 @@ import { OpenAIClientAdapter } from "./clients/OpenAIClientAdapter";
 import { AnthropicClientAdapter } from "./clients/AnthropicClientAdapter";
 import { GeminiClientAdapter } from "./clients/GeminiClientAdapter";
 import { LlamaCppClientAdapter } from "./clients/LlamaCppClientAdapter";
+import { createDefaultLogger } from "../logging/defaultLogger";
+
+const logger = createDefaultLogger();
 // Placeholder for future imports:
 // import { MistralClientAdapter } from './clients/MistralClientAdapter';
 
@@ -304,7 +307,7 @@ export function detectGgufCapabilities(
   // First match wins (array is pre-ordered from specific to generic)
   for (const model of KNOWN_GGUF_MODELS) {
     if (lowerFilename.includes(model.pattern.toLowerCase())) {
-      console.log(`Detected GGUF model: ${model.name} (pattern: ${model.pattern})`);
+      logger.debug(`Detected GGUF model: ${model.name} (pattern: ${model.pattern})`);
       return model.capabilities;
     }
   }
@@ -628,32 +631,6 @@ export const SUPPORTED_MODELS: ModelInfo[] = [
       },
       outputType: 'summary',
     },
-  },
-  {
-    id: "gemini-2.0-flash",
-    name: "Gemini 2.0 Flash",
-    providerId: "gemini",
-    contextWindow: 1048576,
-    inputPrice: 0.1,
-    outputPrice: 0.4,
-    description: "High-performance model with multimodal capabilities",
-    maxTokens: 8192,
-    supportsImages: true,
-    supportsPromptCache: true,
-    cacheReadsPrice: 0.025,
-    cacheWritesPrice: 1.0,
-  },
-  {
-    id: "gemini-2.0-flash-lite",
-    name: "Gemini 2.0 Flash Lite",
-    providerId: "gemini",
-    contextWindow: 1048576,
-    inputPrice: 0.075,
-    outputPrice: 0.3,
-    description: "Lightweight version of Gemini 2.0 Flash",
-    maxTokens: 8192,
-    supportsImages: true,
-    supportsPromptCache: false,
   },
   // Google Gemma 3 Models (Open weights, free via Gemini API)
   {

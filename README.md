@@ -14,6 +14,7 @@ A lightweight, portable Node.js/TypeScript library providing a unified interface
 - 🛡️ **Provider Normalization** - Consistent responses across different AI APIs
 - 🎨 **Configurable Model Presets** - Built-in presets with full customization options
 - 🎭 **Template Engine** - Sophisticated templating with conditionals and variable substitution
+- 📊 **Configurable Logging** - Debug mode, custom loggers (pino, winston), and silent mode for tests
 
 ## Installation
 
@@ -112,6 +113,7 @@ Comprehensive documentation is available in the **[`genai-lite-docs`](./genai-li
 
 ### Utilities & Advanced
 - **[Prompting Utilities](./genai-lite-docs/prompting-utilities.md)** - Template engine, token counting, content parsing
+- **[Logging](./genai-lite-docs/logging.md)** - Configure logging and debugging
 - **[TypeScript Reference](./genai-lite-docs/typescript-reference.md)** - Type definitions
 
 ### Provider Reference
@@ -153,6 +155,25 @@ const llmService = new LLMService(myKeyProvider);
 ```
 
 See **[Core Concepts](./genai-lite-docs/core-concepts.md#api-key-management)** for detailed examples including Electron integration.
+
+## Logging Configuration
+
+Control logging verbosity via environment variable or service options:
+
+```bash
+# Environment variable (applies to all services)
+export GENAI_LITE_LOG_LEVEL=debug  # Options: silent, error, warn, info, debug
+```
+
+```typescript
+// Per-service configuration
+const llmService = new LLMService(fromEnvironment, {
+  logLevel: 'debug',        // Override env var
+  logger: customPinoLogger  // Inject pino/winston/etc.
+});
+```
+
+See **[Logging](./genai-lite-docs/logging.md)** for custom logger integration and testing patterns.
 
 ## Example Applications
 

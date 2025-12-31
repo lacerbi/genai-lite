@@ -6,6 +6,8 @@
  */
 
 import type { ApiKeyProvider } from '../types';
+import type { Logger, LogLevel } from '../logging/types';
+import { createDefaultLogger } from '../logging/defaultLogger';
 import type {
   ImageGenerationRequest,
   ImageGenerationRequestWithPreset,
@@ -37,6 +39,7 @@ const defaultImagePresets = rawDefaultImagePresets as ImagePreset[];
  */
 export class ImageService {
   private getApiKey: ApiKeyProvider;
+  private logger: Logger;
   private presetManager: PresetManager<ImagePreset>;
   private adapterRegistry: AdapterRegistry<ImageProviderAdapter, ImageProviderId>;
   private requestValidator: ImageRequestValidator;
@@ -45,6 +48,9 @@ export class ImageService {
 
   constructor(getApiKey: ApiKeyProvider, options: ImageServiceOptions = {}) {
     this.getApiKey = getApiKey;
+
+    // Initialize logger - custom logger takes precedence over logLevel
+    this.logger = options.logger ?? createDefaultLogger(options.logLevel);
 
     // Initialize helper services
     this.presetManager = new PresetManager<ImagePreset>(
@@ -57,7 +63,7 @@ export class ImageService {
     this.adapterRegistry = new AdapterRegistry<ImageProviderAdapter, ImageProviderId>({
       supportedProviders: SUPPORTED_IMAGE_PROVIDERS,
       fallbackAdapter: new MockImageAdapter(),
-    });
+    }, this.logger);
 
     // Register OpenAI adapter
     const openaiConfig = IMAGE_ADAPTER_CONFIGS['openai-images'];
@@ -92,7 +98,7 @@ export class ImageService {
     this.settingsResolver = new ImageSettingsResolver();
     this.modelResolver = new ImageModelResolver(this.presetManager);
 
-    console.log('ImageService: Initialized with OpenAI Images and genai-electron adapters');
+    this.logger.debug('ImageService: Initialized with OpenAI Images and genai-electron adapters');
   }
 
   /**
@@ -104,7 +110,7 @@ export class ImageService {
   async generateImage(
     request: ImageGenerationRequest | ImageGenerationRequestWithPreset
   ): Promise<ImageGenerationResponse | ImageFailureResponse> {
-    console.log('ImageService.generateImage called');
+    this.logger.info('ImageService.generateImage called');
 
     try {
       // Resolve model information
@@ -165,7 +171,7 @@ export class ImageService {
         }
 
         // Generate images
-        console.log(`ImageService: Calling adapter for provider: ${providerId}`);
+        this.logger.info(`ImageService: Calling adapter for provider: ${providerId}`);
         const response = await adapter.generate({
           request: fullRequest,
           resolvedPrompt,
@@ -173,10 +179,10 @@ export class ImageService {
           apiKey,
         });
 
-        console.log('ImageService: Image generation completed successfully');
+        this.logger.info('ImageService: Image generation completed successfully');
         return response;
       } catch (error) {
-        console.error('ImageService: Error during image generation:', error);
+        this.logger.error('ImageService: Error during image generation:', error);
         return {
           object: 'error',
           providerId: providerId!,
@@ -193,7 +199,7 @@ export class ImageService {
         };
       }
     } catch (error) {
-      console.error('ImageService: Unexpected error:', error);
+      this.logger.error('ImageService: Unexpected error:', error);
       const req = request as any;
       return {
         object: 'error',
@@ -216,7 +222,7 @@ export class ImageService {
    * @returns Promise resolving to array of provider information
    */
   async getProviders(): Promise<ImageProviderInfo[]> {
-    console.log('ImageService.getProviders called');
+    this.logger.debug('ImageService.getProviders called');
     return [...SUPPORTED_IMAGE_PROVIDERS];
   }
 
@@ -227,9 +233,9 @@ export class ImageService {
    * @returns Promise resolving to array of model information
    */
   async getModels(providerId: ImageProviderId): Promise<ImageModelInfo[]> {
-    console.log(`ImageService.getModels called for provider: ${providerId}`);
+    this.logger.debug(`ImageService.getModels called for provider: ${providerId}`);
     const models = getImageModelsByProvider(providerId);
-    console.log(`ImageService: Found ${models.length} models for provider: ${providerId}`);
+    this.logger.debug(`ImageService: Found ${models.length} models for provider: ${providerId}`);
     return [...models];
   }
 

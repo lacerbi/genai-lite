@@ -1,10 +1,17 @@
 import type { ApiProviderId, LLMSettings, ModelInfo, ProviderInfo } from "../types";
+import type { Logger } from "../../logging/types";
+import { createDefaultLogger } from "../../logging/defaultLogger";
 import { getDefaultSettingsForModel } from "../config";
 
 /**
  * Manages LLM settings including merging with defaults and filtering unsupported parameters
  */
 export class SettingsManager {
+  private logger: Logger;
+
+  constructor(logger?: Logger) {
+    this.logger = logger ?? createDefaultLogger();
+  }
   /**
    * Merges request settings with model-specific and global defaults
    *
@@ -50,7 +57,7 @@ export class SettingsManager {
     };
 
     // Log the final settings for debugging
-    console.log(`Merged settings for ${providerId}/${modelId}:`, {
+    this.logger.debug(`Merged settings for ${providerId}/${modelId}:`, {
       temperature: mergedSettings.temperature,
       maxTokens: mergedSettings.maxTokens,
       topP: mergedSettings.topP,
@@ -98,7 +105,7 @@ export class SettingsManager {
     }
 
     if (paramsToExclude.size > 0) {
-      console.log(
+      this.logger.debug(
         `LLMService: Potential parameters to exclude for provider '${providerInfo.id}', model '${modelInfo.id}':`,
         Array.from(paramsToExclude)
       );
@@ -107,7 +114,7 @@ export class SettingsManager {
     paramsToExclude.forEach((param) => {
       // Check if the parameter key actually exists in filteredSettings before trying to delete
       if (param in filteredSettings) {
-        console.log(
+        this.logger.debug(
           `LLMService: Removing excluded parameter '${String(
             param
           )}' for provider '${providerInfo.id}', model '${
@@ -118,7 +125,7 @@ export class SettingsManager {
         delete (filteredSettings as Partial<LLMSettings>)[param]; // Cast to allow deletion
       } else {
         // This case should ideally not happen if settings truly is Required<LLMSettings>
-        console.log(
+        this.logger.debug(
           `LLMService: Parameter '${String(
             param
           )}' marked for exclusion was not found in settings for provider '${
@@ -131,7 +138,7 @@ export class SettingsManager {
     // Handle reasoning settings for models that don't support it
     // This happens after validateReasoningSettings so we know it's safe to strip
     if (!modelInfo.reasoning?.supported && filteredSettings.reasoning) {
-      console.log(
+      this.logger.debug(
         `LLMService: Removing reasoning settings for non-reasoning model ${modelInfo.id}`
       );
       delete (filteredSettings as Partial<LLMSettings>).reasoning;
@@ -167,80 +174,80 @@ export class SettingsManager {
     for (const [key, value] of Object.entries(settings)) {
       // Check if it's a known field
       if (!knownFields.includes(key as keyof LLMSettings)) {
-        console.warn(`Unknown setting "${key}" in template metadata. Ignoring.`);
+        this.logger.warn(`Unknown setting "${key}" in template metadata. Ignoring.`);
         continue;
       }
 
       // Type-specific validation
       if (key === 'temperature') {
         if (typeof value !== 'number' || value < 0 || value > 2) {
-          console.warn(`Invalid temperature value in template: ${value}. Must be a number between 0 and 2.`);
+          this.logger.warn(`Invalid temperature value in template: ${value}. Must be a number between 0 and 2.`);
           continue;
         }
       }
 
       if (key === 'maxTokens') {
         if (typeof value !== 'number' || value <= 0) {
-          console.warn(`Invalid maxTokens value in template: ${value}. Must be a positive number.`);
+          this.logger.warn(`Invalid maxTokens value in template: ${value}. Must be a positive number.`);
           continue;
         }
       }
 
       if (key === 'topP') {
         if (typeof value !== 'number' || value < 0 || value > 1) {
-          console.warn(`Invalid topP value in template: ${value}. Must be a number between 0 and 1.`);
+          this.logger.warn(`Invalid topP value in template: ${value}. Must be a number between 0 and 1.`);
           continue;
         }
       }
 
       if (key === 'stopSequences') {
         if (!Array.isArray(value) || !value.every(v => typeof v === 'string')) {
-          console.warn(`Invalid stopSequences value in template. Must be an array of strings.`);
+          this.logger.warn(`Invalid stopSequences value in template. Must be an array of strings.`);
           continue;
         }
       }
 
       if ((key === 'frequencyPenalty' || key === 'presencePenalty')) {
         if (typeof value !== 'number' || value < -2 || value > 2) {
-          console.warn(`Invalid ${key} value in template: ${value}. Must be a number between -2 and 2.`);
+          this.logger.warn(`Invalid ${key} value in template: ${value}. Must be a number between -2 and 2.`);
           continue;
         }
       }
 
       if (key === 'user' && typeof value !== 'string') {
-        console.warn(`Invalid user value in template. Must be a string.`);
+        this.logger.warn(`Invalid user value in template. Must be a string.`);
         continue;
       }
 
       if (key === 'supportsSystemMessage' && typeof value !== 'boolean') {
-        console.warn(`Invalid supportsSystemMessage value in template. Must be a boolean.`);
+        this.logger.warn(`Invalid supportsSystemMessage value in template. Must be a boolean.`);
         continue;
       }
 
       // Nested object validation
       if (key === 'reasoning' && typeof value === 'object' && value !== null) {
         const reasoningValidated: any = {};
-        
+
         if ('enabled' in value && typeof value.enabled !== 'boolean') {
-          console.warn(`Invalid reasoning.enabled value in template. Must be a boolean.`);
+          this.logger.warn(`Invalid reasoning.enabled value in template. Must be a boolean.`);
         } else if ('enabled' in value) {
           reasoningValidated.enabled = value.enabled;
         }
 
         if ('effort' in value && !['low', 'medium', 'high'].includes(value.effort as string)) {
-          console.warn(`Invalid reasoning.effort value in template: ${value.effort}. Must be 'low', 'medium', or 'high'.`);
+          this.logger.warn(`Invalid reasoning.effort value in template: ${value.effort}. Must be 'low', 'medium', or 'high'.`);
         } else if ('effort' in value) {
           reasoningValidated.effort = value.effort;
         }
 
         if ('maxTokens' in value && (typeof value.maxTokens !== 'number' || value.maxTokens <= 0)) {
-          console.warn(`Invalid reasoning.maxTokens value in template. Must be a positive number.`);
+          this.logger.warn(`Invalid reasoning.maxTokens value in template. Must be a positive number.`);
         } else if ('maxTokens' in value) {
           reasoningValidated.maxTokens = value.maxTokens;
         }
 
         if ('exclude' in value && typeof value.exclude !== 'boolean') {
-          console.warn(`Invalid reasoning.exclude value in template. Must be a boolean.`);
+          this.logger.warn(`Invalid reasoning.exclude value in template. Must be a boolean.`);
         } else if ('exclude' in value) {
           reasoningValidated.exclude = value.exclude;
         }
@@ -255,19 +262,19 @@ export class SettingsManager {
         const thinkingValidated: any = {};
 
         if ('enabled' in value && typeof value.enabled !== 'boolean') {
-          console.warn(`Invalid thinkingTagFallback.enabled value in template. Must be a boolean.`);
+          this.logger.warn(`Invalid thinkingTagFallback.enabled value in template. Must be a boolean.`);
         } else if ('enabled' in value) {
           thinkingValidated.enabled = value.enabled;
         }
 
         if ('tagName' in value && typeof value.tagName !== 'string') {
-          console.warn(`Invalid thinkingTagFallback.tagName value in template. Must be a string.`);
+          this.logger.warn(`Invalid thinkingTagFallback.tagName value in template. Must be a string.`);
         } else if ('tagName' in value) {
           thinkingValidated.tagName = value.tagName;
         }
 
         if ('enforce' in value && typeof value.enforce !== 'boolean') {
-          console.warn(`Invalid thinkingTagFallback.enforce value in template. Must be a boolean.`);
+          this.logger.warn(`Invalid thinkingTagFallback.enforce value in template. Must be a boolean.`);
         } else if ('enforce' in value) {
           thinkingValidated.enforce = value.enforce;
         }

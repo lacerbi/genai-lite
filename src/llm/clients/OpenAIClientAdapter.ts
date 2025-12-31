@@ -10,6 +10,9 @@ import type {
 } from "./types";
 import { ADAPTER_ERROR_CODES } from "./types";
 import { getCommonMappedErrorDetails } from "../../shared/adapters/errorUtils";
+import { createDefaultLogger } from "../../logging/defaultLogger";
+
+const logger = createDefaultLogger();
 
 /**
  * Client adapter for OpenAI API integration
@@ -89,7 +92,7 @@ export class OpenAIClientAdapter implements ILLMClientAdapter {
         }
       }
 
-      console.log(`OpenAI API parameters:`, {
+      logger.debug(`OpenAI API parameters:`, {
         model: completionParams.model,
         temperature: completionParams.temperature,
         max_completion_tokens: completionParams.max_completion_tokens,
@@ -100,21 +103,21 @@ export class OpenAIClientAdapter implements ILLMClientAdapter {
         hasUser: !!completionParams.user,
       });
 
-      console.log(`Making OpenAI API call for model: ${request.modelId}`);
+      logger.info(`Making OpenAI API call for model: ${request.modelId}`);
 
       // Make the API call
       const completion = await openai.chat.completions.create(completionParams);
 
       // Type guard to ensure we have a non-streaming response
       if ('id' in completion && 'choices' in completion) {
-        console.log(`OpenAI API call successful, response ID: ${completion.id}`);
+        logger.info(`OpenAI API call successful, response ID: ${completion.id}`);
         // Convert to standardized response format
         return this.createSuccessResponse(completion as OpenAI.Chat.Completions.ChatCompletion, request);
       } else {
         throw new Error('Unexpected streaming response from OpenAI API');
       }
     } catch (error) {
-      console.error("OpenAI API error:", error);
+      logger.error("OpenAI API error:", error);
       return this.createErrorResponse(error, request);
     }
   }
