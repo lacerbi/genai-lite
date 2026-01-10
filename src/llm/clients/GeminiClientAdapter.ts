@@ -132,10 +132,13 @@ export class GeminiClientAdapter implements ILLMClientAdapter {
     const contents: any[] = [];
     let systemInstruction = request.systemMessage;
 
+    // Check if model supports system instructions (e.g., Gemma models don't)
+    const supportsSystem = request.settings.supportsSystemMessage !== false;
+
     // Process messages - separate system messages and build conversation contents
     for (const message of request.messages) {
       if (message.role === "system") {
-        // Gemini handles system messages as systemInstruction
+        // Collect system content (will be used as systemInstruction or prepended to user message)
         if (systemInstruction) {
           systemInstruction += "\n\n" + message.content;
         } else {
@@ -153,6 +156,19 @@ export class GeminiClientAdapter implements ILLMClientAdapter {
           parts: [{ text: message.content }],
         });
       }
+    }
+
+    // If model doesn't support system instructions but we have system content,
+    // prepend it to the first user message instead
+    if (!supportsSystem && systemInstruction && contents.length > 0) {
+      const firstUserIndex = contents.findIndex(c => c.role === "user");
+      if (firstUserIndex !== -1) {
+        const originalText = contents[firstUserIndex].parts[0].text;
+        contents[firstUserIndex].parts[0].text = systemInstruction + "\n\n" + originalText;
+        logger.debug(`Model ${request.modelId} doesn't support system instructions - prepended to first user message`);
+      }
+      // Clear systemInstruction so it's not sent to the API
+      systemInstruction = undefined;
     }
 
     // Build generation config
