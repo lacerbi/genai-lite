@@ -17,6 +17,7 @@ Complete reference of all supported AI providers and models in genai-lite.
 - OpenAI (GPT, DALL-E)
 - Google Gemini
 - Mistral
+- OpenRouter (unified gateway to 100+ models)
 
 **Local Providers** (no API keys):
 - llama.cpp (local LLMs)
@@ -150,6 +151,60 @@ For unrecognized models, uses sensible fallback defaults.
 
 ---
 
+### OpenRouter (API Gateway)
+
+**Provider ID**: `openrouter`
+**Environment Variable**: `OPENROUTER_API_KEY`
+**Optional**: `OPENROUTER_API_BASE_URL` (default: `https://openrouter.ai/api/v1`)
+
+OpenRouter is an API gateway that provides unified access to 100+ LLM models from various providers through a single API key.
+
+**Free Tier Models:**
+
+- `google/gemma-3-27b-it:free` - Gemma 3 27B (96K context, multimodal)
+- `mistralai/mistral-small-3.1-24b-instruct:free` - Mistral Small 3.1 24B (96K context)
+
+**Model ID Format:**
+
+OpenRouter uses `provider/model-name` format with optional suffixes:
+- `:free` - Free tier (rate limited)
+- `:nitro` - Fast inference
+- `:floor` - Cheapest option
+
+**Provider Routing (Optional):**
+
+Control which underlying providers serve your requests:
+
+```typescript
+const response = await llmService.sendMessage({
+  providerId: 'openrouter',
+  modelId: 'google/gemma-3-27b-it:free',
+  messages: [{ role: 'user', content: 'Hello' }],
+  settings: {
+    openRouterProvider: {
+      order: ['Together', 'Fireworks'],  // Provider priority
+      ignore: ['Azure'],                  // Exclude providers
+      dataCollection: 'deny'              // Opt out of training
+    }
+  }
+});
+```
+
+**App Attribution (Optional):**
+
+Set environment variables for OpenRouter rankings:
+- `OPENROUTER_HTTP_REFERER` - Your app's URL
+- `OPENROUTER_SITE_TITLE` - Your app's name
+
+**Notes:**
+- Single API key for all models
+- OpenAI-compatible API format
+- `allowUnknownModels: true` - Use any OpenRouter model ID
+- Free tier models have rate limits
+- See [openrouter.ai/docs](https://openrouter.ai/docs) for full model list
+
+---
+
 ## Image Generation Providers
 
 ### OpenAI Images
@@ -252,11 +307,17 @@ For models without native reasoning, use [Thinking Tag Fallback](llm-service.md#
 - `OPENAI_API_KEY`
 - `GEMINI_API_KEY`
 - `MISTRAL_API_KEY`
+- `OPENROUTER_API_KEY`
 
 **Base URLs** (optional):
 - `OPENAI_API_BASE_URL` (default: `https://api.openai.com/v1`)
+- `OPENROUTER_API_BASE_URL` (default: `https://openrouter.ai/api/v1`)
 - `LLAMACPP_API_BASE_URL` (default: `http://localhost:8080`)
 - `GENAI_ELECTRON_IMAGE_BASE_URL` (default: `http://localhost:8081`)
+
+**OpenRouter App Attribution** (optional):
+- `OPENROUTER_HTTP_REFERER` - Your app's URL for rankings
+- `OPENROUTER_SITE_TITLE` - Your app's display name
 
 **Setting variables:**
 

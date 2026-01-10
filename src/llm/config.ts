@@ -15,6 +15,7 @@ import { OpenAIClientAdapter } from "./clients/OpenAIClientAdapter";
 import { AnthropicClientAdapter } from "./clients/AnthropicClientAdapter";
 import { GeminiClientAdapter } from "./clients/GeminiClientAdapter";
 import { LlamaCppClientAdapter } from "./clients/LlamaCppClientAdapter";
+import { OpenRouterClientAdapter } from "./clients/OpenRouterClientAdapter";
 import { createDefaultLogger } from "../logging/defaultLogger";
 
 const logger = createDefaultLogger();
@@ -35,6 +36,7 @@ export const ADAPTER_CONSTRUCTORS: Partial<
   anthropic: AnthropicClientAdapter,
   gemini: GeminiClientAdapter,
   llamacpp: LlamaCppClientAdapter,
+  openrouter: OpenRouterClientAdapter,
   // 'mistral': MistralClientAdapter, // Uncomment and add when Mistral adapter is ready
 };
 
@@ -53,6 +55,9 @@ export const ADAPTER_CONFIGS: Partial<
   },
   llamacpp: {
     baseURL: process.env.LLAMACPP_API_BASE_URL || 'http://localhost:8080',
+  },
+  openrouter: {
+    baseURL: process.env.OPENROUTER_API_BASE_URL || 'https://openrouter.ai/api/v1',
   },
   // 'gemini': { /* ... Gemini specific config ... */ },
   // 'mistral': { /* ... Mistral specific config ... */ },
@@ -92,6 +97,7 @@ export const DEFAULT_LLM_SETTINGS: Required<LLMSettings> = {
     tagName: 'thinking',
     enforce: false
   },
+  openRouterProvider: undefined as any, // Optional, only used with OpenRouter provider
 };
 
 /**
@@ -149,6 +155,11 @@ export const SUPPORTED_PROVIDERS: ProviderInfo[] = [
     id: "llamacpp",
     name: "llama.cpp",
     allowUnknownModels: true,  // Users load arbitrary GGUF models with custom names
+  },
+  {
+    id: "openrouter",
+    name: "OpenRouter",
+    allowUnknownModels: true,  // OpenRouter provides 100+ models dynamically
   },
   {
     id: "mock",
@@ -829,6 +840,32 @@ export const SUPPORTED_MODELS: ModelInfo[] = [
     outputPrice: 0.0,
     description: "Local model running via llama.cpp server (model determined by server)",
     maxTokens: 4096,
+    supportsImages: false,
+    supportsPromptCache: false,
+  },
+
+  // OpenRouter Models (Free Tier)
+  {
+    id: "google/gemma-3-27b-it:free",
+    name: "Gemma 3 27B (Free)",
+    providerId: "openrouter",
+    contextWindow: 96000,
+    inputPrice: 0.0,
+    outputPrice: 0.0,
+    description: "Google's Gemma 3 27B instruction-tuned model via OpenRouter (free tier)",
+    maxTokens: 8192,
+    supportsImages: true,
+    supportsPromptCache: false,
+  },
+  {
+    id: "mistralai/mistral-small-3.1-24b-instruct:free",
+    name: "Mistral Small 3.1 24B (Free)",
+    providerId: "openrouter",
+    contextWindow: 96000,
+    inputPrice: 0.0,
+    outputPrice: 0.0,
+    description: "Mistral Small 3.1 24B instruction model via OpenRouter (free tier)",
+    maxTokens: 8192,
     supportsImages: false,
     supportsPromptCache: false,
   },

@@ -54,7 +54,8 @@ describe('GeminiClientAdapter', () => {
         thinkingTagFallback: {
           enabled: true,
           tagName: 'thinking'
-        }
+        },
+        openRouterProvider: undefined as any
       }
     };
   });

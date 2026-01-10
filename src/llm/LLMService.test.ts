@@ -429,12 +429,13 @@ describe('LLMService', () => {
     it('should return all supported providers', async () => {
       const providers = await service.getProviders();
 
-      expect(providers).toHaveLength(6);
+      expect(providers).toHaveLength(7);
       expect(providers.find(p => p.id === 'openai')).toBeDefined();
       expect(providers.find(p => p.id === 'anthropic')).toBeDefined();
       expect(providers.find(p => p.id === 'gemini')).toBeDefined();
       expect(providers.find(p => p.id === 'mistral')).toBeDefined();
       expect(providers.find(p => p.id === 'llamacpp')).toBeDefined();
+      expect(providers.find(p => p.id === 'openrouter')).toBeDefined();
       expect(providers.find(p => p.id === 'mock')).toBeDefined();
     });
 

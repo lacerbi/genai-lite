@@ -555,5 +555,25 @@
     "settings": {
       "temperature": 0.7
     }
+  },
+  {
+    "id": "openrouter-gemma-3-27b-free",
+    "displayName": "OpenRouter - Gemma 3 27B (Free)",
+    "description": "Google's Gemma 3 27B via OpenRouter free tier.",
+    "providerId": "openrouter",
+    "modelId": "google/gemma-3-27b-it:free",
+    "settings": {
+      "temperature": 0.7
+    }
+  },
+  {
+    "id": "openrouter-mistral-small-3.1-free",
+    "displayName": "OpenRouter - Mistral Small 3.1 (Free)",
+    "description": "Mistral Small 3.1 24B via OpenRouter free tier.",
+    "providerId": "openrouter",
+    "modelId": "mistralai/mistral-small-3.1-24b-instruct:free",
+    "settings": {
+      "temperature": 0.7
+    }
   }
 ]

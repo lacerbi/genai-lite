@@ -58,6 +58,7 @@ export class SettingsManager {
         ...modelDefaults.thinkingTagFallback,
         ...requestSettings?.thinkingTagFallback,
       },
+      openRouterProvider: requestSettings?.openRouterProvider ?? modelDefaults.openRouterProvider,
     };
 
     // Log the final settings for debugging
