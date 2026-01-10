@@ -1,0 +1,157 @@
+// AI Summary: Shared utilities for handling system messages across LLM adapters.
+// Provides functions to collect, combine, and transform system content for models
+// that don't support native system instructions.
+
+/**
+ * Result of collecting system content for fallback handling
+ */
+export interface SystemContentResult {
+  /** Combined system content from all sources */
+  combinedSystemContent: string | undefined;
+  /** Whether to use native system message support */
+  useNativeSystemMessage: boolean;
+}
+
+/**
+ * Generic message interface for system message handling
+ */
+export interface GenericMessage {
+  role: string;
+  content: string;
+}
+
+/**
+ * Collects and combines system content from multiple sources.
+ *
+ * Combines the request-level systemMessage with any inline system messages
+ * from the messages array into a single string.
+ *
+ * @param requestSystemMessage - The request.systemMessage field (if any)
+ * @param inlineSystemMessages - Array of system message contents from the messages array
+ * @param supportsSystemMessage - Whether the model supports native system messages
+ * @returns Object with combined content and whether to use native support
+ *
+ * @example
+ * ```typescript
+ * const { combinedSystemContent, useNativeSystemMessage } = collectSystemContent(
+ *   'You are helpful',
+ *   ['Be concise'],
+ *   false // Model doesn't support system messages
+ * );
+ * // combinedSystemContent = 'You are helpful\n\nBe concise'
+ * // useNativeSystemMessage = false
+ * ```
+ */
+export function collectSystemContent(
+  requestSystemMessage: string | undefined,
+  inlineSystemMessages: string[],
+  supportsSystemMessage: boolean
+): SystemContentResult {
+  // Combine all system content
+  const allSystemContent: string[] = [];
+
+  if (requestSystemMessage) {
+    allSystemContent.push(requestSystemMessage);
+  }
+
+  allSystemContent.push(...inlineSystemMessages);
+
+  const combinedSystemContent =
+    allSystemContent.length > 0 ? allSystemContent.join("\n\n") : undefined;
+
+  return {
+    combinedSystemContent,
+    useNativeSystemMessage: supportsSystemMessage,
+  };
+}
+
+/**
+ * Prepends system content to the first user message in an array.
+ *
+ * This is used as a fallback for models that don't support native system
+ * instructions. The system content is prepended to the first user message
+ * with a double newline separator.
+ *
+ * @param messages - Array of message objects with role and content
+ * @param systemContent - System content to prepend
+ * @returns The index of the modified message, or -1 if no user message found
+ *
+ * @example
+ * ```typescript
+ * const messages = [
+ *   { role: 'user', content: 'Hello' },
+ *   { role: 'assistant', content: 'Hi!' }
+ * ];
+ * const index = prependSystemToFirstUserMessage(messages, 'Be helpful');
+ * // index = 0
+ * // messages[0].content = 'Be helpful\n\nHello'
+ * ```
+ */
+export function prependSystemToFirstUserMessage<T extends GenericMessage>(
+  messages: T[],
+  systemContent: string
+): number {
+  const firstUserIndex = messages.findIndex((m) => m.role === "user");
+
+  if (firstUserIndex !== -1) {
+    messages[firstUserIndex].content =
+      systemContent + "\n\n" + messages[firstUserIndex].content;
+    return firstUserIndex;
+  }
+
+  return -1;
+}
+
+/**
+ * Filters system messages from an array and returns non-system messages
+ * along with collected system content.
+ *
+ * This is a convenience function that combines message filtering with
+ * system content collection in a single pass.
+ *
+ * @param messages - Array of messages to process
+ * @param requestSystemMessage - Optional request-level system message
+ * @param supportsSystemMessage - Whether the model supports native system messages
+ * @returns Object with filtered messages and system content handling info
+ *
+ * @example
+ * ```typescript
+ * const messages = [
+ *   { role: 'system', content: 'Be helpful' },
+ *   { role: 'user', content: 'Hello' }
+ * ];
+ * const result = processMessagesForSystemSupport(messages, undefined, false);
+ * // result.nonSystemMessages = [{ role: 'user', content: 'Hello' }]
+ * // result.systemContent.combinedSystemContent = 'Be helpful'
+ * ```
+ */
+export function processMessagesForSystemSupport<T extends GenericMessage>(
+  messages: T[],
+  requestSystemMessage: string | undefined,
+  supportsSystemMessage: boolean
+): {
+  nonSystemMessages: T[];
+  systemContent: SystemContentResult;
+} {
+  const nonSystemMessages: T[] = [];
+  const inlineSystemMessages: string[] = [];
+
+  for (const message of messages) {
+    if (message.role === "system") {
+      inlineSystemMessages.push(message.content);
+    } else {
+      nonSystemMessages.push(message);
+    }
+  }
+
+  const systemContent = collectSystemContent(
+    requestSystemMessage,
+    inlineSystemMessages,
+    supportsSystemMessage
+  );
+
+  return {
+    nonSystemMessages,
+    systemContent,
+  };
+}
