@@ -14,6 +14,10 @@ import type {
 } from "./types";
 import { ADAPTER_ERROR_CODES } from "./types";
 import { getCommonMappedErrorDetails } from "../../shared/adapters/errorUtils";
+import {
+  collectSystemContent,
+  prependSystemToFirstUserMessage,
+} from "../../shared/adapters/systemMessageUtils";
 import { createDefaultLogger } from "../../logging/defaultLogger";
 
 const logger = createDefaultLogger();
@@ -130,17 +134,16 @@ export class GeminiClientAdapter implements ILLMClientAdapter {
     systemInstruction?: string;
   } {
     const contents: any[] = [];
-    let systemInstruction = request.systemMessage;
+    const inlineSystemMessages: string[] = [];
+
+    // Check if model supports system instructions (e.g., Gemma models don't)
+    const supportsSystem = request.settings.supportsSystemMessage !== false;
 
     // Process messages - separate system messages and build conversation contents
     for (const message of request.messages) {
       if (message.role === "system") {
-        // Gemini handles system messages as systemInstruction
-        if (systemInstruction) {
-          systemInstruction += "\n\n" + message.content;
-        } else {
-          systemInstruction = message.content;
-        }
+        // Collect inline system messages
+        inlineSystemMessages.push(message.content);
       } else if (message.role === "user") {
         contents.push({
           role: "user",
@@ -152,6 +155,42 @@ export class GeminiClientAdapter implements ILLMClientAdapter {
           role: "model",
           parts: [{ text: message.content }],
         });
+      }
+    }
+
+    // Use shared utility to collect and combine system content
+    const { combinedSystemContent, useNativeSystemMessage } = collectSystemContent(
+      request.systemMessage,
+      inlineSystemMessages,
+      supportsSystem
+    );
+
+    let systemInstruction: string | undefined;
+
+    if (combinedSystemContent) {
+      if (useNativeSystemMessage) {
+        // Model supports system instructions - use native API
+        systemInstruction = combinedSystemContent;
+      } else {
+        // Model doesn't support system instructions - prepend to first user message
+        // Create a simple array with role/content for the utility
+        const simpleContents = contents.map((c) => ({
+          role: c.role,
+          content: c.parts[0].text,
+        }));
+        const modifiedIndex = prependSystemToFirstUserMessage(
+          simpleContents,
+          combinedSystemContent,
+          request.settings.systemMessageFallback
+        );
+        if (modifiedIndex !== -1) {
+          // Update the actual contents array
+          contents[modifiedIndex].parts[0].text = simpleContents[modifiedIndex].content;
+          logger.debug(
+            `Model ${request.modelId} doesn't support system instructions - prepended to first user message`
+          );
+        }
+        // Don't set systemInstruction - it stays undefined
       }
     }
 

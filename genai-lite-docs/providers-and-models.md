@@ -105,6 +105,7 @@ Complete reference of all supported AI providers and models in genai-lite.
 - Unique safety settings structure
 - Gemini models support multimodal (text, images, audio, video)
 - Gemma 3 27B is open-weight and **free** via the Gemini API (no API costs)
+- **Gemma models do not support system instructions** - genai-lite automatically prepends system content to the first user message (see [System Message Fallback](llm-service.md#system-message-fallback))
 
 ---
 

@@ -48,6 +48,7 @@ describe('SettingsManager', () => {
         presencePenalty: 0,
         user: '',
         supportsSystemMessage: true,
+        systemMessageFallback: {},
         geminiSafetySettings: [],
         reasoning: {
           enabled: false,
@@ -123,6 +124,11 @@ describe('SettingsManager', () => {
         presencePenalty: -0.5,
         user: 'test-user',
         supportsSystemMessage: false,
+        systemMessageFallback: {
+          format: 'plain',
+          tagName: 'context',
+          separator: '===',
+        },
         geminiSafetySettings: [],
         reasoning: {
           enabled: true,
@@ -152,6 +158,7 @@ describe('SettingsManager', () => {
       presencePenalty: 0,
       user: '',
       supportsSystemMessage: true,
+      systemMessageFallback: { format: 'xml', tagName: 'system', separator: '---' },
       geminiSafetySettings: [],
       reasoning: {
         enabled: false,

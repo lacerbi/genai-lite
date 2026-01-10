@@ -44,6 +44,7 @@ describe('GeminiClientAdapter', () => {
         user: 'test-user',
         geminiSafetySettings: [],
         supportsSystemMessage: true,
+        systemMessageFallback: { format: 'xml', tagName: 'system', separator: '---' },
         reasoning: {
           enabled: false,
           effort: undefined as any,
@@ -129,6 +130,170 @@ describe('GeminiClientAdapter', () => {
           safetySettings: [],
           systemInstruction: 'You are a helpful assistant.'
         }
+      });
+    });
+
+    describe('system message handling for models without system instruction support', () => {
+      it('should prepend system message to first user message when supportsSystemMessage is false', async () => {
+        const requestWithNoSystemSupport = {
+          ...basicRequest,
+          modelId: 'gemma-3-27b-it',
+          messages: [
+            { role: 'system' as const, content: 'You are a helpful assistant.' },
+            { role: 'user' as const, content: 'Hello' }
+          ],
+          settings: {
+            ...basicRequest.settings,
+            supportsSystemMessage: false
+          }
+        };
+
+        mockGenerateContent.mockResolvedValueOnce({
+          text: () => 'Hello!',
+          candidates: [{
+            finishReason: 'STOP',
+            content: { parts: [{ text: 'Hello!' }], role: 'model' }
+          }],
+          usageMetadata: { promptTokenCount: 15, candidatesTokenCount: 5, totalTokenCount: 20 }
+        });
+
+        await adapter.sendMessage(requestWithNoSystemSupport, 'test-api-key');
+
+        const callArgs = mockGenerateContent.mock.calls[0][0];
+        // System message should NOT be passed as systemInstruction
+        expect(callArgs.config.systemInstruction).toBeUndefined();
+        // Instead, it should be prepended to the first user message
+        expect(callArgs.contents).toHaveLength(1);
+        expect(callArgs.contents[0].role).toBe('user');
+        expect(callArgs.contents[0].parts[0].text).toBe('<system>\nYou are a helpful assistant.\n</system>\n\nHello');
+      });
+
+      it('should handle request.systemMessage when supportsSystemMessage is false', async () => {
+        const requestWithNoSystemSupport = {
+          ...basicRequest,
+          modelId: 'gemma-3-27b-it',
+          systemMessage: 'Base system instruction',
+          messages: [
+            { role: 'user' as const, content: 'Hello' }
+          ],
+          settings: {
+            ...basicRequest.settings,
+            supportsSystemMessage: false
+          }
+        };
+
+        mockGenerateContent.mockResolvedValueOnce({
+          text: () => 'Hello!',
+          candidates: [{
+            finishReason: 'STOP',
+            content: { parts: [{ text: 'Hello!' }], role: 'model' }
+          }],
+          usageMetadata: { promptTokenCount: 15, candidatesTokenCount: 5, totalTokenCount: 20 }
+        });
+
+        await adapter.sendMessage(requestWithNoSystemSupport, 'test-api-key');
+
+        const callArgs = mockGenerateContent.mock.calls[0][0];
+        expect(callArgs.config.systemInstruction).toBeUndefined();
+        expect(callArgs.contents[0].parts[0].text).toBe('<system>\nBase system instruction\n</system>\n\nHello');
+      });
+
+      it('should combine request.systemMessage and inline system messages when supportsSystemMessage is false', async () => {
+        const requestWithNoSystemSupport = {
+          ...basicRequest,
+          modelId: 'gemma-3-27b-it',
+          systemMessage: 'Base system instruction',
+          messages: [
+            { role: 'system' as const, content: 'Additional system content' },
+            { role: 'user' as const, content: 'Hello' }
+          ],
+          settings: {
+            ...basicRequest.settings,
+            supportsSystemMessage: false
+          }
+        };
+
+        mockGenerateContent.mockResolvedValueOnce({
+          text: () => 'Hello!',
+          candidates: [{
+            finishReason: 'STOP',
+            content: { parts: [{ text: 'Hello!' }], role: 'model' }
+          }],
+          usageMetadata: { promptTokenCount: 20, candidatesTokenCount: 5, totalTokenCount: 25 }
+        });
+
+        await adapter.sendMessage(requestWithNoSystemSupport, 'test-api-key');
+
+        const callArgs = mockGenerateContent.mock.calls[0][0];
+        expect(callArgs.config.systemInstruction).toBeUndefined();
+        expect(callArgs.contents[0].parts[0].text).toBe(
+          '<system>\nBase system instruction\n\nAdditional system content\n</system>\n\nHello'
+        );
+      });
+
+      it('should still use systemInstruction when supportsSystemMessage is true (default)', async () => {
+        const requestWithSystemSupport = {
+          ...basicRequest,
+          modelId: 'gemini-2.5-pro',
+          messages: [
+            { role: 'system' as const, content: 'You are a helpful assistant.' },
+            { role: 'user' as const, content: 'Hello' }
+          ],
+          settings: {
+            ...basicRequest.settings,
+            supportsSystemMessage: true
+          }
+        };
+
+        mockGenerateContent.mockResolvedValueOnce({
+          text: () => 'Hello!',
+          candidates: [{
+            finishReason: 'STOP',
+            content: { parts: [{ text: 'Hello!' }], role: 'model' }
+          }],
+          usageMetadata: { promptTokenCount: 15, candidatesTokenCount: 5, totalTokenCount: 20 }
+        });
+
+        await adapter.sendMessage(requestWithSystemSupport, 'test-api-key');
+
+        const callArgs = mockGenerateContent.mock.calls[0][0];
+        // System message SHOULD be passed as systemInstruction
+        expect(callArgs.config.systemInstruction).toBe('You are a helpful assistant.');
+        // User message should remain unchanged
+        expect(callArgs.contents[0].parts[0].text).toBe('Hello');
+      });
+
+      it('should handle no user messages gracefully when supportsSystemMessage is false', async () => {
+        // Edge case: system message only, no user messages
+        const requestWithNoSystemSupport = {
+          ...basicRequest,
+          modelId: 'gemma-3-27b-it',
+          messages: [
+            { role: 'system' as const, content: 'You are a helpful assistant.' }
+          ],
+          settings: {
+            ...basicRequest.settings,
+            supportsSystemMessage: false
+          }
+        };
+
+        mockGenerateContent.mockResolvedValueOnce({
+          text: () => 'Hello!',
+          candidates: [{
+            finishReason: 'STOP',
+            content: { parts: [{ text: 'Hello!' }], role: 'model' }
+          }],
+          usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 5, totalTokenCount: 15 }
+        });
+
+        await adapter.sendMessage(requestWithNoSystemSupport, 'test-api-key');
+
+        const callArgs = mockGenerateContent.mock.calls[0][0];
+        // No user message to prepend to, but should not crash
+        // The system instruction should be cleared since model doesn't support it
+        // Contents should be empty (only system messages in the array, which get filtered out)
+        expect(callArgs.config.systemInstruction).toBeUndefined();
+        expect(callArgs.contents).toHaveLength(0);
       });
     });
 

@@ -9,6 +9,10 @@ import type {
 } from "./types";
 import { ADAPTER_ERROR_CODES } from "./types";
 import { getCommonMappedErrorDetails } from "../../shared/adapters/errorUtils";
+import {
+  collectSystemContent,
+  prependSystemToFirstUserMessage,
+} from "../../shared/adapters/systemMessageUtils";
 import { LlamaCppServerClient } from "./LlamaCppServerClient";
 import { detectGgufCapabilities } from "../config";
 import { createDefaultLogger } from "../../logging/defaultLogger";
@@ -286,22 +290,16 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
     request: InternalLLMChatRequest
   ): OpenAI.Chat.Completions.ChatCompletionMessageParam[] {
     const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [];
+    const inlineSystemMessages: string[] = [];
 
-    // Add system message if provided
-    if (request.systemMessage) {
-      messages.push({
-        role: "system",
-        content: request.systemMessage,
-      });
-    }
+    // Check if model supports system messages
+    const supportsSystem = request.settings.supportsSystemMessage !== false;
 
-    // Add conversation messages
+    // Add conversation messages (collecting system messages separately)
     for (const message of request.messages) {
       if (message.role === "system") {
-        messages.push({
-          role: "system",
-          content: message.content,
-        });
+        // Collect inline system messages
+        inlineSystemMessages.push(message.content);
       } else if (message.role === "user") {
         messages.push({
           role: "user",
@@ -312,6 +310,40 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
           role: "assistant",
           content: message.content,
         });
+      }
+    }
+
+    // Use shared utility to collect and combine system content
+    const { combinedSystemContent, useNativeSystemMessage } = collectSystemContent(
+      request.systemMessage,
+      inlineSystemMessages,
+      supportsSystem
+    );
+
+    if (combinedSystemContent) {
+      if (useNativeSystemMessage) {
+        // Model supports system messages - add as system role at the start
+        messages.unshift({
+          role: "system",
+          content: combinedSystemContent,
+        });
+      } else {
+        // Model doesn't support system messages - prepend to first user message
+        const simpleMessages = messages.map((m) => ({
+          role: m.role,
+          content: m.content as string,
+        }));
+        const modifiedIndex = prependSystemToFirstUserMessage(
+          simpleMessages,
+          combinedSystemContent,
+          request.settings.systemMessageFallback
+        );
+        if (modifiedIndex !== -1) {
+          messages[modifiedIndex].content = simpleMessages[modifiedIndex].content;
+          logger.debug(
+            `Model ${request.modelId} doesn't support system messages - prepended to first user message`
+          );
+        }
       }
     }
 

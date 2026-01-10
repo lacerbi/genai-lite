@@ -12,6 +12,7 @@ Complete guide to text generation and chat completions using genai-lite's LLMSer
 - [Self-Contained Templates](#self-contained-templates-with-metadata) - Templates with embedded settings
 - [Model Presets](#model-presets) - Pre-configured model settings
 - [Advanced Settings](#advanced-settings) - Fine-tuning model behavior
+  - [System Message Fallback](#system-message-fallback) - Handling models without system message support
 - [Error Handling](#error-handling) - Handling failures
 - [Related Documentation](#related-documentation) - Provider info, utilities
 
@@ -501,6 +502,39 @@ const response = await llmService.sendMessage({
 | `stopSequences` | string[] | `[]` | Stop generation at these sequences |
 | `reasoning` | object | - | Reasoning configuration (see [Reasoning Mode](#reasoning-mode)) |
 | `thinkingTagFallback` | object | - | Thinking tag configuration (see [Thinking Tag Fallback](#thinking-tag-fallback)) |
+| `systemMessageFallback` | object | - | System message format when model lacks native support (see below) |
+
+### System Message Fallback
+
+Some models (e.g., Gemma) don't support native system instructions. When `supportsSystemMessage: false` is set for a model, genai-lite automatically prepends system content to the first user message.
+
+You can configure how this prepending is formatted:
+
+```typescript
+const response = await llmService.sendMessage({
+  providerId: 'gemini',
+  modelId: 'gemma-3-27b-it',
+  systemMessage: 'You are a helpful assistant.',
+  messages: [{ role: 'user', content: 'Hello' }],
+  settings: {
+    systemMessageFallback: {
+      format: 'xml',           // 'xml' (default), 'separator', or 'plain'
+      tagName: 'system',       // Tag name for xml format (default: 'system')
+      separator: '\n\n---\n\n' // Separator for separator format
+    }
+  }
+});
+```
+
+**Format options:**
+
+| Format | Result |
+|--------|--------|
+| `xml` (default) | `<system>\n{content}\n</system>\n\n{user message}` |
+| `separator` | `{content}{separator}{user message}` |
+| `plain` | `{content}\n\n{user message}` |
+
+This is handled automatically for models with `supportsSystemMessage: false` in their configuration. Most users won't need to configure this manually.
 
 ---
 

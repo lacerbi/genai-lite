@@ -10,6 +10,10 @@ import type {
 } from "./types";
 import { ADAPTER_ERROR_CODES } from "./types";
 import { getCommonMappedErrorDetails } from "../../shared/adapters/errorUtils";
+import {
+  collectSystemContent,
+  prependSystemToFirstUserMessage,
+} from "../../shared/adapters/systemMessageUtils";
 import { createDefaultLogger } from "../../logging/defaultLogger";
 
 const logger = createDefaultLogger();
@@ -169,18 +173,16 @@ export class AnthropicClientAdapter implements ILLMClientAdapter {
     systemMessage?: string;
   } {
     const messages: Anthropic.Messages.MessageParam[] = [];
-    let systemMessage = request.systemMessage;
+    const inlineSystemMessages: string[] = [];
+
+    // Check if model supports system messages
+    const supportsSystem = request.settings.supportsSystemMessage !== false;
 
     // Process conversation messages
     for (const message of request.messages) {
       if (message.role === "system") {
-        // Anthropic handles system messages separately
-        // If we already have a system message, append to it
-        if (systemMessage) {
-          systemMessage += "\n\n" + message.content;
-        } else {
-          systemMessage = message.content;
-        }
+        // Collect inline system messages
+        inlineSystemMessages.push(message.content);
       } else if (message.role === "user") {
         messages.push({
           role: "user",
@@ -191,6 +193,40 @@ export class AnthropicClientAdapter implements ILLMClientAdapter {
           role: "assistant",
           content: message.content,
         });
+      }
+    }
+
+    // Use shared utility to collect and combine system content
+    const { combinedSystemContent, useNativeSystemMessage } = collectSystemContent(
+      request.systemMessage,
+      inlineSystemMessages,
+      supportsSystem
+    );
+
+    let systemMessage: string | undefined;
+
+    if (combinedSystemContent) {
+      if (useNativeSystemMessage) {
+        // Model supports system messages - use Anthropic's system parameter
+        systemMessage = combinedSystemContent;
+      } else {
+        // Model doesn't support system messages - prepend to first user message
+        const simpleMessages = messages.map((m) => ({
+          role: m.role,
+          content: m.content as string,
+        }));
+        const modifiedIndex = prependSystemToFirstUserMessage(
+          simpleMessages,
+          combinedSystemContent,
+          request.settings.systemMessageFallback
+        );
+        if (modifiedIndex !== -1) {
+          messages[modifiedIndex].content = simpleMessages[modifiedIndex].content;
+          logger.debug(
+            `Model ${request.modelId} doesn't support system messages - prepended to first user message`
+          );
+        }
+        // Don't set systemMessage - it stays undefined
       }
     }
 
