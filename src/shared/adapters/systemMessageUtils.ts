@@ -5,7 +5,8 @@
 /**
  * Format options for prepending system content when model doesn't support system messages.
  * - 'xml': Wrap in XML tags (default) - `<system>content</system>\n\n{user message}`
- * - 'separator': Use a simple separator - `{content}\n\n---\n\n{user message}`
+ * - 'separator': Use a custom separator string - `{content}{separator}{user message}`
+ *   Default separator is `\n\n---\n\n`. Specify full separator including whitespace.
  * - 'plain': Just prepend with double newline - `{content}\n\n{user message}`
  */
 export type SystemMessageFallbackFormat = 'xml' | 'separator' | 'plain';
@@ -29,7 +30,9 @@ export interface SystemMessageFormatOptions {
 
   /**
    * Separator string to use when format is 'separator'.
-   * @default '---'
+   * Include any whitespace/newlines in the separator itself.
+   * @default '\n\n---\n\n'
+   * @example separator: '\n\n===\n\n' produces `content\n\n===\n\nuser message`
    */
   separator?: string;
 }
@@ -58,7 +61,7 @@ export interface GenericMessage {
 export const DEFAULT_SYSTEM_MESSAGE_FORMAT_OPTIONS: Required<SystemMessageFormatOptions> = {
   format: 'xml',
   tagName: 'system',
-  separator: '---',
+  separator: '\n\n---\n\n',
 };
 
 /**
@@ -75,9 +78,13 @@ export const DEFAULT_SYSTEM_MESSAGE_FORMAT_OPTIONS: Required<SystemMessageFormat
  * formatSystemContentForPrepend('Be helpful', 'Hello', { format: 'xml' });
  * // Returns: '<system>\nBe helpful\n</system>\n\nHello'
  *
- * // Separator format
+ * // Separator format (default separator is '\n\n---\n\n')
  * formatSystemContentForPrepend('Be helpful', 'Hello', { format: 'separator' });
  * // Returns: 'Be helpful\n\n---\n\nHello'
+ *
+ * // Custom separator (specify full separator including whitespace)
+ * formatSystemContentForPrepend('Be helpful', 'Hello', { format: 'separator', separator: '\n\n===\n\n' });
+ * // Returns: 'Be helpful\n\n===\n\nHello'
  *
  * // Plain format
  * formatSystemContentForPrepend('Be helpful', 'Hello', { format: 'plain' });
@@ -96,7 +103,7 @@ export function formatSystemContentForPrepend(
       return `<${opts.tagName}>\n${systemContent}\n</${opts.tagName}>\n\n${userContent}`;
 
     case 'separator':
-      return `${systemContent}\n\n${opts.separator}\n\n${userContent}`;
+      return `${systemContent}${opts.separator}${userContent}`;
 
     case 'plain':
     default:
@@ -176,7 +183,7 @@ export function collectSystemContent(
  * prependSystemToFirstUserMessage(messages, 'Be helpful', { format: 'plain' });
  * // messages[0].content = 'Be helpful\n\nHello'
  *
- * // Separator format
+ * // Separator format (default separator is '\n\n---\n\n')
  * prependSystemToFirstUserMessage(messages, 'Be helpful', { format: 'separator' });
  * // messages[0].content = 'Be helpful\n\n---\n\nHello'
  * ```

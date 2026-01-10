@@ -72,7 +72,7 @@ export const DEFAULT_LLM_SETTINGS: Required<LLMSettings> = {
   systemMessageFallback: {
     format: 'xml',
     tagName: 'system',
-    separator: '---',
+    separator: '\n\n---\n\n',
   },
   user: undefined as any, // Will be filtered out when undefined
   geminiSafetySettings: [

@@ -87,7 +87,7 @@ describe("systemMessageUtils", () => {
     it("should use custom separator string", () => {
       const result = formatSystemContentForPrepend("Be helpful", "Hello", {
         format: "separator",
-        separator: "===",
+        separator: "\n\n===\n\n",
       });
 
       expect(result).toBe("Be helpful\n\n===\n\nHello");
@@ -131,8 +131,8 @@ describe("systemMessageUtils", () => {
       expect(DEFAULT_SYSTEM_MESSAGE_FORMAT_OPTIONS.tagName).toBe("system");
     });
 
-    it("should have '---' as default separator", () => {
-      expect(DEFAULT_SYSTEM_MESSAGE_FORMAT_OPTIONS.separator).toBe("---");
+    it("should have full separator string with newlines as default", () => {
+      expect(DEFAULT_SYSTEM_MESSAGE_FORMAT_OPTIONS.separator).toBe("\n\n---\n\n");
     });
   });
 
