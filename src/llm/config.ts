@@ -16,11 +16,10 @@ import { AnthropicClientAdapter } from "./clients/AnthropicClientAdapter";
 import { GeminiClientAdapter } from "./clients/GeminiClientAdapter";
 import { LlamaCppClientAdapter } from "./clients/LlamaCppClientAdapter";
 import { OpenRouterClientAdapter } from "./clients/OpenRouterClientAdapter";
+import { MistralClientAdapter } from "./clients/MistralClientAdapter";
 import { createDefaultLogger } from "../logging/defaultLogger";
 
 const logger = createDefaultLogger();
-// Placeholder for future imports:
-// import { MistralClientAdapter } from './clients/MistralClientAdapter';
 
 /**
  * Mapping from provider IDs to their corresponding adapter constructor classes
@@ -37,7 +36,7 @@ export const ADAPTER_CONSTRUCTORS: Partial<
   gemini: GeminiClientAdapter,
   llamacpp: LlamaCppClientAdapter,
   openrouter: OpenRouterClientAdapter,
-  // 'mistral': MistralClientAdapter, // Uncomment and add when Mistral adapter is ready
+  mistral: MistralClientAdapter,
 };
 
 /**
@@ -59,8 +58,9 @@ export const ADAPTER_CONFIGS: Partial<
   openrouter: {
     baseURL: process.env.OPENROUTER_API_BASE_URL || 'https://openrouter.ai/api/v1',
   },
-  // 'gemini': { /* ... Gemini specific config ... */ },
-  // 'mistral': { /* ... Mistral specific config ... */ },
+  mistral: {
+    baseURL: process.env.MISTRAL_API_BASE_URL || undefined,
+  },
 };
 
 /**
@@ -805,6 +805,30 @@ export const SUPPORTED_MODELS: ModelInfo[] = [
   },
 
   // Mistral AI Models
+  {
+    id: "mistral-small-latest",
+    name: "Mistral Small",
+    providerId: "mistral",
+    contextWindow: 128000,
+    inputPrice: 0.1,
+    outputPrice: 0.3,
+    description: "Cost-effective model for general tasks",
+    maxTokens: 128000,
+    supportsImages: false,
+    supportsPromptCache: false,
+  },
+  {
+    id: "mistral-large-2512",
+    name: "Mistral Large 3",
+    providerId: "mistral",
+    contextWindow: 256000,
+    inputPrice: 0.5,
+    outputPrice: 1.5,
+    description: "Mistral's frontier model with 256K context",
+    maxTokens: 256000,
+    supportsImages: false,
+    supportsPromptCache: false,
+  },
   {
     id: "codestral-2501",
     name: "Codestral",

@@ -575,5 +575,25 @@
     "settings": {
       "temperature": 0.7
     }
+  },
+  {
+    "id": "mistral-small-default",
+    "displayName": "Mistral - Small",
+    "description": "Cost-effective Mistral Small model for general tasks.",
+    "providerId": "mistral",
+    "modelId": "mistral-small-latest",
+    "settings": {
+      "temperature": 0.7
+    }
+  },
+  {
+    "id": "mistral-codestral-default",
+    "displayName": "Mistral - Codestral",
+    "description": "Specialized model for code generation with lower temperature.",
+    "providerId": "mistral",
+    "modelId": "codestral-2501",
+    "settings": {
+      "temperature": 0.3
+    }
   }
 ]

@@ -114,13 +114,21 @@ Complete reference of all supported AI providers and models in genai-lite.
 
 **Provider ID**: `mistral`
 **Environment Variable**: `MISTRAL_API_KEY`
+**Optional**: `MISTRAL_API_BASE_URL` (default: `https://api.mistral.ai`)
 
-**⚠️ Status**: Adapter under development. Currently uses mock adapter for testing.
+**Models:**
 
-**Models (when complete):**
+**General Purpose:**
+- `mistral-small-latest` - Mistral Small (128K context, $0.10/$0.30 per 1M tokens)
+- `mistral-large-2512` - Mistral Large 3 (256K context, $0.50/$1.50 per 1M tokens)
 
-- `codestral-2501` - Codestral (256K context, code-focused)
-- `devstral-small-2505` - Devstral Small (131K context, compact)
+**Code-Focused:**
+- `codestral-2501` - Codestral (256K context, $0.30/$0.90 per 1M tokens)
+- `devstral-small-2505` - Devstral Small (131K context, $0.10/$0.30 per 1M tokens)
+
+**Notes:**
+- Does not support `frequencyPenalty` or `presencePenalty` parameters
+- System messages are natively supported
 
 ---
 

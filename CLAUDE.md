@@ -309,8 +309,10 @@ The `examples/chat-demo` application provides a quick way to test library change
 - Has specific tool/function calling format
 
 **Mistral:**
-- Similar to OpenAI but with some parameter differences
-- Limited model selection
+- Uses official `@mistralai/mistralai` SDK
+- Does not support `frequencyPenalty` or `presencePenalty` parameters
+- System messages natively supported
+- Configure via `MISTRAL_API_BASE_URL` environment variable (default: https://api.mistral.ai)
 
 **llama.cpp:**
 - Local inference server - no API keys needed
