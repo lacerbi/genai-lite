@@ -199,8 +199,8 @@ describe('GeminiClientAdapter', () => {
         expect(callArgs.contents[0].parts[0].text).toBe('<system>\nBase system instruction\n</system>\n\nHello');
       });
 
-      it('should combine request.systemMessage and inline system messages when supportsSystemMessage is false', async () => {
-        const requestWithNoSystemSupport = {
+      it('should return error when both systemMessage and inline system messages are provided', async () => {
+        const requestWithBothSystemSources = {
           ...basicRequest,
           modelId: 'gemma-3-27b-it',
           systemMessage: 'Base system instruction',
@@ -214,21 +214,11 @@ describe('GeminiClientAdapter', () => {
           }
         };
 
-        mockGenerateContent.mockResolvedValueOnce({
-          text: () => 'Hello!',
-          candidates: [{
-            finishReason: 'STOP',
-            content: { parts: [{ text: 'Hello!' }], role: 'model' }
-          }],
-          usageMetadata: { promptTokenCount: 20, candidatesTokenCount: 5, totalTokenCount: 25 }
-        });
+        const result = await adapter.sendMessage(requestWithBothSystemSources, 'test-api-key');
 
-        await adapter.sendMessage(requestWithNoSystemSupport, 'test-api-key');
-
-        const callArgs = mockGenerateContent.mock.calls[0][0];
-        expect(callArgs.config.systemInstruction).toBeUndefined();
-        expect(callArgs.contents[0].parts[0].text).toBe(
-          '<system>\nBase system instruction\n\nAdditional system content\n</system>\n\nHello'
+        expect(result.object).toBe('error');
+        expect((result as { error: { message: string } }).error.message).toContain(
+          'Cannot use both systemMessage field and system role messages in the messages array'
         );
       });
 

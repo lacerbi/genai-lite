@@ -1044,6 +1044,11 @@ export function getDefaultSettingsForModel(
     }
   }
 
+  // Override supportsSystemMessage from ModelInfo if explicitly set
+  if (modelInfo && modelInfo.supportsSystemMessage !== undefined) {
+    mergedSettings.supportsSystemMessage = modelInfo.supportsSystemMessage;
+  }
+
   // Filter out undefined values and ensure required fields
   return Object.fromEntries(
     Object.entries(mergedSettings).filter(([_, value]) => value !== undefined)

@@ -504,6 +504,34 @@ const response = await llmService.sendMessage({
 | `thinkingTagFallback` | object | - | Thinking tag configuration (see [Thinking Tag Fallback](#thinking-tag-fallback)) |
 | `systemMessageFallback` | object | - | System message format when model lacks native support (see below) |
 
+### System Messages
+
+You can provide system messages in two ways:
+
+1. **Using the `systemMessage` field:**
+   ```typescript
+   await llmService.sendMessage({
+     providerId: 'openai',
+     modelId: 'gpt-4.1-mini',
+     systemMessage: 'You are a helpful assistant.',
+     messages: [{ role: 'user', content: 'Hello' }]
+   });
+   ```
+
+2. **Using `role: 'system'` in the messages array** (OpenAI-style):
+   ```typescript
+   await llmService.sendMessage({
+     providerId: 'openai',
+     modelId: 'gpt-4.1-mini',
+     messages: [
+       { role: 'system', content: 'You are a helpful assistant.' },
+       { role: 'user', content: 'Hello' }
+     ]
+   });
+   ```
+
+> **Important:** You cannot use both approaches simultaneously. If you provide both a `systemMessage` field and system role messages in the messages array, an error will be returned.
+
 ### System Message Fallback
 
 Some models (e.g., Gemma) don't support native system instructions. When `supportsSystemMessage: false` is set for a model, genai-lite automatically prepends system content to the first user message.
