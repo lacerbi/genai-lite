@@ -170,6 +170,7 @@ describe('SettingsManager', () => {
         enabled: true,
         tagName: 'thinking',
       },
+      openRouterProvider: undefined as any,
     };
 
     const mockModelInfo: ModelInfo = {

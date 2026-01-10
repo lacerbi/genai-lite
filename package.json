@@ -1,6 +1,6 @@
 {
   "name": "genai-lite",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "description": "A lightweight, portable toolkit for interacting with various Generative AI APIs.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -45,6 +45,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.56.0",
     "@google/genai": "^1.0.1",
+    "@mistralai/mistralai": "^1.11.0",
     "js-tiktoken": "^1.0.20",
     "openai": "^5.8.2"
   },

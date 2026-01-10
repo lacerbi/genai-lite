@@ -37,6 +37,14 @@ export type {
   LlamaCppModelsResponse,
 } from "./llm/clients/LlamaCppServerClient";
 
+// --- OpenRouter Integration ---
+export { OpenRouterClientAdapter } from "./llm/clients/OpenRouterClientAdapter";
+export type { OpenRouterClientConfig } from "./llm/clients/OpenRouterClientAdapter";
+
+// --- Mistral Integration ---
+export { MistralClientAdapter } from "./llm/clients/MistralClientAdapter";
+export type { MistralClientConfig } from "./llm/clients/MistralClientAdapter";
+
 // --- Image Generation ---
 // Export Image Service
 export { ImageService } from "./image/ImageService";

@@ -142,6 +142,49 @@ export interface SystemMessageFallbackSettings {
 }
 
 /**
+ * OpenRouter-specific provider routing settings
+ *
+ * These settings allow controlling which underlying providers serve requests
+ * when using OpenRouter. All fields are optional - by default, OpenRouter
+ * automatically selects the best provider based on price, latency, and availability.
+ *
+ * @see https://openrouter.ai/docs/provider-routing
+ */
+export interface OpenRouterProviderSettings {
+  /**
+   * Provider priority order. OpenRouter will try providers in this order.
+   * @example order: ["Together", "Fireworks", "Lepton"]
+   */
+  order?: string[];
+
+  /**
+   * Providers to exclude from serving this request.
+   * @example ignore: ["Azure", "OpenAI"]
+   */
+  ignore?: string[];
+
+  /**
+   * Providers to allow exclusively. If set, only these providers can serve the request.
+   * @example allow: ["Together", "Fireworks"]
+   */
+  allow?: string[];
+
+  /**
+   * Control whether providers can use your prompts for training.
+   * Set to 'deny' to opt out of data collection by providers.
+   * @default undefined (provider's default behavior)
+   */
+  dataCollection?: 'deny' | 'allow';
+
+  /**
+   * If true, only route to providers that support all parameters in your request.
+   * Useful when using provider-specific features.
+   * @default false
+   */
+  requireParameters?: boolean;
+}
+
+/**
  * Configurable settings for LLM requests
  */
 export interface LLMSettings {
@@ -184,6 +227,12 @@ export interface LLMSettings {
    * The library only extracts them - it doesn't generate them automatically.
    */
   thinkingTagFallback?: LLMThinkingTagFallbackSettings;
+  /**
+   * OpenRouter-specific provider routing settings.
+   * Only used when providerId is 'openrouter'.
+   * @see OpenRouterProviderSettings
+   */
+  openRouterProvider?: OpenRouterProviderSettings;
 }
 
 /**

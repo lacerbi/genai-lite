@@ -429,12 +429,13 @@ describe('LLMService', () => {
     it('should return all supported providers', async () => {
       const providers = await service.getProviders();
 
-      expect(providers).toHaveLength(6);
+      expect(providers).toHaveLength(7);
       expect(providers.find(p => p.id === 'openai')).toBeDefined();
       expect(providers.find(p => p.id === 'anthropic')).toBeDefined();
       expect(providers.find(p => p.id === 'gemini')).toBeDefined();
       expect(providers.find(p => p.id === 'mistral')).toBeDefined();
       expect(providers.find(p => p.id === 'llamacpp')).toBeDefined();
+      expect(providers.find(p => p.id === 'openrouter')).toBeDefined();
       expect(providers.find(p => p.id === 'mock')).toBeDefined();
     });
 
@@ -476,9 +477,9 @@ describe('LLMService', () => {
 
   describe('thinking extraction', () => {
     it('should extract thinking tag from response when enabled', async () => {
-      // Use mistral provider which doesn't have an adapter, so MockClientAdapter will be used
+      // Use mock provider which uses MockClientAdapter for testing
       const request: LLMChatRequest = {
-        providerId: 'mistral',
+        providerId: 'mock',
         modelId: 'codestral-2501',
         messages: [{ role: 'user', content: 'test_thinking:<thinking>I am thinking about this problem.</thinking>Here is the answer.' }],
         settings: {
@@ -499,7 +500,7 @@ describe('LLMService', () => {
 
     it('should not extract thinking tag when disabled', async () => {
       const request: LLMChatRequest = {
-        providerId: 'mistral',
+        providerId: 'mock',
         modelId: 'codestral-2501',
         messages: [{ role: 'user', content: 'test_thinking:<thinking>I am thinking about this problem.</thinking>Here is the answer.' }],
         settings: {
@@ -520,7 +521,7 @@ describe('LLMService', () => {
 
     it('should use custom tag name', async () => {
       const request: LLMChatRequest = {
-        providerId: 'mistral',
+        providerId: 'mock',
         modelId: 'codestral-2501',
         messages: [{ role: 'user', content: 'test_thinking:<scratchpad>Working through the logic...</scratchpad>Final answer is 42.' }],
         settings: {
@@ -542,7 +543,7 @@ describe('LLMService', () => {
     it('should append to existing reasoning', async () => {
       // Use test_reasoning to get a response with existing reasoning, then test extraction appends to it
       const request: LLMChatRequest = {
-        providerId: 'mistral',
+        providerId: 'mock',
         modelId: 'codestral-2501',
         messages: [{ role: 'user', content: 'test_reasoning:<thinking>Additional thoughts here.</thinking>The analysis is complete.' }],
         settings: {
@@ -567,7 +568,7 @@ describe('LLMService', () => {
 
     it('should handle missing tag with explicit ignore', async () => {
       const request: LLMChatRequest = {
-        providerId: 'mistral',
+        providerId: 'mock',
         modelId: 'codestral-2501',
         messages: [{ role: 'user', content: 'test_thinking:This response has no thinking tag.' }],
         settings: {
@@ -590,7 +591,7 @@ describe('LLMService', () => {
     it('should use default settings when not specified', async () => {
       // Default is now disabled, needs explicit opt-in
       const request: LLMChatRequest = {
-        providerId: 'mistral',
+        providerId: 'mock',
         modelId: 'codestral-2501',
         messages: [{ role: 'user', content: 'test_thinking:<thinking>Default extraction test.</thinking>Result here.' }]
       };
@@ -607,7 +608,7 @@ describe('LLMService', () => {
     describe('enforce behavior', () => {
       it('should enforce tags when explicitly requested for non-native models', async () => {
         const request: LLMChatRequest = {
-          providerId: 'mistral',
+          providerId: 'mock',
           modelId: 'codestral-2501', // Non-native reasoning model (using mock)
           messages: [{ role: 'user', content: 'test_thinking:Response without thinking tag.' }],
           settings: {
@@ -634,7 +635,7 @@ describe('LLMService', () => {
 
       it('should not error when enforce is false even if tags are missing', async () => {
         const request: LLMChatRequest = {
-          providerId: 'mistral',
+          providerId: 'mock',
           modelId: 'codestral-2501',
           messages: [{ role: 'user', content: 'test_thinking:Response without thinking tag.' }],
           settings: {
@@ -656,7 +657,7 @@ describe('LLMService', () => {
 
       it('should handle missing tag with explicit error mode', async () => {
         const request: LLMChatRequest = {
-          providerId: 'mistral',
+          providerId: 'mock',
           modelId: 'codestral-2501',
           messages: [{ role: 'user', content: 'test_thinking:Response without thinking tag.' }],
           settings: {
@@ -681,7 +682,7 @@ describe('LLMService', () => {
 
       it('should handle missing tag for non-reasoning model with ignore', async () => {
         const request: LLMChatRequest = {
-          providerId: 'mistral',
+          providerId: 'mock',
           modelId: 'codestral-2501',
           messages: [{ role: 'user', content: 'test_thinking:Response without thinking tag.' }],
           settings: {
@@ -701,7 +702,7 @@ describe('LLMService', () => {
 
       it('should work with custom tag names in error messages', async () => {
         const request: LLMChatRequest = {
-          providerId: 'mistral',
+          providerId: 'mock',
           modelId: 'codestral-2501',
           messages: [{ role: 'user', content: 'test_thinking:Response without custom tag.' }],
           settings: {
@@ -726,7 +727,7 @@ describe('LLMService', () => {
         it('should enforce thinking tags for non-reasoning models by default', async () => {
           // Mistral model doesn't have reasoning support
           const request: LLMChatRequest = {
-            providerId: 'mistral',
+            providerId: 'mock',
             modelId: 'codestral-2501',
             messages: [{ role: 'user', content: 'test_thinking:Response without thinking tag.' }],
             settings: {
@@ -751,7 +752,7 @@ describe('LLMService', () => {
         it('should respect explicit reasoning.enabled: false even for models with enabledByDefault', async () => {
           // This is the key test for the fix
           const request: LLMChatRequest = {
-            providerId: 'mistral',
+            providerId: 'mock',
             modelId: 'codestral-2501',
             messages: [{ role: 'user', content: 'test_thinking:Response without thinking tag.' }],
             settings: {

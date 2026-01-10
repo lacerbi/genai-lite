@@ -62,6 +62,7 @@ describe('LlamaCppClientAdapter', () => {
           tagName: 'thinking',
           enforce: true,
         },
+        openRouterProvider: undefined as any,
       },
     };
   });

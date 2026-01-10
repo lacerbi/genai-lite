@@ -15,11 +15,11 @@ import { OpenAIClientAdapter } from "./clients/OpenAIClientAdapter";
 import { AnthropicClientAdapter } from "./clients/AnthropicClientAdapter";
 import { GeminiClientAdapter } from "./clients/GeminiClientAdapter";
 import { LlamaCppClientAdapter } from "./clients/LlamaCppClientAdapter";
+import { OpenRouterClientAdapter } from "./clients/OpenRouterClientAdapter";
+import { MistralClientAdapter } from "./clients/MistralClientAdapter";
 import { createDefaultLogger } from "../logging/defaultLogger";
 
 const logger = createDefaultLogger();
-// Placeholder for future imports:
-// import { MistralClientAdapter } from './clients/MistralClientAdapter';
 
 /**
  * Mapping from provider IDs to their corresponding adapter constructor classes
@@ -35,7 +35,8 @@ export const ADAPTER_CONSTRUCTORS: Partial<
   anthropic: AnthropicClientAdapter,
   gemini: GeminiClientAdapter,
   llamacpp: LlamaCppClientAdapter,
-  // 'mistral': MistralClientAdapter, // Uncomment and add when Mistral adapter is ready
+  openrouter: OpenRouterClientAdapter,
+  mistral: MistralClientAdapter,
 };
 
 /**
@@ -54,8 +55,12 @@ export const ADAPTER_CONFIGS: Partial<
   llamacpp: {
     baseURL: process.env.LLAMACPP_API_BASE_URL || 'http://localhost:8080',
   },
-  // 'gemini': { /* ... Gemini specific config ... */ },
-  // 'mistral': { /* ... Mistral specific config ... */ },
+  openrouter: {
+    baseURL: process.env.OPENROUTER_API_BASE_URL || 'https://openrouter.ai/api/v1',
+  },
+  mistral: {
+    baseURL: process.env.MISTRAL_API_BASE_URL || undefined,
+  },
 };
 
 /**
@@ -92,6 +97,7 @@ export const DEFAULT_LLM_SETTINGS: Required<LLMSettings> = {
     tagName: 'thinking',
     enforce: false
   },
+  openRouterProvider: undefined as any, // Optional, only used with OpenRouter provider
 };
 
 /**
@@ -149,6 +155,11 @@ export const SUPPORTED_PROVIDERS: ProviderInfo[] = [
     id: "llamacpp",
     name: "llama.cpp",
     allowUnknownModels: true,  // Users load arbitrary GGUF models with custom names
+  },
+  {
+    id: "openrouter",
+    name: "OpenRouter",
+    allowUnknownModels: true,  // OpenRouter provides 100+ models dynamically
   },
   {
     id: "mock",
@@ -795,6 +806,30 @@ export const SUPPORTED_MODELS: ModelInfo[] = [
 
   // Mistral AI Models
   {
+    id: "mistral-small-latest",
+    name: "Mistral Small",
+    providerId: "mistral",
+    contextWindow: 128000,
+    inputPrice: 0.1,
+    outputPrice: 0.3,
+    description: "Cost-effective model for general tasks",
+    maxTokens: 128000,
+    supportsImages: false,
+    supportsPromptCache: false,
+  },
+  {
+    id: "mistral-large-2512",
+    name: "Mistral Large 3",
+    providerId: "mistral",
+    contextWindow: 256000,
+    inputPrice: 0.5,
+    outputPrice: 1.5,
+    description: "Mistral's frontier model with 256K context",
+    maxTokens: 256000,
+    supportsImages: false,
+    supportsPromptCache: false,
+  },
+  {
     id: "codestral-2501",
     name: "Codestral",
     providerId: "mistral",
@@ -829,6 +864,32 @@ export const SUPPORTED_MODELS: ModelInfo[] = [
     outputPrice: 0.0,
     description: "Local model running via llama.cpp server (model determined by server)",
     maxTokens: 4096,
+    supportsImages: false,
+    supportsPromptCache: false,
+  },
+
+  // OpenRouter Models (Free Tier)
+  {
+    id: "google/gemma-3-27b-it:free",
+    name: "Gemma 3 27B (Free)",
+    providerId: "openrouter",
+    contextWindow: 96000,
+    inputPrice: 0.0,
+    outputPrice: 0.0,
+    description: "Google's Gemma 3 27B instruction-tuned model via OpenRouter (free tier)",
+    maxTokens: 8192,
+    supportsImages: true,
+    supportsPromptCache: false,
+  },
+  {
+    id: "mistralai/mistral-small-3.1-24b-instruct:free",
+    name: "Mistral Small 3.1 24B (Free)",
+    providerId: "openrouter",
+    contextWindow: 96000,
+    inputPrice: 0.0,
+    outputPrice: 0.0,
+    description: "Mistral Small 3.1 24B instruction model via OpenRouter (free tier)",
+    maxTokens: 8192,
     supportsImages: false,
     supportsPromptCache: false,
   },

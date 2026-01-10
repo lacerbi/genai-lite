@@ -49,7 +49,7 @@ genai-lite is a lightweight, standalone Node.js/TypeScript library providing a u
 ### Supported Providers
 
 **LLM Providers:**
-- **Cloud:** OpenAI (GPT-5.x, GPT-4.1, o4-mini), Anthropic (Claude 4.5, Claude 4, Claude 3.x), Google Gemini (3 Pro/Flash, 2.5 Pro/Flash, Gemma 3), Mistral (Codestral, Devstral)
+- **Cloud:** OpenAI (GPT-5.x, GPT-4.1, o4-mini), Anthropic (Claude 4.5, Claude 4, Claude 3.x), Google Gemini (3 Pro/Flash, 2.5 Pro/Flash, Gemma 3), Mistral (Codestral, Devstral), OpenRouter (100+ models via unified API)
 - **Local:** llama.cpp - Run any GGUF model locally with no API keys required. Includes `LlamaCppClientAdapter` for chat completions and `LlamaCppServerClient` for server utilities (tokenization, embeddings, health checks, metrics).
 
 **Image Generation Providers:**
@@ -309,8 +309,10 @@ The `examples/chat-demo` application provides a quick way to test library change
 - Has specific tool/function calling format
 
 **Mistral:**
-- Similar to OpenAI but with some parameter differences
-- Limited model selection
+- Uses official `@mistralai/mistralai` SDK
+- Does not support `frequencyPenalty` or `presencePenalty` parameters
+- System messages natively supported
+- Configure via `MISTRAL_API_BASE_URL` environment variable (default: https://api.mistral.ai)
 
 **llama.cpp:**
 - Local inference server - no API keys needed
