@@ -23,6 +23,7 @@ describe('MockClientAdapter', () => {
         user: 'test-user',
         geminiSafetySettings: [],
         supportsSystemMessage: true,
+        systemMessageFallback: { format: 'xml', tagName: 'system', separator: '---' },
         reasoning: {
           enabled: false,
           effort: undefined as any,

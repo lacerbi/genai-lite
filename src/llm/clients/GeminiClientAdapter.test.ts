@@ -44,6 +44,7 @@ describe('GeminiClientAdapter', () => {
         user: 'test-user',
         geminiSafetySettings: [],
         supportsSystemMessage: true,
+        systemMessageFallback: { format: 'xml', tagName: 'system', separator: '---' },
         reasoning: {
           enabled: false,
           effort: undefined as any,
@@ -164,7 +165,7 @@ describe('GeminiClientAdapter', () => {
         // Instead, it should be prepended to the first user message
         expect(callArgs.contents).toHaveLength(1);
         expect(callArgs.contents[0].role).toBe('user');
-        expect(callArgs.contents[0].parts[0].text).toBe('You are a helpful assistant.\n\nHello');
+        expect(callArgs.contents[0].parts[0].text).toBe('<system>\nYou are a helpful assistant.\n</system>\n\nHello');
       });
 
       it('should handle request.systemMessage when supportsSystemMessage is false', async () => {
@@ -194,7 +195,7 @@ describe('GeminiClientAdapter', () => {
 
         const callArgs = mockGenerateContent.mock.calls[0][0];
         expect(callArgs.config.systemInstruction).toBeUndefined();
-        expect(callArgs.contents[0].parts[0].text).toBe('Base system instruction\n\nHello');
+        expect(callArgs.contents[0].parts[0].text).toBe('<system>\nBase system instruction\n</system>\n\nHello');
       });
 
       it('should combine request.systemMessage and inline system messages when supportsSystemMessage is false', async () => {
@@ -226,7 +227,7 @@ describe('GeminiClientAdapter', () => {
         const callArgs = mockGenerateContent.mock.calls[0][0];
         expect(callArgs.config.systemInstruction).toBeUndefined();
         expect(callArgs.contents[0].parts[0].text).toBe(
-          'Base system instruction\n\nAdditional system content\n\nHello'
+          '<system>\nBase system instruction\n\nAdditional system content\n</system>\n\nHello'
         );
       });
 

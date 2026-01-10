@@ -43,6 +43,10 @@ export class SettingsManager {
       supportsSystemMessage:
         requestSettings?.supportsSystemMessage ??
         modelDefaults.supportsSystemMessage,
+      systemMessageFallback: {
+        ...modelDefaults.systemMessageFallback,
+        ...requestSettings?.systemMessageFallback,
+      },
       geminiSafetySettings:
         requestSettings?.geminiSafetySettings ??
         modelDefaults.geminiSafetySettings,

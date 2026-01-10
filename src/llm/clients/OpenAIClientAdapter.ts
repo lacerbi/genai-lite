@@ -203,7 +203,8 @@ export class OpenAIClientAdapter implements ILLMClientAdapter {
         }));
         const modifiedIndex = prependSystemToFirstUserMessage(
           simpleMessages,
-          combinedSystemContent
+          combinedSystemContent,
+          request.settings.systemMessageFallback
         );
         if (modifiedIndex !== -1) {
           messages[modifiedIndex].content = simpleMessages[modifiedIndex].content;

@@ -69,6 +69,11 @@ export const DEFAULT_LLM_SETTINGS: Required<LLMSettings> = {
   frequencyPenalty: 0.0,
   presencePenalty: 0.0,
   supportsSystemMessage: true,
+  systemMessageFallback: {
+    format: 'xml',
+    tagName: 'system',
+    separator: '---',
+  },
   user: undefined as any, // Will be filtered out when undefined
   geminiSafetySettings: [
     { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },

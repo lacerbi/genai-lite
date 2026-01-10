@@ -180,7 +180,8 @@ export class GeminiClientAdapter implements ILLMClientAdapter {
         }));
         const modifiedIndex = prependSystemToFirstUserMessage(
           simpleContents,
-          combinedSystemContent
+          combinedSystemContent,
+          request.settings.systemMessageFallback
         );
         if (modifiedIndex !== -1) {
           // Update the actual contents array

@@ -50,6 +50,7 @@ describe('LlamaCppClientAdapter', () => {
         frequencyPenalty: 0.0,
         presencePenalty: 0.0,
         supportsSystemMessage: true,
+        systemMessageFallback: { format: 'xml', tagName: 'system', separator: '---' },
         user: '' as any,
         geminiSafetySettings: [],
         reasoning: {

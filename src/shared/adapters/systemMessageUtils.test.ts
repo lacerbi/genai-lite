@@ -2,6 +2,8 @@ import {
   collectSystemContent,
   prependSystemToFirstUserMessage,
   processMessagesForSystemSupport,
+  formatSystemContentForPrepend,
+  DEFAULT_SYSTEM_MESSAGE_FORMAT_OPTIONS,
   type GenericMessage,
 } from "./systemMessageUtils";
 
@@ -58,8 +60,84 @@ describe("systemMessageUtils", () => {
     });
   });
 
+  describe("formatSystemContentForPrepend", () => {
+    it("should format with XML tags by default", () => {
+      const result = formatSystemContentForPrepend("Be helpful", "Hello");
+
+      expect(result).toBe("<system>\nBe helpful\n</system>\n\nHello");
+    });
+
+    it("should use custom tag name for XML format", () => {
+      const result = formatSystemContentForPrepend("Be helpful", "Hello", {
+        format: "xml",
+        tagName: "instructions",
+      });
+
+      expect(result).toBe("<instructions>\nBe helpful\n</instructions>\n\nHello");
+    });
+
+    it("should format with separator", () => {
+      const result = formatSystemContentForPrepend("Be helpful", "Hello", {
+        format: "separator",
+      });
+
+      expect(result).toBe("Be helpful\n\n---\n\nHello");
+    });
+
+    it("should use custom separator string", () => {
+      const result = formatSystemContentForPrepend("Be helpful", "Hello", {
+        format: "separator",
+        separator: "===",
+      });
+
+      expect(result).toBe("Be helpful\n\n===\n\nHello");
+    });
+
+    it("should format plain (just newlines)", () => {
+      const result = formatSystemContentForPrepend("Be helpful", "Hello", {
+        format: "plain",
+      });
+
+      expect(result).toBe("Be helpful\n\nHello");
+    });
+
+    it("should handle multiline system content with XML", () => {
+      const result = formatSystemContentForPrepend(
+        "Line 1\nLine 2\nLine 3",
+        "Hello",
+        { format: "xml" }
+      );
+
+      expect(result).toBe("<system>\nLine 1\nLine 2\nLine 3\n</system>\n\nHello");
+    });
+
+    it("should handle multiline system content with separator", () => {
+      const result = formatSystemContentForPrepend(
+        "Line 1\nLine 2",
+        "Hello",
+        { format: "separator" }
+      );
+
+      expect(result).toBe("Line 1\nLine 2\n\n---\n\nHello");
+    });
+  });
+
+  describe("DEFAULT_SYSTEM_MESSAGE_FORMAT_OPTIONS", () => {
+    it("should have xml as default format", () => {
+      expect(DEFAULT_SYSTEM_MESSAGE_FORMAT_OPTIONS.format).toBe("xml");
+    });
+
+    it("should have 'system' as default tag name", () => {
+      expect(DEFAULT_SYSTEM_MESSAGE_FORMAT_OPTIONS.tagName).toBe("system");
+    });
+
+    it("should have '---' as default separator", () => {
+      expect(DEFAULT_SYSTEM_MESSAGE_FORMAT_OPTIONS.separator).toBe("---");
+    });
+  });
+
   describe("prependSystemToFirstUserMessage", () => {
-    it("should prepend to the first user message", () => {
+    it("should prepend to the first user message with XML format by default", () => {
       const messages: GenericMessage[] = [
         { role: "user", content: "Hello" },
         { role: "assistant", content: "Hi!" },
@@ -68,8 +146,41 @@ describe("systemMessageUtils", () => {
       const index = prependSystemToFirstUserMessage(messages, "Be helpful");
 
       expect(index).toBe(0);
-      expect(messages[0].content).toBe("Be helpful\n\nHello");
+      expect(messages[0].content).toBe("<system>\nBe helpful\n</system>\n\nHello");
       expect(messages[1].content).toBe("Hi!"); // Unchanged
+    });
+
+    it("should prepend with plain format when specified", () => {
+      const messages: GenericMessage[] = [
+        { role: "user", content: "Hello" },
+      ];
+
+      prependSystemToFirstUserMessage(messages, "Be helpful", { format: "plain" });
+
+      expect(messages[0].content).toBe("Be helpful\n\nHello");
+    });
+
+    it("should prepend with separator format when specified", () => {
+      const messages: GenericMessage[] = [
+        { role: "user", content: "Hello" },
+      ];
+
+      prependSystemToFirstUserMessage(messages, "Be helpful", { format: "separator" });
+
+      expect(messages[0].content).toBe("Be helpful\n\n---\n\nHello");
+    });
+
+    it("should prepend with custom XML tag name", () => {
+      const messages: GenericMessage[] = [
+        { role: "user", content: "Hello" },
+      ];
+
+      prependSystemToFirstUserMessage(messages, "Be helpful", {
+        format: "xml",
+        tagName: "context",
+      });
+
+      expect(messages[0].content).toBe("<context>\nBe helpful\n</context>\n\nHello");
     });
 
     it("should find user message even if not first", () => {
@@ -78,7 +189,9 @@ describe("systemMessageUtils", () => {
         { role: "user", content: "Hello" },
       ];
 
-      const index = prependSystemToFirstUserMessage(messages, "Be helpful");
+      const index = prependSystemToFirstUserMessage(messages, "Be helpful", {
+        format: "plain",
+      });
 
       expect(index).toBe(1);
       expect(messages[0].content).toBe("Previous response"); // Unchanged
@@ -104,12 +217,14 @@ describe("systemMessageUtils", () => {
       expect(index).toBe(-1);
     });
 
-    it("should handle multiline system content", () => {
+    it("should handle multiline system content with default XML format", () => {
       const messages: GenericMessage[] = [{ role: "user", content: "Hello" }];
 
       prependSystemToFirstUserMessage(messages, "Line 1\nLine 2\nLine 3");
 
-      expect(messages[0].content).toBe("Line 1\nLine 2\nLine 3\n\nHello");
+      expect(messages[0].content).toBe(
+        "<system>\nLine 1\nLine 2\nLine 3\n</system>\n\nHello"
+      );
     });
   });
 

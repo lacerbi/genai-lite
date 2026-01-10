@@ -108,6 +108,40 @@ export interface LLMThinkingTagFallbackSettings {
 }
 
 /**
+ * Format options for prepending system content when model doesn't support system messages.
+ * - 'xml': Wrap in XML tags (default) - `<system>content</system>\n\n{user message}`
+ * - 'separator': Use a simple separator - `{content}\n\n---\n\n{user message}`
+ * - 'plain': Just prepend with double newline - `{content}\n\n{user message}`
+ */
+export type SystemMessageFallbackFormat = 'xml' | 'separator' | 'plain';
+
+/**
+ * Settings for handling system messages when the model doesn't support them natively.
+ * When a model has `supportsSystemMessage: false`, these settings control how
+ * system content is formatted when prepended to the first user message.
+ */
+export interface SystemMessageFallbackSettings {
+  /**
+   * Format to use when prepending system content to user message.
+   * @default 'xml'
+   */
+  format?: SystemMessageFallbackFormat;
+
+  /**
+   * Tag name to use when format is 'xml'.
+   * @default 'system'
+   * @example tagName: 'instructions' produces `<instructions>content</instructions>`
+   */
+  tagName?: string;
+
+  /**
+   * Separator string to use when format is 'separator'.
+   * @default '---'
+   */
+  separator?: string;
+}
+
+/**
  * Configurable settings for LLM requests
  */
 export interface LLMSettings {
@@ -127,6 +161,11 @@ export interface LLMSettings {
   user?: string;
   /** Whether the LLM supports system message (almost all LLMs do nowadays) */
   supportsSystemMessage?: boolean;
+  /**
+   * Settings for handling system messages when the model doesn't support them.
+   * Controls how system content is formatted when prepended to user messages.
+   */
+  systemMessageFallback?: SystemMessageFallbackSettings;
   /** Gemini-specific safety settings for content filtering */
   geminiSafetySettings?: GeminiSafetySetting[];
   /** Universal reasoning/thinking configuration */

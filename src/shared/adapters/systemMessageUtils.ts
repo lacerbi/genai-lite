@@ -3,6 +3,38 @@
 // that don't support native system instructions.
 
 /**
+ * Format options for prepending system content when model doesn't support system messages.
+ * - 'xml': Wrap in XML tags (default) - `<system>content</system>\n\n{user message}`
+ * - 'separator': Use a simple separator - `{content}\n\n---\n\n{user message}`
+ * - 'plain': Just prepend with double newline - `{content}\n\n{user message}`
+ */
+export type SystemMessageFallbackFormat = 'xml' | 'separator' | 'plain';
+
+/**
+ * Options for formatting system content when prepending to user messages
+ */
+export interface SystemMessageFormatOptions {
+  /**
+   * Format to use when prepending system content to user message.
+   * @default 'xml'
+   */
+  format?: SystemMessageFallbackFormat;
+
+  /**
+   * Tag name to use when format is 'xml'.
+   * @default 'system'
+   * @example tagName: 'instructions' produces `<instructions>content</instructions>`
+   */
+  tagName?: string;
+
+  /**
+   * Separator string to use when format is 'separator'.
+   * @default '---'
+   */
+  separator?: string;
+}
+
+/**
  * Result of collecting system content for fallback handling
  */
 export interface SystemContentResult {
@@ -18,6 +50,58 @@ export interface SystemContentResult {
 export interface GenericMessage {
   role: string;
   content: string;
+}
+
+/**
+ * Default format options for system message fallback
+ */
+export const DEFAULT_SYSTEM_MESSAGE_FORMAT_OPTIONS: Required<SystemMessageFormatOptions> = {
+  format: 'xml',
+  tagName: 'system',
+  separator: '---',
+};
+
+/**
+ * Formats system content according to the specified format options.
+ *
+ * @param systemContent - The system content to format
+ * @param userContent - The original user message content
+ * @param options - Format options (defaults to XML with 'system' tag)
+ * @returns The formatted combined content
+ *
+ * @example
+ * ```typescript
+ * // XML format (default)
+ * formatSystemContentForPrepend('Be helpful', 'Hello', { format: 'xml' });
+ * // Returns: '<system>\nBe helpful\n</system>\n\nHello'
+ *
+ * // Separator format
+ * formatSystemContentForPrepend('Be helpful', 'Hello', { format: 'separator' });
+ * // Returns: 'Be helpful\n\n---\n\nHello'
+ *
+ * // Plain format
+ * formatSystemContentForPrepend('Be helpful', 'Hello', { format: 'plain' });
+ * // Returns: 'Be helpful\n\nHello'
+ * ```
+ */
+export function formatSystemContentForPrepend(
+  systemContent: string,
+  userContent: string,
+  options?: SystemMessageFormatOptions
+): string {
+  const opts = { ...DEFAULT_SYSTEM_MESSAGE_FORMAT_OPTIONS, ...options };
+
+  switch (opts.format) {
+    case 'xml':
+      return `<${opts.tagName}>\n${systemContent}\n</${opts.tagName}>\n\n${userContent}`;
+
+    case 'separator':
+      return `${systemContent}\n\n${opts.separator}\n\n${userContent}`;
+
+    case 'plain':
+    default:
+      return `${systemContent}\n\n${userContent}`;
+  }
 }
 
 /**
@@ -69,11 +153,12 @@ export function collectSystemContent(
  * Prepends system content to the first user message in an array.
  *
  * This is used as a fallback for models that don't support native system
- * instructions. The system content is prepended to the first user message
- * with a double newline separator.
+ * instructions. The system content is formatted according to the options
+ * and prepended to the first user message.
  *
  * @param messages - Array of message objects with role and content
  * @param systemContent - System content to prepend
+ * @param options - Format options (defaults to XML with 'system' tag)
  * @returns The index of the modified message, or -1 if no user message found
  *
  * @example
@@ -82,20 +167,33 @@ export function collectSystemContent(
  *   { role: 'user', content: 'Hello' },
  *   { role: 'assistant', content: 'Hi!' }
  * ];
- * const index = prependSystemToFirstUserMessage(messages, 'Be helpful');
- * // index = 0
+ *
+ * // Default (XML format)
+ * prependSystemToFirstUserMessage(messages, 'Be helpful');
+ * // messages[0].content = '<system>\nBe helpful\n</system>\n\nHello'
+ *
+ * // Plain format
+ * prependSystemToFirstUserMessage(messages, 'Be helpful', { format: 'plain' });
  * // messages[0].content = 'Be helpful\n\nHello'
+ *
+ * // Separator format
+ * prependSystemToFirstUserMessage(messages, 'Be helpful', { format: 'separator' });
+ * // messages[0].content = 'Be helpful\n\n---\n\nHello'
  * ```
  */
 export function prependSystemToFirstUserMessage<T extends GenericMessage>(
   messages: T[],
-  systemContent: string
+  systemContent: string,
+  options?: SystemMessageFormatOptions
 ): number {
   const firstUserIndex = messages.findIndex((m) => m.role === "user");
 
   if (firstUserIndex !== -1) {
-    messages[firstUserIndex].content =
-      systemContent + "\n\n" + messages[firstUserIndex].content;
+    messages[firstUserIndex].content = formatSystemContentForPrepend(
+      systemContent,
+      messages[firstUserIndex].content,
+      options
+    );
     return firstUserIndex;
   }
 
