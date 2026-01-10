@@ -27,15 +27,12 @@ describe("systemMessageUtils", () => {
       expect(result.useNativeSystemMessage).toBe(true);
     });
 
-    it("should combine request.systemMessage and inline messages", () => {
-      const result = collectSystemContent(
-        "You are helpful",
-        ["Be concise"],
-        true
+    it("should throw error when both systemMessage and inline messages are provided", () => {
+      expect(() =>
+        collectSystemContent("You are helpful", ["Be concise"], true)
+      ).toThrow(
+        "Cannot use both systemMessage field and system role messages in the messages array"
       );
-
-      expect(result.combinedSystemContent).toBe("You are helpful\n\nBe concise");
-      expect(result.useNativeSystemMessage).toBe(true);
     });
 
     it("should return undefined when no system content provided", () => {
@@ -53,10 +50,10 @@ describe("systemMessageUtils", () => {
     });
 
     it("should handle empty strings in inline messages", () => {
-      const result = collectSystemContent("Base", ["", "Additional"], true);
+      const result = collectSystemContent(undefined, ["", "Additional"], true);
 
       // Empty strings are included (could be filtered if needed)
-      expect(result.combinedSystemContent).toBe("Base\n\n\n\nAdditional");
+      expect(result.combinedSystemContent).toBe("\n\nAdditional");
     });
   });
 
@@ -245,21 +242,16 @@ describe("systemMessageUtils", () => {
       expect(result.systemContent.useNativeSystemMessage).toBe(true);
     });
 
-    it("should combine request.systemMessage with inline system messages", () => {
+    it("should throw error when both systemMessage and inline system messages are provided", () => {
       const messages: GenericMessage[] = [
         { role: "system", content: "Additional instruction" },
         { role: "user", content: "Hello" },
       ];
 
-      const result = processMessagesForSystemSupport(
-        messages,
-        "Base instruction",
-        true
-      );
-
-      expect(result.nonSystemMessages).toHaveLength(1);
-      expect(result.systemContent.combinedSystemContent).toBe(
-        "Base instruction\n\nAdditional instruction"
+      expect(() =>
+        processMessagesForSystemSupport(messages, "Base instruction", true)
+      ).toThrow(
+        "Cannot use both systemMessage field and system role messages in the messages array"
       );
     });
 

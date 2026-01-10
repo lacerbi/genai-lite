@@ -112,25 +112,28 @@ export function formatSystemContentForPrepend(
 }
 
 /**
- * Collects and combines system content from multiple sources.
- *
- * Combines the request-level systemMessage with any inline system messages
- * from the messages array into a single string.
+ * Collects system content from either the request-level systemMessage field
+ * or inline system messages in the messages array.
  *
  * @param requestSystemMessage - The request.systemMessage field (if any)
  * @param inlineSystemMessages - Array of system message contents from the messages array
  * @param supportsSystemMessage - Whether the model supports native system messages
  * @returns Object with combined content and whether to use native support
+ * @throws Error if both requestSystemMessage and inlineSystemMessages are provided
  *
  * @example
  * ```typescript
- * const { combinedSystemContent, useNativeSystemMessage } = collectSystemContent(
- *   'You are helpful',
- *   ['Be concise'],
- *   false // Model doesn't support system messages
- * );
- * // combinedSystemContent = 'You are helpful\n\nBe concise'
- * // useNativeSystemMessage = false
+ * // Using request.systemMessage field
+ * const result1 = collectSystemContent('You are helpful', [], true);
+ * // result1.combinedSystemContent = 'You are helpful'
+ *
+ * // Using inline system messages
+ * const result2 = collectSystemContent(undefined, ['Be concise', 'Be brief'], true);
+ * // result2.combinedSystemContent = 'Be concise\n\nBe brief'
+ *
+ * // Using both throws an error
+ * collectSystemContent('You are helpful', ['Be concise'], true);
+ * // throws: "Cannot use both systemMessage field and system role messages..."
  * ```
  */
 export function collectSystemContent(
@@ -138,17 +141,22 @@ export function collectSystemContent(
   inlineSystemMessages: string[],
   supportsSystemMessage: boolean
 ): SystemContentResult {
-  // Combine all system content
-  const allSystemContent: string[] = [];
-
-  if (requestSystemMessage) {
-    allSystemContent.push(requestSystemMessage);
+  // Throw error if both systemMessage field and inline system messages are provided
+  if (requestSystemMessage && inlineSystemMessages.length > 0) {
+    throw new Error(
+      "Cannot use both systemMessage field and system role messages in the messages array. " +
+        "Use one or the other."
+    );
   }
 
-  allSystemContent.push(...inlineSystemMessages);
+  // Use whichever source is provided
+  let combinedSystemContent: string | undefined;
 
-  const combinedSystemContent =
-    allSystemContent.length > 0 ? allSystemContent.join("\n\n") : undefined;
+  if (requestSystemMessage) {
+    combinedSystemContent = requestSystemMessage;
+  } else if (inlineSystemMessages.length > 0) {
+    combinedSystemContent = inlineSystemMessages.join("\n\n");
+  }
 
   return {
     combinedSystemContent,

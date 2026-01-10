@@ -91,10 +91,48 @@ describe('LLM Config', () => {
     it('should apply model-specific overrides', () => {
       const gpt4Settings = getDefaultSettingsForModel('gpt-4.1', 'openai');
       const gpt4MiniSettings = getDefaultSettingsForModel('gpt-4.1-mini', 'openai');
-      
+
       // These might have different maxTokens based on model capabilities
       expect(gpt4Settings.maxTokens).toBeDefined();
       expect(gpt4MiniSettings.maxTokens).toBeDefined();
+    });
+
+    it('should merge supportsSystemMessage from ModelInfo', () => {
+      // Gemma model has supportsSystemMessage: false in its ModelInfo
+      const gemmaSettings = getDefaultSettingsForModel('gemma-3-27b-it', 'gemini');
+      expect(gemmaSettings.supportsSystemMessage).toBe(false);
+
+      // GPT-4 model should have default supportsSystemMessage: true
+      const gpt4Settings = getDefaultSettingsForModel('gpt-4.1', 'openai');
+      expect(gpt4Settings.supportsSystemMessage).toBe(true);
+    });
+
+    it('should merge all ModelInfo fields that have LLMSettings equivalents', () => {
+      // This test ensures that when a model has specific settings in its ModelInfo,
+      // those settings are properly merged into the returned LLMSettings.
+      // This prevents bugs where model-level config doesn't flow to request settings.
+
+      // Get a model that we know has specific overrides
+      const gemmaSettings = getDefaultSettingsForModel('gemma-3-27b-it', 'gemini');
+      const modelInfo = getModelById('gemma-3-27b-it', 'gemini');
+
+      // Verify maxTokens from ModelInfo flows through
+      if (modelInfo?.maxTokens !== undefined) {
+        expect(gemmaSettings.maxTokens).toBe(modelInfo.maxTokens);
+      }
+
+      // Verify supportsSystemMessage from ModelInfo flows through
+      if (modelInfo?.supportsSystemMessage !== undefined) {
+        expect(gemmaSettings.supportsSystemMessage).toBe(modelInfo.supportsSystemMessage);
+      }
+
+      // Verify reasoning settings from ModelInfo flow through for reasoning models
+      const claudeSettings = getDefaultSettingsForModel('claude-sonnet-4-20250514', 'anthropic');
+      const claudeInfo = getModelById('claude-sonnet-4-20250514', 'anthropic');
+
+      if (claudeInfo?.reasoning?.supported && claudeInfo.reasoning.enabledByDefault) {
+        expect(claudeSettings.reasoning.enabled).toBe(true);
+      }
     });
   });
 
