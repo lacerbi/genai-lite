@@ -53,6 +53,10 @@ export class AnthropicClientAdapter implements ILLMClientAdapter {
     apiKey: string
   ): Promise<LLMResponse | LLMFailureResponse> {
     try {
+      // Check if structured output is requested - need beta API
+      const useStructuredOutput = request.settings.structuredOutput?.schema &&
+        request.settings.structuredOutput.enabled !== false;
+
       // Initialize Anthropic client
       const anthropic = new Anthropic({
         apiKey,
@@ -75,6 +79,23 @@ export class AnthropicClientAdapter implements ILLMClientAdapter {
           stop_sequences: request.settings.stopSequences,
         }),
       };
+
+      // Handle structured output configuration for Anthropic
+      // Note: Structured output requires the beta API endpoint
+      if (useStructuredOutput) {
+        const so = request.settings.structuredOutput!;
+        // Anthropic requires additionalProperties: false on all object schemas
+        const processedSchema = so.strict !== false
+          ? this.addAdditionalPropertiesFalse(so.schema)
+          : so.schema;
+        // Anthropic's format: output_format.schema is the schema directly
+        (messageParams as any).output_format = {
+          type: 'json_schema',
+          name: so.name,
+          schema: processedSchema,
+          strict: so.strict !== false,
+        };
+      }
 
       // Handle reasoning/thinking configuration for Claude models
       if (request.settings.reasoning && !request.settings.reasoning.exclude) {
@@ -123,17 +144,29 @@ export class AnthropicClientAdapter implements ILLMClientAdapter {
         hasSystem: !!messageParams.system,
         messageCount: messages.length,
         hasStopSequences: !!messageParams.stop_sequences,
+        useStructuredOutput,
       });
 
-      // Make the API call
-      const completion = await anthropic.messages.create(messageParams);
+      // Make the API call - use beta endpoint for structured output
+      let completion;
+      if (useStructuredOutput) {
+        // For structured output, we need to use the beta messages endpoint with proper headers
+        completion = await anthropic.messages.create(messageParams, {
+          headers: {
+            'anthropic-beta': 'structured-outputs-2025-11-13',
+          },
+        } as any);
+      } else {
+        completion = await anthropic.messages.create(messageParams);
+      }
 
       logger.info(
         `Anthropic API call successful, response ID: ${completion.id}`
       );
 
       // Convert to standardized response format
-      return this.createSuccessResponse(completion, request);
+      // Cast to any to handle beta response type differences
+      return this.createSuccessResponse(completion as any, request);
     } catch (error) {
       logger.error("Anthropic API error:", error);
       return this.createErrorResponse(error, request);
@@ -160,6 +193,41 @@ export class AnthropicClientAdapter implements ILLMClientAdapter {
       name: "Anthropic Client Adapter",
       version: "1.0.0",
     };
+  }
+
+  /**
+   * Recursively adds additionalProperties: false to all object schemas
+   * Required by Anthropic's strict mode for structured outputs
+   *
+   * @param schema - The JSON schema to process
+   * @returns A new schema with additionalProperties: false on all objects
+   */
+  private addAdditionalPropertiesFalse(schema: any): any {
+    if (!schema || typeof schema !== 'object') {
+      return schema;
+    }
+
+    const processed: any = { ...schema };
+
+    // If this is an object type, add additionalProperties: false
+    if (processed.type === 'object') {
+      processed.additionalProperties = false;
+
+      // Process nested properties
+      if (processed.properties) {
+        processed.properties = {};
+        for (const [key, value] of Object.entries(schema.properties)) {
+          processed.properties[key] = this.addAdditionalPropertiesFalse(value);
+        }
+      }
+    }
+
+    // Process array items
+    if (processed.items) {
+      processed.items = this.addAdditionalPropertiesFalse(schema.items);
+    }
+
+    return processed;
   }
 
   /**

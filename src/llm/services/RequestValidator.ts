@@ -1,10 +1,14 @@
-import type { 
-  LLMChatRequest, 
+import type {
+  LLMChatRequest,
   LLMChatRequestWithPreset,
   LLMFailureResponse,
   LLMSettings,
-  ModelInfo
+  ModelInfo,
+  StructuredOutputSettings
 } from "../types";
+import { createDefaultLogger } from "../../logging/defaultLogger";
+
+const logger = createDefaultLogger();
 import { validateLLMSettings } from "../config";
 
 /**
@@ -141,6 +145,59 @@ export class RequestValidator {
       // Otherwise, user is explicitly disabling reasoning - this is fine
       // The reasoning settings will be stripped later
     }
+
+    return null;
+  }
+
+  /**
+   * Validates structured output settings against model capabilities
+   *
+   * @param modelInfo - The model information
+   * @param structuredOutput - The structured output settings to validate
+   * @param request - The original request for error context
+   * @returns LLMFailureResponse if validation fails, null if valid
+   */
+  validateStructuredOutputSettings(
+    modelInfo: ModelInfo,
+    structuredOutput: StructuredOutputSettings | undefined,
+    request: LLMChatRequest
+  ): LLMFailureResponse | null {
+    // If no structured output settings provided, nothing to validate
+    if (!structuredOutput) {
+      return null;
+    }
+
+    // Check if explicitly disabled
+    if (structuredOutput.enabled === false) {
+      return null;
+    }
+
+    // If model has explicit structuredOutput capabilities defined, check them
+    if (modelInfo.structuredOutput !== undefined) {
+      if (!modelInfo.structuredOutput.supported) {
+        return {
+          provider: request.providerId!,
+          model: request.modelId!,
+          error: {
+            message: `Model ${request.modelId} does not support structured output`,
+            type: 'validation_error',
+            code: 'structured_output_not_supported'
+          },
+          object: 'error'
+        };
+      }
+
+      // Warn (but don't error) if strict mode requested but not supported
+      if (structuredOutput.strict !== false && modelInfo.structuredOutput.strictMode === false) {
+        logger.warn(
+          `Model ${request.modelId} does not support strict mode for structured output. ` +
+          `Schema validation will be client-side only.`
+        );
+      }
+    }
+    // If structuredOutput capabilities are not defined on the model,
+    // allow the request to proceed (for unknown models on providers that allow them).
+    // The provider will either support it or return an appropriate error.
 
     return null;
   }

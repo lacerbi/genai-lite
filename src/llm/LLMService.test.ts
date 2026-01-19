@@ -775,4 +775,124 @@ describe('LLMService', () => {
       });
     });
   });
+
+  describe('structuredOutput auto-parsing', () => {
+    // Use mistral-small-latest which has structuredOutput support (strictMode: false)
+    it('should auto-parse JSON response when structuredOutput is enabled', async () => {
+      const request: LLMChatRequest = {
+        providerId: 'mock',
+        modelId: 'mistral-small-latest',
+        messages: [{ role: 'user', content: 'json:{"name":"John","age":30}' }],
+        settings: {
+          structuredOutput: {
+            name: 'person_info',
+            schema: {
+              type: 'object',
+              properties: {
+                name: { type: 'string' },
+                age: { type: 'integer' }
+              },
+              required: ['name', 'age']
+            }
+          }
+        }
+      };
+
+      const response = await service.sendMessage(request);
+
+      expect(response.object).toBe('chat.completion');
+      const successResponse = response as LLMResponse;
+      expect(successResponse.choices[0].parsedContent).toEqual({
+        name: 'John',
+        age: 30
+      });
+      expect(successResponse.choices[0].parseError).toBeUndefined();
+    });
+
+    it('should set parseError when JSON parsing fails', async () => {
+      const request: LLMChatRequest = {
+        providerId: 'mock',
+        modelId: 'mistral-small-latest',
+        messages: [{ role: 'user', content: 'json:invalid json content' }],
+        settings: {
+          structuredOutput: {
+            name: 'test_schema',
+            schema: { type: 'object' }
+          }
+        }
+      };
+
+      const response = await service.sendMessage(request);
+
+      expect(response.object).toBe('chat.completion');
+      const successResponse = response as LLMResponse;
+      expect(successResponse.choices[0].parsedContent).toBeUndefined();
+      expect(successResponse.choices[0].parseError).toContain('JSON parse failed');
+    });
+
+    it('should not auto-parse when autoParse is set to false', async () => {
+      const request: LLMChatRequest = {
+        providerId: 'mock',
+        modelId: 'mistral-small-latest',
+        messages: [{ role: 'user', content: 'json:{"name":"John"}' }],
+        settings: {
+          structuredOutput: {
+            name: 'test_schema',
+            schema: { type: 'object' },
+            autoParse: false
+          }
+        }
+      };
+
+      const response = await service.sendMessage(request);
+
+      expect(response.object).toBe('chat.completion');
+      const successResponse = response as LLMResponse;
+      // When autoParse is false, parsedContent should not be set
+      expect(successResponse.choices[0].parsedContent).toBeUndefined();
+      expect(successResponse.choices[0].parseError).toBeUndefined();
+    });
+
+    it('should not auto-parse when structuredOutput is disabled', async () => {
+      const request: LLMChatRequest = {
+        providerId: 'mock',
+        modelId: 'mistral-small-latest',
+        messages: [{ role: 'user', content: 'json:{"name":"John"}' }],
+        settings: {
+          structuredOutput: {
+            name: 'test_schema',
+            schema: { type: 'object' },
+            enabled: false
+          }
+        }
+      };
+
+      const response = await service.sendMessage(request);
+
+      expect(response.object).toBe('chat.completion');
+      const successResponse = response as LLMResponse;
+      expect(successResponse.choices[0].parsedContent).toBeUndefined();
+    });
+
+    it('should handle empty content gracefully', async () => {
+      const request: LLMChatRequest = {
+        providerId: 'mock',
+        modelId: 'mistral-small-latest',
+        messages: [{ role: 'user', content: 'empty:' }],
+        settings: {
+          structuredOutput: {
+            name: 'test_schema',
+            schema: { type: 'object' }
+          }
+        }
+      };
+
+      const response = await service.sendMessage(request);
+
+      expect(response.object).toBe('chat.completion');
+      const successResponse = response as LLMResponse;
+      // Empty content should not cause parsing attempt
+      expect(successResponse.choices[0].parsedContent).toBeUndefined();
+    });
+  });
 });

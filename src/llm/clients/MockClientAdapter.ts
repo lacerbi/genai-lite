@@ -183,6 +183,13 @@ export class MockClientAdapter implements ILLMClientAdapter {
       // Extract content after "test_reasoning:" and return it as both content and reasoning
       const startIndex = originalContent.indexOf("test_reasoning:") + "test_reasoning:".length;
       responseContent = originalContent.substring(startIndex).trim();
+    } else if (userContent.includes("json:")) {
+      // Extract content after "json:" for testing structured output parsing
+      const startIndex = originalContent.indexOf("json:") + "json:".length;
+      responseContent = originalContent.substring(startIndex).trim();
+    } else if (userContent.includes("empty:")) {
+      // Return empty content for testing empty response handling
+      responseContent = "";
     } else if (userContent.includes("hello") || userContent.includes("hi")) {
       responseContent =
         "Hello! I'm a mock LLM assistant. How can I help you today?";

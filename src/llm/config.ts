@@ -9,6 +9,8 @@ import type {
   GeminiSafetySetting,
   GeminiHarmCategory,
   GeminiHarmBlockThreshold,
+  StructuredOutputSettings,
+  StructuredOutputSchema,
 } from "./types";
 import type { ILLMClientAdapter } from "./clients/types";
 import { OpenAIClientAdapter } from "./clients/OpenAIClientAdapter";
@@ -98,6 +100,7 @@ export const DEFAULT_LLM_SETTINGS: Required<LLMSettings> = {
     enforce: false
   },
   openRouterProvider: undefined as any, // Optional, only used with OpenRouter provider
+  structuredOutput: undefined as any, // Optional, enables JSON schema-constrained output
 };
 
 /**
@@ -595,6 +598,10 @@ export const SUPPORTED_MODELS: ModelInfo[] = [
       },
       outputType: 'summary',
     },
+    structuredOutput: {
+      supported: true,
+      strictMode: true,
+    },
   },
   {
     id: "gemini-2.5-flash",
@@ -620,6 +627,10 @@ export const SUPPORTED_MODELS: ModelInfo[] = [
         description: "Let model decide based on query complexity",
       },
       outputType: 'summary',
+    },
+    structuredOutput: {
+      supported: true,
+      strictMode: true,
     },
   },
   {
@@ -684,6 +695,10 @@ export const SUPPORTED_MODELS: ModelInfo[] = [
       canDisable: true,
       outputType: 'none',
     },
+    structuredOutput: {
+      supported: true,
+      strictMode: true,
+    },
   },
   {
     id: "gpt-5.1",
@@ -702,6 +717,10 @@ export const SUPPORTED_MODELS: ModelInfo[] = [
       enabledByDefault: false,
       canDisable: true,
       outputType: 'none',
+    },
+    structuredOutput: {
+      supported: true,
+      strictMode: true,
     },
   },
   {
@@ -722,6 +741,10 @@ export const SUPPORTED_MODELS: ModelInfo[] = [
       canDisable: true,
       outputType: 'none',
     },
+    structuredOutput: {
+      supported: true,
+      strictMode: true,
+    },
   },
   {
     id: "gpt-5-nano-2025-08-07",
@@ -740,6 +763,10 @@ export const SUPPORTED_MODELS: ModelInfo[] = [
       enabledByDefault: false,
       canDisable: true,
       outputType: 'none',
+    },
+    structuredOutput: {
+      supported: true,
+      strictMode: true,
     },
   },
   // OpenAI Models - o-series
@@ -776,6 +803,10 @@ export const SUPPORTED_MODELS: ModelInfo[] = [
     supportsImages: true,
     supportsPromptCache: true,
     cacheReadsPrice: 0.5,
+    structuredOutput: {
+      supported: true,
+      strictMode: true,
+    },
   },
   {
     id: "gpt-4.1-mini",
@@ -789,6 +820,10 @@ export const SUPPORTED_MODELS: ModelInfo[] = [
     supportsImages: true,
     supportsPromptCache: true,
     cacheReadsPrice: 0.1,
+    structuredOutput: {
+      supported: true,
+      strictMode: true,
+    },
   },
   {
     id: "gpt-4.1-nano",
@@ -802,6 +837,10 @@ export const SUPPORTED_MODELS: ModelInfo[] = [
     supportsImages: true,
     supportsPromptCache: true,
     cacheReadsPrice: 0.025,
+    structuredOutput: {
+      supported: true,
+      strictMode: true,
+    },
   },
 
   // Mistral AI Models
@@ -816,6 +855,11 @@ export const SUPPORTED_MODELS: ModelInfo[] = [
     maxTokens: 128000,
     supportsImages: false,
     supportsPromptCache: false,
+    structuredOutput: {
+      supported: true,
+      strictMode: false,
+      notes: "JSON mode only - schema validation is client-side",
+    },
   },
   {
     id: "mistral-large-2512",
@@ -828,6 +872,11 @@ export const SUPPORTED_MODELS: ModelInfo[] = [
     maxTokens: 256000,
     supportsImages: false,
     supportsPromptCache: false,
+    structuredOutput: {
+      supported: true,
+      strictMode: false,
+      notes: "JSON mode only - schema validation is client-side",
+    },
   },
   {
     id: "codestral-2501",
@@ -840,6 +889,11 @@ export const SUPPORTED_MODELS: ModelInfo[] = [
     maxTokens: 256000,
     supportsImages: false,
     supportsPromptCache: false,
+    structuredOutput: {
+      supported: true,
+      strictMode: false,
+      notes: "JSON mode only - schema validation is client-side",
+    },
   },
   {
     id: "devstral-small-2505",
@@ -866,6 +920,11 @@ export const SUPPORTED_MODELS: ModelInfo[] = [
     maxTokens: 4096,
     supportsImages: false,
     supportsPromptCache: false,
+    structuredOutput: {
+      supported: true,
+      strictMode: true,
+      notes: "Requires llama.cpp server with grammar support enabled",
+    },
   },
 
   // OpenRouter Models (Free Tier)
@@ -1211,6 +1270,45 @@ export function validateLLMSettings(settings: Partial<LLMSettings>): string[] {
 
       if (settings.reasoning.exclude !== undefined && typeof settings.reasoning.exclude !== "boolean") {
         errors.push("reasoning.exclude must be a boolean");
+      }
+    }
+  }
+
+  if (settings.structuredOutput !== undefined) {
+    if (typeof settings.structuredOutput !== "object" || settings.structuredOutput === null) {
+      errors.push("structuredOutput must be an object");
+    } else {
+      const so = settings.structuredOutput;
+
+      // name is required
+      if (!so.name || typeof so.name !== "string" || so.name.trim().length === 0) {
+        errors.push("structuredOutput.name is required and must be a non-empty string");
+      }
+
+      // schema is required
+      if (!so.schema || typeof so.schema !== "object") {
+        errors.push("structuredOutput.schema is required and must be an object");
+      } else {
+        // Validate schema has a valid type
+        const validTypes = ["object", "array", "string", "number", "boolean"];
+        if (!so.schema.type || !validTypes.includes(so.schema.type)) {
+          errors.push(`structuredOutput.schema.type must be one of: ${validTypes.join(", ")}`);
+        }
+      }
+
+      // enabled must be boolean if present
+      if (so.enabled !== undefined && typeof so.enabled !== "boolean") {
+        errors.push("structuredOutput.enabled must be a boolean");
+      }
+
+      // strict must be boolean if present
+      if (so.strict !== undefined && typeof so.strict !== "boolean") {
+        errors.push("structuredOutput.strict must be a boolean");
+      }
+
+      // autoParse must be boolean if present
+      if (so.autoParse !== undefined && typeof so.autoParse !== "boolean") {
+        errors.push("structuredOutput.autoParse must be a boolean");
       }
     }
   }

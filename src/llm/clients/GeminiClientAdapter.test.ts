@@ -55,7 +55,8 @@ describe('GeminiClientAdapter', () => {
           enabled: true,
           tagName: 'thinking'
         },
-        openRouterProvider: undefined as any
+        openRouterProvider: undefined as any,
+        structuredOutput: undefined as any
       }
     };
   });

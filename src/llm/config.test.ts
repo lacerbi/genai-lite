@@ -249,5 +249,207 @@ describe('LLM Config', () => {
       expect(errors).toContain('maxTokens must be an integer between 1 and 100000');
       expect(errors).toContain('topP must be a number between 0 and 1');
     });
+
+    describe('structuredOutput validation', () => {
+      it('should accept valid structuredOutput settings', () => {
+        const validSettings = {
+          structuredOutput: {
+            name: 'person_info',
+            schema: {
+              type: 'object' as const,
+              properties: {
+                name: { type: 'string' as const },
+                age: { type: 'integer' as const }
+              },
+              required: ['name', 'age']
+            }
+          }
+        };
+        expect(validateLLMSettings(validSettings)).toEqual([]);
+      });
+
+      it('should accept structuredOutput with all optional fields', () => {
+        const validSettings = {
+          structuredOutput: {
+            name: 'test_schema',
+            schema: {
+              type: 'object' as const,
+              properties: {
+                value: { type: 'string' as const }
+              }
+            },
+            enabled: true,
+            strict: true,
+            autoParse: false
+          }
+        };
+        expect(validateLLMSettings(validSettings)).toEqual([]);
+      });
+
+      it('should reject non-object structuredOutput', () => {
+        expect(validateLLMSettings({ structuredOutput: 'invalid' as any }))
+          .toContain('structuredOutput must be an object');
+        expect(validateLLMSettings({ structuredOutput: null as any }))
+          .toContain('structuredOutput must be an object');
+      });
+
+      it('should require name field', () => {
+        const missingName = {
+          structuredOutput: {
+            schema: { type: 'object' as const }
+          } as any
+        };
+        expect(validateLLMSettings(missingName))
+          .toContain('structuredOutput.name is required and must be a non-empty string');
+      });
+
+      it('should reject empty name', () => {
+        const emptyName = {
+          structuredOutput: {
+            name: '   ',
+            schema: { type: 'object' as const }
+          }
+        };
+        expect(validateLLMSettings(emptyName))
+          .toContain('structuredOutput.name is required and must be a non-empty string');
+      });
+
+      it('should reject non-string name', () => {
+        const invalidName = {
+          structuredOutput: {
+            name: 123 as any,
+            schema: { type: 'object' as const }
+          }
+        };
+        expect(validateLLMSettings(invalidName))
+          .toContain('structuredOutput.name is required and must be a non-empty string');
+      });
+
+      it('should require schema field', () => {
+        const missingSchema = {
+          structuredOutput: {
+            name: 'test'
+          } as any
+        };
+        expect(validateLLMSettings(missingSchema))
+          .toContain('structuredOutput.schema is required and must be an object');
+      });
+
+      it('should reject non-object schema', () => {
+        const invalidSchema = {
+          structuredOutput: {
+            name: 'test',
+            schema: 'invalid' as any
+          }
+        };
+        expect(validateLLMSettings(invalidSchema))
+          .toContain('structuredOutput.schema is required and must be an object');
+      });
+
+      it('should require valid schema type', () => {
+        const invalidType = {
+          structuredOutput: {
+            name: 'test',
+            schema: { type: 'invalid' as any }
+          }
+        };
+        expect(validateLLMSettings(invalidType))
+          .toContain('structuredOutput.schema.type must be one of: object, array, string, number, boolean');
+      });
+
+      it('should accept all valid schema types', () => {
+        const validTypes = ['object', 'array', 'string', 'number', 'boolean'] as const;
+        for (const type of validTypes) {
+          const settings = {
+            structuredOutput: {
+              name: 'test',
+              schema: { type }
+            }
+          };
+          expect(validateLLMSettings(settings)).toEqual([]);
+        }
+      });
+
+      it('should reject non-boolean enabled', () => {
+        const invalidEnabled = {
+          structuredOutput: {
+            name: 'test',
+            schema: { type: 'object' as const },
+            enabled: 'yes' as any
+          }
+        };
+        expect(validateLLMSettings(invalidEnabled))
+          .toContain('structuredOutput.enabled must be a boolean');
+      });
+
+      it('should reject non-boolean strict', () => {
+        const invalidStrict = {
+          structuredOutput: {
+            name: 'test',
+            schema: { type: 'object' as const },
+            strict: 'yes' as any
+          }
+        };
+        expect(validateLLMSettings(invalidStrict))
+          .toContain('structuredOutput.strict must be a boolean');
+      });
+
+      it('should reject non-boolean autoParse', () => {
+        const invalidAutoParse = {
+          structuredOutput: {
+            name: 'test',
+            schema: { type: 'object' as const },
+            autoParse: 'yes' as any
+          }
+        };
+        expect(validateLLMSettings(invalidAutoParse))
+          .toContain('structuredOutput.autoParse must be a boolean');
+      });
+
+      it('should return multiple errors for multiple invalid structuredOutput fields', () => {
+        const multipleErrors = {
+          structuredOutput: {
+            name: '',
+            schema: 'invalid' as any,
+            enabled: 'yes' as any
+          }
+        };
+        const errors = validateLLMSettings(multipleErrors);
+        expect(errors.length).toBeGreaterThanOrEqual(3);
+        expect(errors).toContain('structuredOutput.name is required and must be a non-empty string');
+        expect(errors).toContain('structuredOutput.schema is required and must be an object');
+        expect(errors).toContain('structuredOutput.enabled must be a boolean');
+      });
+    });
+  });
+
+  describe('Model structuredOutput capabilities', () => {
+    it('should have structuredOutput capability on OpenAI models', () => {
+      const model = getModelById('gpt-4.1', 'openai');
+      expect(model?.structuredOutput).toBeDefined();
+      expect(model?.structuredOutput?.supported).toBe(true);
+      expect(model?.structuredOutput?.strictMode).toBe(true);
+    });
+
+    it('should have structuredOutput capability on Gemini models', () => {
+      const model = getModelById('gemini-2.5-pro', 'gemini');
+      expect(model?.structuredOutput).toBeDefined();
+      expect(model?.structuredOutput?.supported).toBe(true);
+    });
+
+    it('should have structuredOutput capability on llama.cpp', () => {
+      const model = getModelById('llamacpp', 'llamacpp');
+      expect(model?.structuredOutput).toBeDefined();
+      expect(model?.structuredOutput?.supported).toBe(true);
+      expect(model?.structuredOutput?.notes).toContain('grammar support');
+    });
+
+    it('should have partial structuredOutput capability on Mistral (no strict mode)', () => {
+      const model = getModelById('mistral-small-latest', 'mistral');
+      expect(model?.structuredOutput).toBeDefined();
+      expect(model?.structuredOutput?.supported).toBe(true);
+      expect(model?.structuredOutput?.strictMode).toBe(false);
+      expect(model?.structuredOutput?.notes).toContain('JSON mode only');
+    });
   });
 });

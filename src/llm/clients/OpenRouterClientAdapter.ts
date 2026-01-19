@@ -144,6 +144,20 @@ export class OpenRouterClientAdapter implements ILLMClientAdapter {
         }
       }
 
+      // Handle structured output configuration for OpenRouter
+      // Passthrough to underlying provider using OpenAI-style format
+      if (request.settings.structuredOutput?.schema && request.settings.structuredOutput.enabled !== false) {
+        const so = request.settings.structuredOutput;
+        (completionParams as any).response_format = {
+          type: 'json_schema',
+          json_schema: {
+            name: so.name,
+            strict: so.strict !== false,
+            schema: so.schema,
+          }
+        };
+      }
+
       logger.debug(`OpenRouter API parameters:`, {
         baseURL: this.baseURL,
         model: completionParams.model,
