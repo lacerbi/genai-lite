@@ -218,7 +218,7 @@ export class GeminiClientAdapter implements ILLMClientAdapter {
         // Get model info to determine max budget
         const modelId = request.modelId;
         const maxBudget = modelId.includes('flash') ? 24576 : 65536; // Default max budgets
-        
+
         switch (reasoning.effort) {
           case 'high':
             thinkingBudget = Math.floor(maxBudget * 0.8);
@@ -241,6 +241,13 @@ export class GeminiClientAdapter implements ILLMClientAdapter {
           includeThoughts: true  // Request thought summaries in response
         };
       }
+    }
+
+    // Handle structured output configuration for Gemini
+    if (request.settings.structuredOutput?.schema && request.settings.structuredOutput.enabled !== false) {
+      const so = request.settings.structuredOutput;
+      generationConfig.responseMimeType = 'application/json';
+      generationConfig.responseSchema = this.convertToGeminiSchema(so.schema);
     }
 
     // Map safety settings from Athanor format to Gemini SDK format
@@ -420,5 +427,48 @@ export class GeminiClientAdapter implements ILLMClientAdapter {
     return `gemini-${Date.now()}-${Math.random()
       .toString(36)
       .substring(2, 15)}`;
+  }
+
+  /**
+   * Converts our schema format to Gemini's schema format
+   *
+   * Gemini now supports standard JSON Schema format as of November 2025.
+   * This method ensures the schema is properly formatted.
+   *
+   * @param schema - The structured output schema
+   * @returns Gemini-compatible schema object
+   */
+  private convertToGeminiSchema(schema: any): any {
+    // Gemini now supports standard JSON Schema format
+    // Just pass through with minimal transformation
+    const convertProperty = (prop: any): any => {
+      if (!prop || typeof prop !== 'object') {
+        return prop;
+      }
+
+      const result: any = { ...prop };
+
+      // Ensure type is lowercase (JSON Schema standard)
+      if (result.type && typeof result.type === 'string') {
+        result.type = result.type.toLowerCase();
+      }
+
+      // Process nested properties
+      if (result.properties) {
+        result.properties = {};
+        for (const [key, value] of Object.entries(prop.properties)) {
+          result.properties[key] = convertProperty(value);
+        }
+      }
+
+      // Process array items
+      if (result.items) {
+        result.items = convertProperty(prop.items);
+      }
+
+      return result;
+    };
+
+    return convertProperty(schema);
   }
 }

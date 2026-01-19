@@ -6,6 +6,7 @@ Complete guide to text generation and chat completions using genai-lite's LLMSer
 
 - [Overview](#overview) - When to use LLMService
 - [Basic Usage](#basic-usage) - Simple message sending
+- [Structured Output](#structured-output) - Guaranteed JSON responses with schema validation
 - [Reasoning Mode](#reasoning-mode) - Advanced problem-solving with native reasoning
 - [Thinking Tag Fallback](#thinking-tag-fallback) - Structured reasoning for non-reasoning models
 - [Creating Messages from Templates](#creating-messages-from-templates) - Model-aware prompt building
@@ -88,6 +89,219 @@ const presets = llmService.getPresets();
 ```
 
 See [Providers & Models](providers-and-models.md) for all supported providers and models.
+
+---
+
+## Structured Output
+
+Structured output guarantees that the model returns valid JSON conforming to a schema you define. This is useful for extracting data, function calling, and building reliable integrations.
+
+### Basic Example
+
+```typescript
+const response = await llmService.sendMessage({
+  providerId: 'openai',
+  modelId: 'gpt-4.1',
+  messages: [{
+    role: 'user',
+    content: 'Extract the person info from: "John Smith is 42 years old."'
+  }],
+  settings: {
+    structuredOutput: {
+      name: 'person_info',
+      schema: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: 'The person\'s full name' },
+          age: { type: 'integer', description: 'The person\'s age' }
+        },
+        required: ['name', 'age']
+      }
+    }
+  }
+});
+
+if (response.object === 'chat.completion') {
+  // Automatically parsed JSON is available in parsedContent
+  const data = response.choices[0].parsedContent as { name: string; age: number };
+  console.log(data.name);  // "John Smith"
+  console.log(data.age);   // 42
+
+  // Raw JSON string is still in message.content
+  console.log(response.choices[0].message.content);  // '{"name":"John Smith","age":42}'
+}
+```
+
+### Provider Support
+
+| Provider | Support | Notes |
+|----------|---------|-------|
+| OpenAI | Full | Schema validation via `json_schema` response format |
+| llama.cpp | Full | Schema validation via grammar-based generation |
+| Gemini | Full | Schema validation via `responseSchema` |
+| Anthropic | Beta | Requires beta header (handled automatically) |
+| Mistral | Partial | JSON mode only—no schema enforcement |
+| OpenRouter | Passthrough | Depends on underlying model |
+
+### Configuration Options
+
+```typescript
+settings: {
+  structuredOutput: {
+    name: 'my_schema',      // Required: Schema name (for provider APIs)
+    schema: {               // Required: JSON Schema definition
+      type: 'object',
+      properties: { /* ... */ },
+      required: ['field1', 'field2']
+    },
+    strict: true,           // Optional: Enable strict mode (default: true)
+    autoParse: true,        // Optional: Auto-parse JSON (default: true)
+    enabled: true           // Optional: Enable/disable (default: true)
+  }
+}
+```
+
+### Schema Definition
+
+Use JSON Schema syntax to define your output structure:
+
+```typescript
+const orderSchema = {
+  name: 'order_extraction',
+  schema: {
+    type: 'object',
+    properties: {
+      orderId: { type: 'string', pattern: '^ORD-[0-9]+$' },
+      items: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            name: { type: 'string' },
+            quantity: { type: 'integer', minimum: 1 },
+            price: { type: 'number' }
+          },
+          required: ['name', 'quantity', 'price']
+        }
+      },
+      total: { type: 'number' },
+      status: {
+        type: 'string',
+        enum: ['pending', 'shipped', 'delivered']
+      }
+    },
+    required: ['orderId', 'items', 'total', 'status']
+  }
+};
+```
+
+**Supported schema properties:**
+- `type`: `object`, `array`, `string`, `number`, `integer`, `boolean`, `null`
+- `properties`: Object field definitions
+- `required`: Array of required field names
+- `items`: Schema for array elements
+- `enum`: Allowed values
+- `minimum`, `maximum`: Number constraints
+- `minLength`, `maxLength`: String length constraints
+- `pattern`: Regex pattern for strings
+- `description`: Field documentation (helps model accuracy)
+
+### Auto-Parsing
+
+By default, genai-lite automatically parses the JSON response:
+
+```typescript
+// Auto-parsing enabled (default)
+const response = await llmService.sendMessage({ /* ... */ });
+
+if (response.object === 'chat.completion') {
+  const choice = response.choices[0];
+
+  if (choice.parsedContent) {
+    // Successfully parsed JSON object
+    console.log(choice.parsedContent);
+  } else if (choice.parseError) {
+    // JSON parsing failed (rare with strict mode)
+    console.error('Parse error:', choice.parseError);
+    console.log('Raw content:', choice.message.content);
+  }
+}
+```
+
+Disable auto-parsing if you want to handle parsing yourself:
+
+```typescript
+settings: {
+  structuredOutput: {
+    name: 'my_schema',
+    schema: { /* ... */ },
+    autoParse: false  // Disable auto-parsing
+  }
+}
+// parsedContent will be undefined; use choice.message.content
+```
+
+### Strict Mode
+
+Strict mode ensures the model's output exactly matches your schema:
+
+```typescript
+// Strict mode (default) - guaranteed schema compliance
+settings: {
+  structuredOutput: {
+    name: 'test',
+    schema: { type: 'object', properties: { x: { type: 'integer' } } },
+    strict: true  // Default
+  }
+}
+
+// Non-strict mode - model attempts to follow schema but may deviate
+settings: {
+  structuredOutput: {
+    name: 'test',
+    schema: { /* ... */ },
+    strict: false
+  }
+}
+```
+
+**Note:** Mistral does not support strict mode. The library will warn you but proceed with JSON mode only.
+
+### Disabling Structured Output
+
+To disable structured output that was set in a preset or template:
+
+```typescript
+settings: {
+  structuredOutput: {
+    name: 'ignored',
+    schema: { type: 'object' },
+    enabled: false  // Explicitly disable
+  }
+}
+```
+
+### Error Handling
+
+If the model doesn't support structured output, you'll get a validation error:
+
+```typescript
+const response = await llmService.sendMessage({
+  providerId: 'some-provider',
+  modelId: 'model-without-structured-output',
+  messages: [{ role: 'user', content: 'Test' }],
+  settings: {
+    structuredOutput: {
+      name: 'test',
+      schema: { type: 'object' }
+    }
+  }
+});
+
+if (response.object === 'error' && response.error.code === 'structured_output_not_supported') {
+  console.error('This model does not support structured output');
+}
+```
 
 ---
 

@@ -86,7 +86,7 @@ export class OpenAIClientAdapter implements ILLMClientAdapter {
       // Handle reasoning configuration for OpenAI models (o-series)
       if (request.settings.reasoning && !request.settings.reasoning.exclude) {
         const reasoning = request.settings.reasoning;
-        
+
         // OpenAI uses reasoning_effort for o-series models
         if (reasoning.effort) {
           (completionParams as any).reasoning_effort = reasoning.effort;
@@ -94,6 +94,23 @@ export class OpenAIClientAdapter implements ILLMClientAdapter {
           // Default to medium effort if reasoning is enabled
           (completionParams as any).reasoning_effort = 'medium';
         }
+      }
+
+      // Handle structured output configuration
+      if (request.settings.structuredOutput?.schema && request.settings.structuredOutput.enabled !== false) {
+        const so = request.settings.structuredOutput;
+        // OpenAI strict mode requires additionalProperties: false on all object schemas
+        const processedSchema = so.strict !== false
+          ? this.addAdditionalPropertiesFalse(so.schema)
+          : so.schema;
+        completionParams.response_format = {
+          type: 'json_schema',
+          json_schema: {
+            name: so.name,
+            strict: so.strict !== false, // default true
+            schema: processedSchema as any,
+          }
+        } as any;
       }
 
       logger.debug(`OpenAI API parameters:`, {
@@ -146,6 +163,41 @@ export class OpenAIClientAdapter implements ILLMClientAdapter {
       name: "OpenAI Client Adapter",
       version: "1.0.0",
     };
+  }
+
+  /**
+   * Recursively adds additionalProperties: false to all object schemas
+   * Required by OpenAI's strict mode for structured outputs
+   *
+   * @param schema - The JSON schema to process
+   * @returns A new schema with additionalProperties: false on all objects
+   */
+  private addAdditionalPropertiesFalse(schema: any): any {
+    if (!schema || typeof schema !== 'object') {
+      return schema;
+    }
+
+    const processed: any = { ...schema };
+
+    // If this is an object type, add additionalProperties: false
+    if (processed.type === 'object') {
+      processed.additionalProperties = false;
+
+      // Process nested properties
+      if (processed.properties) {
+        processed.properties = {};
+        for (const [key, value] of Object.entries(schema.properties)) {
+          processed.properties[key] = this.addAdditionalPropertiesFalse(value);
+        }
+      }
+    }
+
+    // Process array items
+    if (processed.items) {
+      processed.items = this.addAdditionalPropertiesFalse(schema.items);
+    }
+
+    return processed;
   }
 
   /**

@@ -96,6 +96,46 @@ describe('SettingsManager', () => {
       });
     });
 
+    it('should handle structuredOutput settings override', () => {
+      const userSettings: Partial<LLMSettings> = {
+        structuredOutput: {
+          name: 'person_info',
+          schema: {
+            type: 'object',
+            properties: {
+              name: { type: 'string' },
+              age: { type: 'integer' }
+            },
+            required: ['name', 'age']
+          },
+          strict: true,
+          autoParse: true
+        },
+      };
+
+      const result = settingsManager.mergeSettingsForModel('gpt-4.1', 'openai', userSettings);
+
+      expect(result.structuredOutput).toEqual({
+        name: 'person_info',
+        schema: {
+          type: 'object',
+          properties: {
+            name: { type: 'string' },
+            age: { type: 'integer' }
+          },
+          required: ['name', 'age']
+        },
+        strict: true,
+        autoParse: true
+      });
+    });
+
+    it('should leave structuredOutput undefined when not provided', () => {
+      const result = settingsManager.mergeSettingsForModel('gpt-4.1', 'openai', {});
+
+      expect(result.structuredOutput).toBeUndefined();
+    });
+
     it('should handle complex settings including Gemini safety settings', () => {
       const userSettings: Partial<LLMSettings> = {
         temperature: 0.5,
@@ -171,6 +211,7 @@ describe('SettingsManager', () => {
         tagName: 'thinking',
       },
       openRouterProvider: undefined as any,
+        structuredOutput: undefined as any,
     };
 
     const mockModelInfo: ModelInfo = {

@@ -6,6 +6,135 @@
  */
 export type ApiProviderId = string;
 
+// ============================================================================
+// Structured Output Types
+// ============================================================================
+
+/**
+ * JSON Schema property definition for structured output
+ *
+ * Defines the shape and constraints for individual properties within a schema.
+ * Supports nested objects, arrays, and primitive types with validation constraints.
+ */
+export interface StructuredOutputSchemaProperty {
+  /** The JSON type of this property */
+  type: "string" | "number" | "integer" | "boolean" | "array" | "object" | "null";
+  /** Human-readable description of this property */
+  description?: string;
+  /** Allowed values for enum types */
+  enum?: (string | number | boolean)[];
+  /** Nested properties for object types */
+  properties?: Record<string, StructuredOutputSchemaProperty>;
+  /** Required property names for object types */
+  required?: string[];
+  /** Schema for array items */
+  items?: StructuredOutputSchemaProperty;
+  /** Minimum value for number/integer types */
+  minimum?: number;
+  /** Maximum value for number/integer types */
+  maximum?: number;
+  /** Minimum length for string types */
+  minLength?: number;
+  /** Maximum length for string types */
+  maxLength?: number;
+  /** Regex pattern for string validation */
+  pattern?: string;
+}
+
+/**
+ * Root JSON Schema definition for structured output
+ *
+ * Defines the top-level schema that the LLM response must conform to.
+ * The schema is sent to the provider to constrain the output format.
+ */
+export interface StructuredOutputSchema {
+  /** The JSON type of the root element */
+  type: "object" | "array" | "string" | "number" | "boolean";
+  /** Properties for object types */
+  properties?: Record<string, StructuredOutputSchemaProperty>;
+  /** Required property names for object types */
+  required?: string[];
+  /** Schema for array items */
+  items?: StructuredOutputSchemaProperty;
+  /** Whether additional properties are allowed (default: false for strict mode) */
+  additionalProperties?: boolean;
+  /** Human-readable description of the schema */
+  description?: string;
+}
+
+/**
+ * Settings for structured output generation
+ *
+ * When provided, instructs the LLM to return JSON conforming to the specified schema.
+ * The response will be automatically parsed and available in `choice.parsedContent`.
+ *
+ * @example
+ * ```typescript
+ * const response = await llm.sendMessage({
+ *   providerId: 'openai',
+ *   modelId: 'gpt-4.1',
+ *   messages: [{ role: 'user', content: 'Extract: "John is 30 years old"' }],
+ *   settings: {
+ *     structuredOutput: {
+ *       name: 'person_extraction',
+ *       schema: {
+ *         type: 'object',
+ *         properties: {
+ *           name: { type: 'string' },
+ *           age: { type: 'integer' }
+ *         },
+ *         required: ['name', 'age']
+ *       }
+ *     }
+ *   }
+ * });
+ * // response.choices[0].parsedContent = { name: 'John', age: 30 }
+ * ```
+ */
+export interface StructuredOutputSettings {
+  /**
+   * Whether structured output is enabled.
+   * @default true (when structuredOutput object exists)
+   */
+  enabled?: boolean;
+
+  /**
+   * Name for the schema (required by most providers).
+   * Should be a descriptive identifier like 'person_info' or 'weather_data'.
+   */
+  name: string;
+
+  /** The JSON schema that the response must conform to */
+  schema: StructuredOutputSchema;
+
+  /**
+   * Whether to use strict mode (provider enforces exact schema match).
+   * @default true
+   */
+  strict?: boolean;
+
+  /**
+   * Whether to automatically parse the JSON response into `parsedContent`.
+   * Set to false if you want to handle parsing yourself.
+   * @default true
+   */
+  autoParse?: boolean;
+}
+
+/**
+ * Model capabilities for structured output
+ *
+ * Describes what structured output features a model supports.
+ */
+export interface ModelStructuredOutputCapabilities {
+  /** Whether the model supports structured output at all */
+  supported: boolean;
+  /** Whether the model supports strict mode (exact schema enforcement) */
+  strictMode?: boolean;
+  /** Additional notes about the model's structured output support */
+  notes?: string;
+}
+
 /**
  * Message roles supported by LLM APIs
  */
@@ -233,6 +362,18 @@ export interface LLMSettings {
    * @see OpenRouterProviderSettings
    */
   openRouterProvider?: OpenRouterProviderSettings;
+
+  /**
+   * Structured output settings for JSON schema-constrained responses.
+   *
+   * When provided, instructs the LLM to return JSON conforming to the specified schema.
+   * The response will be automatically parsed and available in `choice.parsedContent`.
+   *
+   * This is optional - if not provided, the LLM returns normal text responses.
+   *
+   * @see StructuredOutputSettings
+   */
+  structuredOutput?: StructuredOutputSettings;
 }
 
 /**
@@ -269,6 +410,16 @@ export interface LLMChoice {
   reasoning?: string;
   /** Provider-specific reasoning details that need to be preserved */
   reasoning_details?: any;
+  /**
+   * Parsed JSON content when structuredOutput is enabled and autoParse is true.
+   * Contains the parsed object/array from the JSON response.
+   */
+  parsedContent?: unknown;
+  /**
+   * Error message if JSON parsing failed when structuredOutput was enabled.
+   * Only present when autoParse is true and parsing failed.
+   */
+  parseError?: string;
 }
 
 /**
@@ -385,6 +536,8 @@ export interface ModelInfo {
   cacheWritesPrice?: number;
   cacheReadsPrice?: number;
   unsupportedParameters?: (keyof LLMSettings)[];
+  /** Structured output capabilities */
+  structuredOutput?: ModelStructuredOutputCapabilities;
 }
 
 /**

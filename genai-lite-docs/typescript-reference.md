@@ -70,6 +70,10 @@ import type {
   LLMSettings,
   LLMReasoningSettings,
   LLMThinkingTagFallbackSettings,
+  StructuredOutputSettings,
+  StructuredOutputSchema,
+  StructuredOutputSchemaProperty,
+  ModelStructuredOutputCapabilities,
   ModelPreset,
   LLMServiceOptions,
   ModelContext,
@@ -161,6 +165,8 @@ interface LLMResponse {
     index: number;
     message: LLMMessage;
     reasoning?: string;
+    parsedContent?: unknown;    // Auto-parsed JSON from structured output
+    parseError?: string;        // Error message if JSON parsing failed
     finish_reason: string;
   }>;
   usage?: {
@@ -195,6 +201,7 @@ interface LLMSettings {
   stopSequences?: string[];
   reasoning?: LLMReasoningSettings;
   thinkingTagFallback?: LLMThinkingTagFallbackSettings;
+  structuredOutput?: StructuredOutputSettings;
 }
 
 interface LLMReasoningSettings {
@@ -208,6 +215,43 @@ interface LLMThinkingTagFallbackSettings {
   enabled: boolean;
   tagName?: string;
   enforce?: boolean;
+}
+
+interface StructuredOutputSettings {
+  name: string;                      // Required: Schema name for provider APIs
+  schema: StructuredOutputSchema;    // Required: JSON Schema definition
+  enabled?: boolean;                 // Optional: Enable/disable (default: true)
+  strict?: boolean;                  // Optional: Strict mode (default: true)
+  autoParse?: boolean;               // Optional: Auto-parse JSON (default: true)
+}
+
+interface StructuredOutputSchema {
+  type: 'object' | 'array' | 'string' | 'number' | 'boolean';
+  properties?: Record<string, StructuredOutputSchemaProperty>;
+  required?: string[];
+  items?: StructuredOutputSchemaProperty;
+  additionalProperties?: boolean;
+  description?: string;
+}
+
+interface StructuredOutputSchemaProperty {
+  type: 'string' | 'number' | 'integer' | 'boolean' | 'array' | 'object' | 'null';
+  description?: string;
+  enum?: (string | number | boolean)[];
+  properties?: Record<string, StructuredOutputSchemaProperty>;
+  required?: string[];
+  items?: StructuredOutputSchemaProperty;
+  minimum?: number;
+  maximum?: number;
+  minLength?: number;
+  maxLength?: number;
+  pattern?: string;
+}
+
+interface ModelStructuredOutputCapabilities {
+  supported: boolean;
+  strictMode?: boolean;
+  notes?: string;
 }
 ```
 

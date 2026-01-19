@@ -206,6 +206,16 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
         }),
       };
 
+      // Handle structured output configuration for llama.cpp
+      // llama.cpp uses response_format with type: 'json_object' and optional schema
+      if (request.settings.structuredOutput?.schema && request.settings.structuredOutput.enabled !== false) {
+        const so = request.settings.structuredOutput;
+        (completionParams as any).response_format = {
+          type: 'json_object',
+          schema: so.schema,
+        };
+      }
+
       logger.debug(`llama.cpp API parameters:`, {
         baseURL: this.baseURL,
         model: completionParams.model,

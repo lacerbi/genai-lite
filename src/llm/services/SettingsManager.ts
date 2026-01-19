@@ -59,6 +59,7 @@ export class SettingsManager {
         ...requestSettings?.thinkingTagFallback,
       },
       openRouterProvider: requestSettings?.openRouterProvider ?? modelDefaults.openRouterProvider,
+      structuredOutput: requestSettings?.structuredOutput ?? modelDefaults.structuredOutput,
     };
 
     // Log the final settings for debugging
@@ -172,7 +173,8 @@ export class SettingsManager {
       'supportsSystemMessage',
       'geminiSafetySettings',
       'reasoning',
-      'thinkingTagFallback'
+      'thinkingTagFallback',
+      'structuredOutput'
     ];
 
     // Check each setting field
@@ -286,6 +288,45 @@ export class SettingsManager {
 
         if (Object.keys(thinkingValidated).length > 0) {
           validated.thinkingTagFallback = thinkingValidated;
+        }
+        continue;
+      }
+
+      if (key === 'structuredOutput' && typeof value === 'object' && value !== null) {
+        const soValidated: any = {};
+
+        if ('enabled' in value && typeof value.enabled !== 'boolean') {
+          this.logger.warn(`Invalid structuredOutput.enabled value in template. Must be a boolean.`);
+        } else if ('enabled' in value) {
+          soValidated.enabled = value.enabled;
+        }
+
+        if ('name' in value && typeof value.name !== 'string') {
+          this.logger.warn(`Invalid structuredOutput.name value in template. Must be a string.`);
+        } else if ('name' in value) {
+          soValidated.name = value.name;
+        }
+
+        if ('schema' in value && typeof value.schema !== 'object') {
+          this.logger.warn(`Invalid structuredOutput.schema value in template. Must be an object.`);
+        } else if ('schema' in value) {
+          soValidated.schema = value.schema;
+        }
+
+        if ('strict' in value && typeof value.strict !== 'boolean') {
+          this.logger.warn(`Invalid structuredOutput.strict value in template. Must be a boolean.`);
+        } else if ('strict' in value) {
+          soValidated.strict = value.strict;
+        }
+
+        if ('autoParse' in value && typeof value.autoParse !== 'boolean') {
+          this.logger.warn(`Invalid structuredOutput.autoParse value in template. Must be a boolean.`);
+        } else if ('autoParse' in value) {
+          soValidated.autoParse = value.autoParse;
+        }
+
+        if (Object.keys(soValidated).length > 0) {
+          validated.structuredOutput = soValidated;
         }
         continue;
       }

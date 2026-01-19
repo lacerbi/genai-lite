@@ -94,8 +94,8 @@ export class MistralClientAdapter implements ILLMClientAdapter {
 
       logger.info(`Making Mistral API call for model: ${request.modelId}`);
 
-      // Make the API call
-      const completion = await mistral.chat.complete({
+      // Build request options
+      const requestOptions: any = {
         model: request.modelId,
         messages: messages,
         temperature: request.settings.temperature,
@@ -105,7 +105,20 @@ export class MistralClientAdapter implements ILLMClientAdapter {
           stop: request.settings.stopSequences,
         }),
         // Note: Mistral does not support frequency_penalty or presence_penalty
-      });
+      };
+
+      // Handle structured output configuration for Mistral
+      // Mistral only supports json_object mode, no schema validation
+      if (request.settings.structuredOutput?.schema && request.settings.structuredOutput.enabled !== false) {
+        requestOptions.responseFormat = { type: 'json_object' };
+        logger.warn(
+          `Mistral does not support JSON schema validation. ` +
+          `Using json_object mode - schema validation will be client-side only.`
+        );
+      }
+
+      // Make the API call
+      const completion = await mistral.chat.complete(requestOptions);
 
       if (completion && completion.choices && completion.choices.length > 0) {
         logger.info(`Mistral API call successful, response ID: ${completion.id}`);

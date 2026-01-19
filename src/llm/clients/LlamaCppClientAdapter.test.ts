@@ -63,6 +63,7 @@ describe('LlamaCppClientAdapter', () => {
           enforce: true,
         },
         openRouterProvider: undefined as any,
+        structuredOutput: undefined as any,
       },
     };
   });

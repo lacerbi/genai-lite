@@ -208,6 +208,16 @@ export class LLMService {
         return reasoningValidation;
       }
 
+      // Validate structured output settings for model capabilities
+      const structuredOutputValidation = this.requestValidator.validateStructuredOutputSettings(
+        modelInfo!,
+        finalSettings.structuredOutput,
+        resolvedRequest
+      );
+      if (structuredOutputValidation) {
+        return structuredOutputValidation;
+      }
+
       // Get provider info for parameter filtering
       const providerInfo = getProviderById(providerId!);
       if (!providerInfo) {
@@ -351,6 +361,23 @@ export class LLMService {
                 };
               }
               // If enforce: false or native reasoning is active, do nothing
+            }
+          }
+        }
+
+        // Post-process for structured output auto-parsing
+        // Parse JSON response when structuredOutput is enabled and autoParse is not disabled
+        const structuredOutputSettings = internalRequest.settings.structuredOutput;
+        if (result.object === 'chat.completion' && structuredOutputSettings &&
+            structuredOutputSettings.enabled !== false && structuredOutputSettings.autoParse !== false) {
+          for (const choice of result.choices) {
+            if (choice.message?.content) {
+              try {
+                choice.parsedContent = JSON.parse(choice.message.content);
+              } catch (e) {
+                choice.parseError = `JSON parse failed: ${e instanceof Error ? e.message : String(e)}`;
+                this.logger.warn(`Failed to parse structured output for choice ${choice.index}: ${choice.parseError}`);
+              }
             }
           }
         }

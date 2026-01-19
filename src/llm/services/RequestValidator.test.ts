@@ -1,5 +1,5 @@
 import { RequestValidator } from './RequestValidator';
-import type { LLMChatRequest, LLMFailureResponse, ModelInfo } from '../types';
+import type { LLMChatRequest, LLMFailureResponse, ModelInfo, StructuredOutputSettings } from '../types';
 
 describe('RequestValidator', () => {
   let validator: RequestValidator;
@@ -225,13 +225,142 @@ describe('RequestValidator', () => {
         maxTokens: 5000,
         exclude: false
       };
-      
+
       const result = validator.validateReasoningSettings(
         mockModelWithReasoning,
         reasoning,
         baseRequest
       );
 
+      expect(result).toBeNull();
+    });
+  });
+
+  describe('validateStructuredOutputSettings', () => {
+    const mockModelWithStructuredOutput: ModelInfo = {
+      id: 'gpt-4.1',
+      name: 'GPT-4.1',
+      providerId: 'openai' as any,
+      supportsPromptCache: false,
+      structuredOutput: { supported: true, strictMode: true }
+    };
+
+    const mockModelWithoutStructuredOutput: ModelInfo = {
+      id: 'old-model',
+      name: 'Old Model',
+      providerId: 'openai' as any,
+      supportsPromptCache: false,
+      structuredOutput: { supported: false }
+    };
+
+    const mockModelWithPartialSupport: ModelInfo = {
+      id: 'mistral-small',
+      name: 'Mistral Small',
+      providerId: 'mistral' as any,
+      supportsPromptCache: false,
+      structuredOutput: { supported: true, strictMode: false }
+    };
+
+    const baseRequest: LLMChatRequest = {
+      providerId: 'openai',
+      modelId: 'gpt-4.1',
+      messages: [{ role: 'user', content: 'Hello' }]
+    };
+
+    const validStructuredOutput: StructuredOutputSettings = {
+      name: 'test_schema',
+      schema: {
+        type: 'object',
+        properties: {
+          name: { type: 'string' },
+          age: { type: 'integer' }
+        },
+        required: ['name', 'age']
+      }
+    };
+
+    it('should pass validation when no structuredOutput settings provided', () => {
+      const result = validator.validateStructuredOutputSettings(
+        mockModelWithoutStructuredOutput,
+        undefined,
+        baseRequest
+      );
+
+      expect(result).toBeNull();
+    });
+
+    it('should pass validation when structuredOutput is explicitly disabled', () => {
+      const result = validator.validateStructuredOutputSettings(
+        mockModelWithoutStructuredOutput,
+        { ...validStructuredOutput, enabled: false },
+        baseRequest
+      );
+
+      expect(result).toBeNull();
+    });
+
+    it('should reject structuredOutput for models that do not support it', () => {
+      const result = validator.validateStructuredOutputSettings(
+        mockModelWithoutStructuredOutput,
+        validStructuredOutput,
+        baseRequest
+      );
+
+      expect(result).not.toBeNull();
+      expect(result?.error.code).toBe('structured_output_not_supported');
+      expect(result?.error.message).toContain('does not support structured output');
+    });
+
+    it('should pass validation for models that support structuredOutput', () => {
+      const result = validator.validateStructuredOutputSettings(
+        mockModelWithStructuredOutput,
+        validStructuredOutput,
+        baseRequest
+      );
+
+      expect(result).toBeNull();
+    });
+
+    it('should pass validation for models with partial support (no strict mode)', () => {
+      const result = validator.validateStructuredOutputSettings(
+        mockModelWithPartialSupport,
+        validStructuredOutput,
+        baseRequest
+      );
+
+      // Should pass but with warning (warning is logged, not returned as error)
+      expect(result).toBeNull();
+    });
+
+    it('should pass validation when strict is explicitly set to false', () => {
+      const result = validator.validateStructuredOutputSettings(
+        mockModelWithPartialSupport,
+        { ...validStructuredOutput, strict: false },
+        baseRequest
+      );
+
+      expect(result).toBeNull();
+    });
+
+    it('should allow structuredOutput for models without explicit capability (unknown models)', () => {
+      // When structuredOutput capability is undefined (not explicitly set),
+      // we allow the request to proceed. This supports unknown models on
+      // providers that allow them (like mock, llamacpp, openrouter).
+      const modelWithNoCapability: ModelInfo = {
+        id: 'unknown-model',
+        name: 'Unknown Model',
+        providerId: 'openai' as any,
+        supportsPromptCache: false,
+        // No structuredOutput property at all (undefined)
+      };
+
+      const result = validator.validateStructuredOutputSettings(
+        modelWithNoCapability,
+        validStructuredOutput,
+        baseRequest
+      );
+
+      // Should pass - we don't block unknown models
       expect(result).toBeNull();
     });
   });

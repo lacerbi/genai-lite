@@ -53,7 +53,8 @@ describe('OpenAIClientAdapter', () => {
           enabled: true,
           tagName: 'thinking'
         },
-        openRouterProvider: undefined as any
+        openRouterProvider: undefined as any,
+        structuredOutput: undefined as any
       }
     };
   });
@@ -281,6 +282,139 @@ describe('OpenAIClientAdapter', () => {
         expect(errorResponse.error.code).toBe(ADAPTER_ERROR_CODES.UNKNOWN_ERROR);
         expect(errorResponse.error.message).toContain('Unknown error');
       });
+    });
+  });
+
+  describe('structuredOutput', () => {
+    it('should add response_format with json_schema when structuredOutput is provided', async () => {
+      mockCreate.mockResolvedValueOnce({
+        id: 'chatcmpl-123',
+        object: 'chat.completion',
+        created: 1234567890,
+        model: 'gpt-4.1',
+        choices: [{
+          index: 0,
+          message: { role: 'assistant', content: '{"name":"John","age":30}' },
+          finish_reason: 'stop'
+        }],
+        usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 }
+      });
+
+      const requestWithStructuredOutput = {
+        ...basicRequest,
+        settings: {
+          ...basicRequest.settings,
+          structuredOutput: {
+            name: 'person_info',
+            schema: {
+              type: 'object' as const,
+              properties: {
+                name: { type: 'string' as const },
+                age: { type: 'integer' as const }
+              },
+              required: ['name', 'age']
+            },
+            strict: true
+          }
+        }
+      };
+
+      await adapter.sendMessage(requestWithStructuredOutput, 'test-api-key');
+
+      expect(mockCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          response_format: {
+            type: 'json_schema',
+            json_schema: {
+              name: 'person_info',
+              strict: true,
+              schema: {
+                type: 'object',
+                properties: {
+                  name: { type: 'string' },
+                  age: { type: 'integer' }
+                },
+                required: ['name', 'age'],
+                additionalProperties: false  // Added by adapter for strict mode
+              }
+            }
+          }
+        })
+      );
+    });
+
+    it('should not add response_format when structuredOutput is disabled', async () => {
+      mockCreate.mockResolvedValueOnce({
+        id: 'chatcmpl-123',
+        object: 'chat.completion',
+        created: 1234567890,
+        model: 'gpt-4.1',
+        choices: [{
+          index: 0,
+          message: { role: 'assistant', content: 'Hello!' },
+          finish_reason: 'stop'
+        }],
+        usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 }
+      });
+
+      const requestWithDisabledStructuredOutput = {
+        ...basicRequest,
+        settings: {
+          ...basicRequest.settings,
+          structuredOutput: {
+            name: 'test',
+            schema: { type: 'object' as const },
+            enabled: false
+          }
+        }
+      };
+
+      await adapter.sendMessage(requestWithDisabledStructuredOutput, 'test-api-key');
+
+      expect(mockCreate).toHaveBeenCalledWith(
+        expect.not.objectContaining({
+          response_format: expect.anything()
+        })
+      );
+    });
+
+    it('should default strict to true when not specified', async () => {
+      mockCreate.mockResolvedValueOnce({
+        id: 'chatcmpl-123',
+        object: 'chat.completion',
+        created: 1234567890,
+        model: 'gpt-4.1',
+        choices: [{
+          index: 0,
+          message: { role: 'assistant', content: '{}' },
+          finish_reason: 'stop'
+        }],
+        usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 }
+      });
+
+      const requestWithoutStrict = {
+        ...basicRequest,
+        settings: {
+          ...basicRequest.settings,
+          structuredOutput: {
+            name: 'test_schema',
+            schema: { type: 'object' as const }
+            // strict not specified
+          }
+        }
+      };
+
+      await adapter.sendMessage(requestWithoutStrict, 'test-api-key');
+
+      expect(mockCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          response_format: expect.objectContaining({
+            json_schema: expect.objectContaining({
+              strict: true
+            })
+          })
+        })
+      );
     });
   });
 
