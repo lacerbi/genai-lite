@@ -175,11 +175,14 @@ export class RequestValidator {
     // If model has explicit structuredOutput capabilities defined, check them
     if (modelInfo.structuredOutput !== undefined) {
       if (!modelInfo.structuredOutput.supported) {
+        const notes = modelInfo.structuredOutput.notes;
+        const baseMessage = `Structured output is not available for ${request.modelId} on ${request.providerId}`;
+        const message = notes ? `${baseMessage}. ${notes}` : baseMessage;
         return {
           provider: request.providerId!,
           model: request.modelId!,
           error: {
-            message: `Model ${request.modelId} does not support structured output`,
+            message,
             type: 'validation_error',
             code: 'structured_output_not_supported'
           },

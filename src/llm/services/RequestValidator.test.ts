@@ -308,7 +308,7 @@ describe('RequestValidator', () => {
 
       expect(result).not.toBeNull();
       expect(result?.error.code).toBe('structured_output_not_supported');
-      expect(result?.error.message).toContain('does not support structured output');
+      expect(result?.error.message).toContain('Structured output is not available for');
     });
 
     it('should pass validation for models that support structuredOutput', () => {
