@@ -375,6 +375,8 @@ export interface ImageProviderAdapterConfig {
   timeout?: number;
   /** Whether to check health before requests */
   checkHealth?: boolean;
+  /** Logger instance for adapter logging */
+  logger?: Logger;
 }
 
 /**

@@ -108,7 +108,7 @@ export class LLMService {
       adapterConstructors: ADAPTER_CONSTRUCTORS,
       adapterConfigs: ADAPTER_CONFIGS,
     }, this.logger);
-    this.requestValidator = new RequestValidator();
+    this.requestValidator = new RequestValidator(this.logger);
     this.settingsManager = new SettingsManager(this.logger);
     this.modelResolver = new ModelResolver(this.presetManager, this.adapterRegistry, this.logger);
   }

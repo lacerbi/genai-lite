@@ -15,9 +15,8 @@ import {
 } from "../../shared/adapters/systemMessageUtils";
 import { LlamaCppServerClient } from "./LlamaCppServerClient";
 import { detectGgufCapabilities } from "../config";
+import type { Logger } from "../../logging/types";
 import { createDefaultLogger } from "../../logging/defaultLogger";
-
-const logger = createDefaultLogger();
 
 /**
  * Configuration options for LlamaCppClientAdapter
@@ -27,6 +26,8 @@ export interface LlamaCppClientConfig {
   baseURL?: string;
   /** Whether to check server health before sending requests (default: false) */
   checkHealth?: boolean;
+  /** Logger instance for adapter logging */
+  logger?: Logger;
 }
 
 /**
@@ -70,6 +71,7 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
   private serverClient: LlamaCppServerClient;
   private cachedModelCapabilities: Partial<ModelInfo> | null = null;
   private detectionAttempted: boolean = false;
+  private logger: Logger;
 
   /**
    * Creates a new llama.cpp client adapter
@@ -80,6 +82,7 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
     this.baseURL = config?.baseURL || 'http://localhost:8080';
     this.checkHealth = config?.checkHealth || false;
     this.serverClient = new LlamaCppServerClient(this.baseURL);
+    this.logger = config?.logger ?? createDefaultLogger();
   }
 
   /**
@@ -103,11 +106,11 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
 
     // Attempt detection
     try {
-      logger.debug(`Detecting model capabilities from llama.cpp server at ${this.baseURL}`);
+      this.logger.debug(`Detecting model capabilities from llama.cpp server at ${this.baseURL}`);
       const { data } = await this.serverClient.getModels();
 
       if (!data || data.length === 0) {
-        logger.warn('No models loaded in llama.cpp server');
+        this.logger.warn('No models loaded in llama.cpp server');
         this.detectionAttempted = true;
         return null;
       }
@@ -120,14 +123,14 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
       this.detectionAttempted = true;
 
       if (capabilities) {
-        logger.debug(`Cached model capabilities for: ${ggufFilename}`);
+        this.logger.debug(`Cached model capabilities for: ${ggufFilename}`);
       } else {
-        logger.debug(`No known pattern matched for: ${ggufFilename}`);
+        this.logger.debug(`No known pattern matched for: ${ggufFilename}`);
       }
 
       return capabilities;
     } catch (error) {
-      logger.warn('Failed to detect model capabilities:', error);
+      this.logger.warn('Failed to detect model capabilities:', error);
       this.detectionAttempted = true;
       return null;
     }
@@ -142,7 +145,7 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
   clearModelCache(): void {
     this.cachedModelCapabilities = null;
     this.detectionAttempted = false;
-    logger.debug('Cleared model capabilities cache');
+    this.logger.debug('Cleared model capabilities cache');
   }
 
   /**
@@ -174,7 +177,7 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
             };
           }
         } catch (healthError) {
-          logger.warn('Health check failed, proceeding with request anyway:', healthError);
+          this.logger.warn('Health check failed, proceeding with request anyway:', healthError);
         }
       }
 
@@ -216,7 +219,7 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
         };
       }
 
-      logger.debug(`llama.cpp API parameters:`, {
+      this.logger.debug(`llama.cpp API parameters:`, {
         baseURL: this.baseURL,
         model: completionParams.model,
         temperature: completionParams.temperature,
@@ -224,20 +227,20 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
         top_p: completionParams.top_p,
       });
 
-      logger.info(`Making llama.cpp API call for model: ${request.modelId}`);
+      this.logger.info(`Making llama.cpp API call for model: ${request.modelId}`);
 
       // Make the API call
       const completion = await openai.chat.completions.create(completionParams);
 
       // Type guard to ensure we have a non-streaming response
       if ('id' in completion && 'choices' in completion) {
-        logger.info(`llama.cpp API call successful, response ID: ${completion.id}`);
+        this.logger.info(`llama.cpp API call successful, response ID: ${completion.id}`);
         return this.createSuccessResponse(completion as OpenAI.Chat.Completions.ChatCompletion, request);
       } else {
         throw new Error('Unexpected streaming response from llama.cpp server');
       }
     } catch (error) {
-      logger.error("llama.cpp API error:", error);
+      this.logger.error("llama.cpp API error:", error);
 
       // Clear cache on connection errors so we re-detect on next request
       const errorMessage = (error as any)?.message || String(error);
@@ -350,7 +353,7 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
         );
         if (modifiedIndex !== -1) {
           messages[modifiedIndex].content = simpleMessages[modifiedIndex].content;
-          logger.debug(
+          this.logger.debug(
             `Model ${request.modelId} doesn't support system messages - prepended to first user message`
           );
         }

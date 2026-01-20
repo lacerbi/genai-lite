@@ -14,9 +14,8 @@ import {
   collectSystemContent,
   prependSystemToFirstUserMessage,
 } from "../../shared/adapters/systemMessageUtils";
+import type { Logger } from "../../logging/types";
 import { createDefaultLogger } from "../../logging/defaultLogger";
-
-const logger = createDefaultLogger();
 
 /**
  * Client adapter for OpenAI API integration
@@ -29,15 +28,18 @@ const logger = createDefaultLogger();
  */
 export class OpenAIClientAdapter implements ILLMClientAdapter {
   private baseURL?: string;
+  private logger: Logger;
 
   /**
    * Creates a new OpenAI client adapter
    *
    * @param config Optional configuration for the adapter
    * @param config.baseURL Custom base URL for OpenAI-compatible APIs
+   * @param config.logger Custom logger instance
    */
-  constructor(config?: { baseURL?: string }) {
+  constructor(config?: { baseURL?: string; logger?: Logger }) {
     this.baseURL = config?.baseURL;
+    this.logger = config?.logger ?? createDefaultLogger();
   }
 
   /**
@@ -113,7 +115,7 @@ export class OpenAIClientAdapter implements ILLMClientAdapter {
         } as any;
       }
 
-      logger.debug(`OpenAI API parameters:`, {
+      this.logger.debug(`OpenAI API parameters:`, {
         model: completionParams.model,
         temperature: completionParams.temperature,
         max_completion_tokens: completionParams.max_completion_tokens,
@@ -124,21 +126,21 @@ export class OpenAIClientAdapter implements ILLMClientAdapter {
         hasUser: !!completionParams.user,
       });
 
-      logger.info(`Making OpenAI API call for model: ${request.modelId}`);
+      this.logger.info(`Making OpenAI API call for model: ${request.modelId}`);
 
       // Make the API call
       const completion = await openai.chat.completions.create(completionParams);
 
       // Type guard to ensure we have a non-streaming response
       if ('id' in completion && 'choices' in completion) {
-        logger.info(`OpenAI API call successful, response ID: ${completion.id}`);
+        this.logger.info(`OpenAI API call successful, response ID: ${completion.id}`);
         // Convert to standardized response format
         return this.createSuccessResponse(completion as OpenAI.Chat.Completions.ChatCompletion, request);
       } else {
         throw new Error('Unexpected streaming response from OpenAI API');
       }
     } catch (error) {
-      logger.error("OpenAI API error:", error);
+      this.logger.error("OpenAI API error:", error);
       return this.createErrorResponse(error, request);
     }
   }
@@ -263,7 +265,7 @@ export class OpenAIClientAdapter implements ILLMClientAdapter {
         );
         if (modifiedIndex !== -1) {
           messages[modifiedIndex].content = simpleMessages[modifiedIndex].content;
-          logger.debug(
+          this.logger.debug(
             `Model ${request.modelId} doesn't support system messages - prepended to first user message`
           );
         }

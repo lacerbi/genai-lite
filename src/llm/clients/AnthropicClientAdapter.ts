@@ -14,9 +14,8 @@ import {
   collectSystemContent,
   prependSystemToFirstUserMessage,
 } from "../../shared/adapters/systemMessageUtils";
+import type { Logger } from "../../logging/types";
 import { createDefaultLogger } from "../../logging/defaultLogger";
-
-const logger = createDefaultLogger();
 
 /**
  * Client adapter for Anthropic API integration
@@ -30,15 +29,18 @@ const logger = createDefaultLogger();
  */
 export class AnthropicClientAdapter implements ILLMClientAdapter {
   private baseURL?: string;
+  private logger: Logger;
 
   /**
    * Creates a new Anthropic client adapter
    *
    * @param config Optional configuration for the adapter
    * @param config.baseURL Custom base URL for Anthropic-compatible APIs
+   * @param config.logger Custom logger instance
    */
-  constructor(config?: { baseURL?: string }) {
+  constructor(config?: { baseURL?: string; logger?: Logger }) {
     this.baseURL = config?.baseURL;
+    this.logger = config?.logger ?? createDefaultLogger();
   }
 
   /**
@@ -135,8 +137,8 @@ export class AnthropicClientAdapter implements ILLMClientAdapter {
         }
       }
 
-      logger.info(`Making Anthropic API call for model: ${request.modelId}`);
-      logger.debug(`Anthropic API parameters:`, {
+      this.logger.info(`Making Anthropic API call for model: ${request.modelId}`);
+      this.logger.debug(`Anthropic API parameters:`, {
         model: messageParams.model,
         temperature: messageParams.temperature,
         max_tokens: messageParams.max_tokens,
@@ -160,7 +162,7 @@ export class AnthropicClientAdapter implements ILLMClientAdapter {
         completion = await anthropic.messages.create(messageParams);
       }
 
-      logger.info(
+      this.logger.info(
         `Anthropic API call successful, response ID: ${completion.id}`
       );
 
@@ -168,7 +170,7 @@ export class AnthropicClientAdapter implements ILLMClientAdapter {
       // Cast to any to handle beta response type differences
       return this.createSuccessResponse(completion as any, request);
     } catch (error) {
-      logger.error("Anthropic API error:", error);
+      this.logger.error("Anthropic API error:", error);
       return this.createErrorResponse(error, request);
     }
   }
@@ -290,7 +292,7 @@ export class AnthropicClientAdapter implements ILLMClientAdapter {
         );
         if (modifiedIndex !== -1) {
           messages[modifiedIndex].content = simpleMessages[modifiedIndex].content;
-          logger.debug(
+          this.logger.debug(
             `Model ${request.modelId} doesn't support system messages - prepended to first user message`
           );
         }
@@ -301,7 +303,7 @@ export class AnthropicClientAdapter implements ILLMClientAdapter {
     // Anthropic requires messages to start with 'user' role
     // If the first message is not from user, we need to handle this
     if (messages.length > 0 && messages[0].role !== "user") {
-      logger.warn(
+      this.logger.warn(
         "Anthropic API requires first message to be from user. Adjusting message order."
       );
       // Find the first user message and move it to the front, or create a default one
@@ -349,7 +351,7 @@ export class AnthropicClientAdapter implements ILLMClientAdapter {
         // If roles don't alternate properly, we might need to combine messages
         // or insert a placeholder. For now, we'll skip non-alternating messages
         // and log a warning.
-        logger.warn(
+        this.logger.warn(
           `Skipping message with unexpected role: expected ${expectedRole}, got ${message.role}`
         );
       }

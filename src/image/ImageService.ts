@@ -73,6 +73,7 @@ export class ImageService {
       new OpenAIImageAdapter({
         baseURL: openaiBaseURL,
         timeout: openaiConfig.timeout,
+        logger: this.logger,
       })
     );
 
@@ -84,6 +85,7 @@ export class ImageService {
       new GenaiElectronImageAdapter({
         baseURL: electronBaseURL,
         timeout: electronConfig.timeout,
+        logger: this.logger,
       })
     );
 

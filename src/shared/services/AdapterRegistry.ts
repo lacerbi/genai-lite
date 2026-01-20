@@ -111,7 +111,9 @@ export class AdapterRegistry<TAdapter, TProviderId extends string> {
       if (AdapterClass) {
         try {
           const adapterConfig = adapterConfigs[provider.id];
-          const adapterInstance = new AdapterClass(adapterConfig);
+          // Inject logger into adapter config
+          const configWithLogger = { ...adapterConfig, logger: this.logger };
+          const adapterInstance = new AdapterClass(configWithLogger);
           this.registerAdapter(providerId, adapterInstance);
           registeredCount++;
           successfullyRegisteredProviders.push(provider.id);
