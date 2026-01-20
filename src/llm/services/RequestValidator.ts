@@ -6,15 +6,24 @@ import type {
   ModelInfo,
   StructuredOutputSettings
 } from "../types";
+import type { Logger } from "../../logging/types";
 import { createDefaultLogger } from "../../logging/defaultLogger";
-
-const logger = createDefaultLogger();
 import { validateLLMSettings } from "../config";
 
 /**
  * Validates LLM requests including structure, messages, and settings
  */
 export class RequestValidator {
+  private logger: Logger;
+
+  /**
+   * Creates a new RequestValidator
+   *
+   * @param logger Optional logger instance
+   */
+  constructor(logger?: Logger) {
+    this.logger = logger ?? createDefaultLogger();
+  }
   /**
    * Validates basic LLM request structure
    *
@@ -192,7 +201,7 @@ export class RequestValidator {
 
       // Warn (but don't error) if strict mode requested but not supported
       if (structuredOutput.strict !== false && modelInfo.structuredOutput.strictMode === false) {
-        logger.warn(
+        this.logger.warn(
           `Model ${request.modelId} does not support strict mode for structured output. ` +
           `Schema validation will be client-side only.`
         );

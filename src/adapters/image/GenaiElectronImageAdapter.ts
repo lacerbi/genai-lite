@@ -26,9 +26,8 @@ import type {
   ImageProgressCallback,
 } from '../../types/image';
 import { getCommonMappedErrorDetails } from '../../shared/adapters/errorUtils';
+import type { Logger } from '../../logging/types';
 import { createDefaultLogger } from '../../logging/defaultLogger';
-
-const logger = createDefaultLogger();
 
 /**
  * genai-electron generation status response
@@ -86,11 +85,13 @@ export class GenaiElectronImageAdapter implements ImageProviderAdapter {
   private baseURL: string;
   private timeout: number;
   private pollInterval: number;
+  private logger: Logger;
 
   constructor(config?: ImageProviderAdapterConfig) {
     this.baseURL = config?.baseURL || 'http://localhost:8081';
     this.timeout = config?.timeout || 120000; // 120 seconds for diffusion
     this.pollInterval = 500; // Poll every 500ms
+    this.logger = config?.logger ?? createDefaultLogger();
   }
 
   /**
@@ -108,7 +109,7 @@ export class GenaiElectronImageAdapter implements ImageProviderAdapter {
       // Build request payload
       const payload = this.buildRequestPayload(resolvedPrompt, request, settings);
 
-      logger.debug(`GenaiElectron Image API: Starting generation`, {
+      this.logger.debug(`GenaiElectron Image API: Starting generation`, {
         prompt: resolvedPrompt.substring(0, 100),
         count: payload.count,
         dimensions: `${payload.width}x${payload.height}`,
@@ -118,7 +119,7 @@ export class GenaiElectronImageAdapter implements ImageProviderAdapter {
       // Start generation (returns immediately with ID)
       const generationId = await this.startGeneration(payload);
 
-      logger.info(`GenaiElectron Image API: Generation started with ID: ${generationId}`);
+      this.logger.info(`GenaiElectron Image API: Generation started with ID: ${generationId}`);
 
       // Poll for completion
       const result = await this.pollForCompletion(
@@ -126,12 +127,12 @@ export class GenaiElectronImageAdapter implements ImageProviderAdapter {
         settings.diffusion?.onProgress
       );
 
-      logger.info(`GenaiElectron Image API: Generation complete (${result.timeTaken}ms)`);
+      this.logger.info(`GenaiElectron Image API: Generation complete (${result.timeTaken}ms)`);
 
       // Convert to ImageGenerationResponse
       return this.convertToResponse(result, request);
     } catch (error) {
-      logger.error('GenaiElectron Image API error:', error);
+      this.logger.error('GenaiElectron Image API error:', error);
       throw this.handleError(error, request);
     }
   }

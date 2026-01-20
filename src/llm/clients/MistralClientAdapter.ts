@@ -13,9 +13,8 @@ import {
   collectSystemContent,
   prependSystemToFirstUserMessage,
 } from "../../shared/adapters/systemMessageUtils";
+import type { Logger } from "../../logging/types";
 import { createDefaultLogger } from "../../logging/defaultLogger";
-
-const logger = createDefaultLogger();
 
 /**
  * Configuration options for MistralClientAdapter
@@ -23,6 +22,8 @@ const logger = createDefaultLogger();
 export interface MistralClientConfig {
   /** Base URL of the Mistral API (default: https://api.mistral.ai) */
   baseURL?: string;
+  /** Logger instance for adapter logging */
+  logger?: Logger;
 }
 
 /**
@@ -53,6 +54,7 @@ export interface MistralClientConfig {
  */
 export class MistralClientAdapter implements ILLMClientAdapter {
   private baseURL: string;
+  private logger: Logger;
 
   /**
    * Creates a new Mistral client adapter
@@ -61,6 +63,7 @@ export class MistralClientAdapter implements ILLMClientAdapter {
    */
   constructor(config?: MistralClientConfig) {
     this.baseURL = config?.baseURL || process.env.MISTRAL_API_BASE_URL || 'https://api.mistral.ai';
+    this.logger = config?.logger ?? createDefaultLogger();
   }
 
   /**
@@ -84,7 +87,7 @@ export class MistralClientAdapter implements ILLMClientAdapter {
       // Format messages for Mistral API
       const messages = this.formatMessages(request);
 
-      logger.debug(`Mistral API parameters:`, {
+      this.logger.debug(`Mistral API parameters:`, {
         baseURL: this.baseURL,
         model: request.modelId,
         temperature: request.settings.temperature,
@@ -92,7 +95,7 @@ export class MistralClientAdapter implements ILLMClientAdapter {
         top_p: request.settings.topP,
       });
 
-      logger.info(`Making Mistral API call for model: ${request.modelId}`);
+      this.logger.info(`Making Mistral API call for model: ${request.modelId}`);
 
       // Build request options
       const requestOptions: any = {
@@ -111,7 +114,7 @@ export class MistralClientAdapter implements ILLMClientAdapter {
       // Mistral only supports json_object mode, no schema validation
       if (request.settings.structuredOutput?.schema && request.settings.structuredOutput.enabled !== false) {
         requestOptions.responseFormat = { type: 'json_object' };
-        logger.warn(
+        this.logger.warn(
           `Mistral does not support JSON schema validation. ` +
           `Using json_object mode - schema validation will be client-side only.`
         );
@@ -121,13 +124,13 @@ export class MistralClientAdapter implements ILLMClientAdapter {
       const completion = await mistral.chat.complete(requestOptions);
 
       if (completion && completion.choices && completion.choices.length > 0) {
-        logger.info(`Mistral API call successful, response ID: ${completion.id}`);
+        this.logger.info(`Mistral API call successful, response ID: ${completion.id}`);
         return this.createSuccessResponse(completion, request);
       } else {
         throw new Error('No valid choices in Mistral completion response');
       }
     } catch (error) {
-      logger.error("Mistral API error:", error);
+      this.logger.error("Mistral API error:", error);
       return this.createErrorResponse(error, request);
     }
   }
@@ -213,7 +216,7 @@ export class MistralClientAdapter implements ILLMClientAdapter {
           request.settings.systemMessageFallback
         );
         if (modifiedIndex !== -1) {
-          logger.debug(
+          this.logger.debug(
             `Model ${request.modelId} doesn't support system messages - prepended to first user message`
           );
         }

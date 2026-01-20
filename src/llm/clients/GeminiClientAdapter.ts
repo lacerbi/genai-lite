@@ -18,9 +18,8 @@ import {
   collectSystemContent,
   prependSystemToFirstUserMessage,
 } from "../../shared/adapters/systemMessageUtils";
+import type { Logger } from "../../logging/types";
 import { createDefaultLogger } from "../../logging/defaultLogger";
-
-const logger = createDefaultLogger();
 
 /**
  * Client adapter for Google Gemini API integration
@@ -34,15 +33,18 @@ const logger = createDefaultLogger();
  */
 export class GeminiClientAdapter implements ILLMClientAdapter {
   private baseURL?: string;
+  private logger: Logger;
 
   /**
    * Creates a new Gemini client adapter
    *
    * @param config Optional configuration for the adapter
    * @param config.baseURL Custom base URL (unused for Gemini but kept for consistency)
+   * @param config.logger Custom logger instance
    */
-  constructor(config?: { baseURL?: string }) {
+  constructor(config?: { baseURL?: string; logger?: Logger }) {
     this.baseURL = config?.baseURL;
+    this.logger = config?.logger ?? createDefaultLogger();
   }
 
   /**
@@ -64,8 +66,8 @@ export class GeminiClientAdapter implements ILLMClientAdapter {
       const { contents, generationConfig, safetySettings, systemInstruction } =
         this.formatInternalRequestToGemini(request);
 
-      logger.info(`Making Gemini API call for model: ${request.modelId}`);
-      logger.debug(`Gemini API parameters:`, {
+      this.logger.info(`Making Gemini API call for model: ${request.modelId}`);
+      this.logger.debug(`Gemini API parameters:`, {
         model: request.modelId,
         temperature: generationConfig.temperature,
         maxOutputTokens: generationConfig.maxOutputTokens,
@@ -85,12 +87,12 @@ export class GeminiClientAdapter implements ILLMClientAdapter {
         },
       });
 
-      logger.info(`Gemini API call successful, processing response`);
+      this.logger.info(`Gemini API call successful, processing response`);
 
       // Convert to standardized response format
       return this.createSuccessResponse(result, request);
     } catch (error) {
-      logger.error("Gemini API error:", error);
+      this.logger.error("Gemini API error:", error);
       return this.createErrorResponse(error, request);
     }
   }
@@ -186,7 +188,7 @@ export class GeminiClientAdapter implements ILLMClientAdapter {
         if (modifiedIndex !== -1) {
           // Update the actual contents array
           contents[modifiedIndex].parts[0].text = simpleContents[modifiedIndex].content;
-          logger.debug(
+          this.logger.debug(
             `Model ${request.modelId} doesn't support system instructions - prepended to first user message`
           );
         }

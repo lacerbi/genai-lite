@@ -13,9 +13,8 @@ import {
   collectSystemContent,
   prependSystemToFirstUserMessage,
 } from "../../shared/adapters/systemMessageUtils";
+import type { Logger } from "../../logging/types";
 import { createDefaultLogger } from "../../logging/defaultLogger";
-
-const logger = createDefaultLogger();
 
 /**
  * Configuration options for OpenRouterClientAdapter
@@ -27,6 +26,8 @@ export interface OpenRouterClientConfig {
   httpReferer?: string;
   /** Your app's display name for rankings (optional) */
   siteTitle?: string;
+  /** Logger instance for adapter logging */
+  logger?: Logger;
 }
 
 /**
@@ -63,6 +64,7 @@ export class OpenRouterClientAdapter implements ILLMClientAdapter {
   private baseURL: string;
   private httpReferer?: string;
   private siteTitle?: string;
+  private logger: Logger;
 
   /**
    * Creates a new OpenRouter client adapter
@@ -73,6 +75,7 @@ export class OpenRouterClientAdapter implements ILLMClientAdapter {
     this.baseURL = config?.baseURL || 'https://openrouter.ai/api/v1';
     this.httpReferer = config?.httpReferer || process.env.OPENROUTER_HTTP_REFERER;
     this.siteTitle = config?.siteTitle || process.env.OPENROUTER_SITE_TITLE;
+    this.logger = config?.logger ?? createDefaultLogger();
   }
 
   /**
@@ -158,7 +161,7 @@ export class OpenRouterClientAdapter implements ILLMClientAdapter {
         };
       }
 
-      logger.debug(`OpenRouter API parameters:`, {
+      this.logger.debug(`OpenRouter API parameters:`, {
         baseURL: this.baseURL,
         model: completionParams.model,
         temperature: completionParams.temperature,
@@ -167,20 +170,20 @@ export class OpenRouterClientAdapter implements ILLMClientAdapter {
         hasProviderRouting: !!(completionParams as any).provider,
       });
 
-      logger.info(`Making OpenRouter API call for model: ${request.modelId}`);
+      this.logger.info(`Making OpenRouter API call for model: ${request.modelId}`);
 
       // Make the API call
       const completion = await openai.chat.completions.create(completionParams);
 
       // Type guard to ensure we have a non-streaming response
       if ('id' in completion && 'choices' in completion) {
-        logger.info(`OpenRouter API call successful, response ID: ${completion.id}`);
+        this.logger.info(`OpenRouter API call successful, response ID: ${completion.id}`);
         return this.createSuccessResponse(completion as OpenAI.Chat.Completions.ChatCompletion, request);
       } else {
         throw new Error('Unexpected streaming response from OpenRouter');
       }
     } catch (error) {
-      logger.error("OpenRouter API error:", error);
+      this.logger.error("OpenRouter API error:", error);
       return this.createErrorResponse(error, request);
     }
   }
@@ -270,7 +273,7 @@ export class OpenRouterClientAdapter implements ILLMClientAdapter {
         );
         if (modifiedIndex !== -1) {
           messages[modifiedIndex].content = simpleMessages[modifiedIndex].content;
-          logger.debug(
+          this.logger.debug(
             `Model ${request.modelId} doesn't support system messages - prepended to first user message`
           );
         }
