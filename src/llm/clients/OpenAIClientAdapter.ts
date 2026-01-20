@@ -179,16 +179,19 @@ export class OpenAIClientAdapter implements ILLMClientAdapter {
 
     const processed: any = { ...schema };
 
-    // If this is an object type, add additionalProperties: false
+    // If this is an object type, add additionalProperties: false and ensure required includes all properties
     if (processed.type === 'object') {
       processed.additionalProperties = false;
 
       // Process nested properties
       if (processed.properties) {
+        const propertyKeys = Object.keys(schema.properties);
         processed.properties = {};
         for (const [key, value] of Object.entries(schema.properties)) {
           processed.properties[key] = this.addAdditionalPropertiesFalse(value);
         }
+        // OpenAI strict mode requires 'required' to include ALL properties
+        processed.required = propertyKeys;
       }
     }
 
