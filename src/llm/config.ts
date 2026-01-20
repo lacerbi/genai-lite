@@ -682,6 +682,7 @@ export const SUPPORTED_MODELS: ModelInfo[] = [
   },
 
   // OpenAI Models - GPT-5 Series
+  // Note: GPT-5 models do not support temperature or topP parameters
   {
     id: "gpt-5.2",
     name: "GPT-5.2",
@@ -694,6 +695,7 @@ export const SUPPORTED_MODELS: ModelInfo[] = [
     supportsImages: true,
     supportsPromptCache: true,
     cacheReadsPrice: 0.4375,
+    unsupportedParameters: ["temperature", "topP"],
     reasoning: {
       supported: true,
       enabledByDefault: false,
@@ -717,6 +719,7 @@ export const SUPPORTED_MODELS: ModelInfo[] = [
     supportsImages: true,
     supportsPromptCache: true,
     cacheReadsPrice: 0.3125,
+    unsupportedParameters: ["temperature", "topP"],
     reasoning: {
       supported: true,
       enabledByDefault: false,
@@ -740,6 +743,7 @@ export const SUPPORTED_MODELS: ModelInfo[] = [
     supportsImages: true,
     supportsPromptCache: true,
     cacheReadsPrice: 0.0625,
+    unsupportedParameters: ["temperature", "topP"],
     reasoning: {
       supported: true,
       enabledByDefault: false,
@@ -763,6 +767,7 @@ export const SUPPORTED_MODELS: ModelInfo[] = [
     supportsImages: true,
     supportsPromptCache: true,
     cacheReadsPrice: 0.0125,
+    unsupportedParameters: ["temperature", "topP"],
     reasoning: {
       supported: true,
       enabledByDefault: false,
