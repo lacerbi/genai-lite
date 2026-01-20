@@ -944,6 +944,11 @@ export const SUPPORTED_MODELS: ModelInfo[] = [
     maxTokens: 8192,
     supportsImages: true,
     supportsPromptCache: false,
+    structuredOutput: {
+      supported: true,
+      strictMode: true,
+      notes: "Structured output supported via OpenRouter",
+    },
   },
   {
     id: "mistralai/mistral-small-3.1-24b-instruct:free",
@@ -956,6 +961,11 @@ export const SUPPORTED_MODELS: ModelInfo[] = [
     maxTokens: 8192,
     supportsImages: false,
     supportsPromptCache: false,
+    structuredOutput: {
+      supported: true,
+      strictMode: true,
+      notes: "Structured output supported via OpenRouter",
+    },
   },
 ];
 
