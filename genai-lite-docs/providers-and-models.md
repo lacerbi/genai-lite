@@ -107,6 +107,7 @@ Complete reference of all supported AI providers and models in genai-lite.
 - Gemini models support multimodal (text, images, audio, video)
 - Gemma 3 27B is open-weight and **free** via the Gemini API (no API costs)
 - **Gemma models do not support system instructions** - genai-lite automatically prepends system content to the first user message (see [System Message Fallback](llm-service.md#system-message-fallback))
+- **Gemma models do not support structured output (JSON mode)** via Google's API - use OpenRouter instead for JSON output
 
 ---
 
@@ -209,6 +210,7 @@ Set environment variables for OpenRouter rankings:
 - OpenAI-compatible API format
 - `allowUnknownModels: true` - Use any OpenRouter model ID
 - Free tier models have rate limits
+- **Structured output supported** - Both free tier models support JSON mode/structured output
 - See [openrouter.ai/docs](https://openrouter.ai/docs) for full model list
 
 ---
