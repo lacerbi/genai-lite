@@ -40,6 +40,9 @@ function formatMessagesAsMarkdown(messages: Message[]): string {
       if (msg.reasoning) {
         content += `\n\n### Reasoning\n${msg.reasoning}`;
       }
+      if (msg.parsedContent) {
+        content += `\n\n### Parsed JSON\n\`\`\`json\n${JSON.stringify(msg.parsedContent, null, 2)}\n\`\`\``;
+      }
       return content;
     })
     .join('\n\n---\n\n');
@@ -406,6 +409,8 @@ export function ChatInterface() {
           role: 'assistant',
           content: response.response.content,
           reasoning: response.response.reasoning,
+          parsedContent: response.response.parsedContent,
+          parseError: response.response.parseError,
           timestamp: Date.now(),
         };
         setMessages((prev) => [...prev, assistantMessage]);

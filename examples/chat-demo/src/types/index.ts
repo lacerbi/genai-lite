@@ -4,6 +4,8 @@ export interface Message {
   role: 'user' | 'assistant' | 'system';
   content: string;
   reasoning?: string;
+  parsedContent?: unknown;
+  parseError?: string;
   timestamp: number;
 }
 
@@ -31,6 +33,38 @@ export interface Model {
   };
 }
 
+// Structured output schema types (matches library types in src/llm/types.ts)
+export interface StructuredOutputSchemaProperty {
+  type: "string" | "number" | "integer" | "boolean" | "array" | "object" | "null";
+  description?: string;
+  enum?: (string | number | boolean)[];
+  properties?: Record<string, StructuredOutputSchemaProperty>;
+  required?: string[];
+  items?: StructuredOutputSchemaProperty;
+  minimum?: number;
+  maximum?: number;
+  minLength?: number;
+  maxLength?: number;
+  pattern?: string;
+}
+
+export interface StructuredOutputSchema {
+  type: "object" | "array" | "string" | "number" | "boolean";
+  properties?: Record<string, StructuredOutputSchemaProperty>;
+  required?: string[];
+  items?: StructuredOutputSchemaProperty;
+  additionalProperties?: boolean;
+  description?: string;
+}
+
+export interface StructuredOutputSettings {
+  enabled?: boolean;
+  name: string;
+  schema: StructuredOutputSchema;
+  strict?: boolean;
+  autoParse?: boolean;
+}
+
 export interface LLMSettings {
   temperature?: number;
   maxTokens?: number;
@@ -44,6 +78,7 @@ export interface LLMSettings {
     tagName?: string;
     enforce?: boolean;
   };
+  structuredOutput?: StructuredOutputSettings;
 }
 
 export interface ChatRequest {
@@ -58,6 +93,8 @@ export interface ChatResponse {
   response?: {
     content: string;
     reasoning?: string;
+    parsedContent?: unknown;
+    parseError?: string;
     usage?: {
       inputTokens: number;
       outputTokens: number;

@@ -661,6 +661,7 @@ export const SUPPORTED_MODELS: ModelInfo[] = [
   },
   // Google Gemma 3 Models (Open weights, free via Gemini API)
   // Note: Gemma models don't support system instructions - system content is prepended to user message
+  // Note: Gemma models don't support JSON mode/structured output via Google's API
   {
     id: "gemma-3-27b-it",
     name: "Gemma 3 27B",
@@ -674,6 +675,10 @@ export const SUPPORTED_MODELS: ModelInfo[] = [
     supportsImages: true,
     supportsPromptCache: false,
     supportsSystemMessage: false,
+    structuredOutput: {
+      supported: false,
+      notes: "Gemma models do not support JSON mode via Google's API",
+    },
   },
 
   // OpenAI Models - GPT-5 Series
@@ -939,6 +944,11 @@ export const SUPPORTED_MODELS: ModelInfo[] = [
     maxTokens: 8192,
     supportsImages: true,
     supportsPromptCache: false,
+    structuredOutput: {
+      supported: true,
+      strictMode: true,
+      notes: "Structured output supported via OpenRouter",
+    },
   },
   {
     id: "mistralai/mistral-small-3.1-24b-instruct:free",
@@ -951,6 +961,11 @@ export const SUPPORTED_MODELS: ModelInfo[] = [
     maxTokens: 8192,
     supportsImages: false,
     supportsPromptCache: false,
+    structuredOutput: {
+      supported: true,
+      strictMode: true,
+      notes: "Structured output supported via OpenRouter",
+    },
   },
 ];
 
