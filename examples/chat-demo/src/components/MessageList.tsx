@@ -26,6 +26,9 @@ export function MessageList({ messages }: MessageListProps) {
       if (message.reasoning) {
         text += `\n\nREASONING: ${message.reasoning}`;
       }
+      if (message.parsedContent) {
+        text += `\n\nPARSED JSON:\n${JSON.stringify(message.parsedContent, null, 2)}`;
+      }
       await navigator.clipboard.writeText(text);
       setCopiedIndex(index);
       setTimeout(() => setCopiedIndex(null), 2000);
@@ -66,6 +69,19 @@ export function MessageList({ messages }: MessageListProps) {
             </details>
           )}
           <div className="message-content">{message.content}</div>
+          {message.parsedContent && (
+            <details className="message-parsed-content" open>
+              <summary>Parsed JSON Response</summary>
+              <pre className="parsed-json">
+                {JSON.stringify(message.parsedContent, null, 2)}
+              </pre>
+            </details>
+          )}
+          {message.parseError && (
+            <div className="parse-error">
+              Parse Error: {message.parseError}
+            </div>
+          )}
         </div>
       ))}
       <div ref={messagesEndRef} />

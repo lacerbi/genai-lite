@@ -1,7 +1,62 @@
 // SettingsPanel component - Configure LLM settings (Sidebar version)
 
-import { useState } from 'react';
-import type { LLMSettings, UserVariables, AutomaticVariables } from '../types';
+import { useState, useEffect } from 'react';
+import type { LLMSettings, UserVariables, AutomaticVariables, StructuredOutputSchema } from '../types';
+
+// Default schema for structured output
+const DEFAULT_SCHEMA: StructuredOutputSchema = {
+  type: "object",
+  properties: {
+    answer: { type: "string", description: "The main response" },
+    confidence: { type: "number", description: "Confidence level 0-1" },
+    sources: {
+      type: "array",
+      items: { type: "string" },
+      description: "Referenced sources if any"
+    }
+  },
+  required: ["answer"]
+};
+
+// Preset schemas for quick selection
+const PRESET_SCHEMAS: Record<string, StructuredOutputSchema> = {
+  person: {
+    type: "object",
+    properties: {
+      name: { type: "string" },
+      age: { type: "integer" },
+      email: { type: "string" }
+    },
+    required: ["name"]
+  },
+  list: {
+    type: "object",
+    properties: {
+      items: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            title: { type: "string" },
+            description: { type: "string" }
+          },
+          required: ["title"]
+        }
+      }
+    },
+    required: ["items"]
+  },
+  analysis: {
+    type: "object",
+    properties: {
+      summary: { type: "string" },
+      keyPoints: { type: "array", items: { type: "string" } },
+      sentiment: { type: "string", enum: ["positive", "negative", "neutral"] },
+      score: { type: "number" }
+    },
+    required: ["summary", "keyPoints"]
+  }
+};
 
 interface SettingsPanelProps {
   settings: LLMSettings;
@@ -33,9 +88,61 @@ export function SettingsPanel({
 
   const [newVarKey, setNewVarKey] = useState('');
   const [newVarValue, setNewVarValue] = useState('');
+  const [schemaError, setSchemaError] = useState<string | null>(null);
+  const [schemaText, setSchemaText] = useState(() =>
+    settings.structuredOutput?.schema
+      ? JSON.stringify(settings.structuredOutput.schema, null, 2)
+      : JSON.stringify(DEFAULT_SCHEMA, null, 2)
+  );
+
+  // Sync schemaText when settings.structuredOutput.schema changes externally
+  // (e.g., loaded from localStorage or reset to defaults)
+  useEffect(() => {
+    const currentSchemaStr = settings.structuredOutput?.schema
+      ? JSON.stringify(settings.structuredOutput.schema, null, 2)
+      : JSON.stringify(DEFAULT_SCHEMA, null, 2);
+
+    // Only update if the schema actually changed (avoid cursor jumping)
+    try {
+      const currentParsed = JSON.parse(schemaText);
+      const settingsParsed = settings.structuredOutput?.schema ?? DEFAULT_SCHEMA;
+      if (JSON.stringify(currentParsed) !== JSON.stringify(settingsParsed)) {
+        setSchemaText(currentSchemaStr);
+        setSchemaError(null);
+      }
+    } catch {
+      // If current schemaText is invalid JSON, sync it
+      setSchemaText(currentSchemaStr);
+      setSchemaError(null);
+    }
+  }, [settings.structuredOutput?.schema]);
 
   const updateSetting = <K extends keyof LLMSettings>(key: K, value: LLMSettings[K]) => {
     onSettingsChange({ ...settings, [key]: value });
+  };
+
+  const loadPresetSchema = (presetName: keyof typeof PRESET_SCHEMAS) => {
+    const schema = PRESET_SCHEMAS[presetName];
+    setSchemaText(JSON.stringify(schema, null, 2));
+    setSchemaError(null);
+    updateSetting('structuredOutput', {
+      ...settings.structuredOutput!,
+      schema
+    });
+  };
+
+  const handleSchemaChange = (text: string) => {
+    setSchemaText(text);
+    try {
+      const parsed = JSON.parse(text);
+      setSchemaError(null);
+      updateSetting('structuredOutput', {
+        ...settings.structuredOutput!,
+        schema: parsed
+      });
+    } catch {
+      setSchemaError('Invalid JSON');
+    }
   };
 
   const handleAddVariable = () => {
@@ -156,12 +263,17 @@ export function SettingsPanel({
               <input
                 type="checkbox"
                 checked={settings.reasoning?.enabled ?? false}
-                onChange={(e) =>
-                  updateSetting('reasoning', {
-                    enabled: e.target.checked,
-                    effort: settings.reasoning?.effort ?? 'medium',
-                  })
-                }
+                onChange={(e) => {
+                  if (e.target.checked) {
+                    updateSetting('reasoning', {
+                      enabled: true,
+                      effort: settings.reasoning?.effort ?? 'medium',
+                    });
+                  } else {
+                    // When disabling, only set enabled: false (no effort)
+                    updateSetting('reasoning', { enabled: false });
+                  }
+                }}
                 disabled={disabled}
               />
               Enable Reasoning
@@ -220,6 +332,91 @@ export function SettingsPanel({
                   Require Thinking Tags
                 </label>
                 <span className="setting-hint">Enforce thinking tags when native reasoning is not active</span>
+              </div>
+            )}
+          </div>
+
+          {/* Structured Output Section */}
+          <div className="setting-group">
+            <label>
+              <input
+                type="checkbox"
+                checked={settings.structuredOutput?.enabled ?? false}
+                onChange={(e) => {
+                  if (e.target.checked) {
+                    updateSetting('structuredOutput', {
+                      enabled: true,
+                      name: 'response_schema',
+                      schema: DEFAULT_SCHEMA,
+                      strict: true
+                    });
+                    setSchemaText(JSON.stringify(DEFAULT_SCHEMA, null, 2));
+                    setSchemaError(null);
+                  } else {
+                    updateSetting('structuredOutput', undefined);
+                  }
+                }}
+                disabled={disabled}
+              />
+              Enable Structured Output (JSON)
+            </label>
+            <span className="setting-hint">
+              Constrain response to JSON schema (GPT-4.1+, Gemini 2.5, Mistral, llama.cpp)
+            </span>
+
+            {settings.structuredOutput?.enabled && (
+              <div className="structured-output-config">
+                <div className="setting-subgroup">
+                  <label htmlFor="schemaName">Schema Name</label>
+                  <input
+                    id="schemaName"
+                    type="text"
+                    value={settings.structuredOutput.name}
+                    onChange={(e) => updateSetting('structuredOutput', {
+                      ...settings.structuredOutput!,
+                      name: e.target.value
+                    })}
+                    disabled={disabled}
+                    placeholder="response_schema"
+                    className="schema-name-input"
+                  />
+                </div>
+
+                <div className="setting-subgroup">
+                  <label htmlFor="schemaEditor">JSON Schema</label>
+                  <textarea
+                    id="schemaEditor"
+                    value={schemaText}
+                    onChange={(e) => handleSchemaChange(e.target.value)}
+                    disabled={disabled}
+                    rows={8}
+                    className={`schema-textarea ${schemaError ? 'error' : ''}`}
+                  />
+                  {schemaError && <span className="schema-error-text">{schemaError}</span>}
+                </div>
+
+                <div className="schema-presets">
+                  <span>Quick schemas:</span>
+                  <button type="button" onClick={() => loadPresetSchema('person')} disabled={disabled}>Person</button>
+                  <button type="button" onClick={() => loadPresetSchema('list')} disabled={disabled}>List</button>
+                  <button type="button" onClick={() => loadPresetSchema('analysis')} disabled={disabled}>Analysis</button>
+                </div>
+
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={settings.structuredOutput.strict !== false}
+                    onChange={(e) => updateSetting('structuredOutput', {
+                      ...settings.structuredOutput!,
+                      strict: e.target.checked
+                    })}
+                    disabled={disabled}
+                  />
+                  Strict Mode
+                </label>
+                <span className="setting-hint">
+                  Enforce exact schema match (recommended)
+                </span>
               </div>
             )}
           </div>

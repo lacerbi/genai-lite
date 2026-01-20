@@ -96,6 +96,8 @@ chatRouter.post('/', async (req, res) => {
         model: result.model,
         content: result.choices[0]?.message?.content || '',
         reasoning: result.choices[0]?.reasoning,
+        parsedContent: result.choices[0]?.parsedContent,
+        parseError: result.choices[0]?.parseError,
         finishReason: result.choices[0]?.finish_reason,
         usage: result.usage
       }
