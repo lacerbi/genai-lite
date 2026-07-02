@@ -207,7 +207,21 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
         ...(request.settings.presencePenalty !== 0 && {
           presence_penalty: request.settings.presencePenalty,
         }),
-      };
+        ...(request.settings.seed !== undefined && {
+          seed: request.settings.seed,
+        }),
+        // llama.cpp-native sampling params (not in the OpenAI SDK types, but the
+        // SDK sends extra body fields as-is and llama-server reads them top-level)
+        ...(request.settings.topK !== undefined && {
+          top_k: request.settings.topK,
+        }),
+        ...(request.settings.minP !== undefined && {
+          min_p: request.settings.minP,
+        }),
+        ...(request.settings.repeatPenalty !== undefined && {
+          repeat_penalty: request.settings.repeatPenalty,
+        }),
+      } as OpenAI.Chat.Completions.ChatCompletionCreateParams;
 
       // Handle structured output configuration for llama.cpp
       // llama.cpp uses response_format with type: 'json_object' and optional schema

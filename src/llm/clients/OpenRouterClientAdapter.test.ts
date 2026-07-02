@@ -38,6 +38,10 @@ describe('OpenRouterClientAdapter', () => {
         topP: 1,
         frequencyPenalty: 0,
         presencePenalty: 0,
+        topK: undefined as any,
+        minP: undefined as any,
+        repeatPenalty: undefined as any,
+        seed: undefined as any,
         stopSequences: [],
         user: undefined as any,
         geminiSafetySettings: [],
@@ -60,6 +64,34 @@ describe('OpenRouterClientAdapter', () => {
   });
 
   describe('sendMessage', () => {
+    it('should pass through top_k, min_p, repetition_penalty and seed', async () => {
+      mockCreate.mockResolvedValueOnce({
+        id: 'gen-sampling',
+        object: 'chat.completion',
+        created: 1234567890,
+        model: 'google/gemma-3-27b-it:free',
+        choices: [{
+          index: 0,
+          message: { role: 'assistant', content: 'Hi' },
+          finish_reason: 'stop'
+        }],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 }
+      });
+
+      basicRequest.settings.topK = 64;
+      basicRequest.settings.minP = 0;
+      basicRequest.settings.repeatPenalty = 1.0;
+      basicRequest.settings.seed = 42;
+
+      await adapter.sendMessage(basicRequest, 'sk-or-test-api-key-1234567890123456789012345678901234567890');
+
+      const params = mockCreate.mock.calls[0][0];
+      expect(params.top_k).toBe(64);
+      expect(params.min_p).toBe(0);
+      expect(params.repetition_penalty).toBe(1.0);
+      expect(params.seed).toBe(42);
+    });
+
     it('should format the request correctly and call the OpenRouter API', async () => {
       // Setup mock response
       mockCreate.mockResolvedValueOnce({

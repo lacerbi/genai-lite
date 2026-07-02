@@ -119,7 +119,21 @@ export class OpenRouterClientAdapter implements ILLMClientAdapter {
         ...(request.settings.presencePenalty !== 0 && {
           presence_penalty: request.settings.presencePenalty,
         }),
-      };
+        ...(request.settings.seed !== undefined && {
+          seed: request.settings.seed,
+        }),
+        // OpenRouter pass-through sampling params (not in the OpenAI SDK types;
+        // sent as-is — OpenRouter ignores them for models that don't support them)
+        ...(request.settings.topK !== undefined && {
+          top_k: request.settings.topK,
+        }),
+        ...(request.settings.minP !== undefined && {
+          min_p: request.settings.minP,
+        }),
+        ...(request.settings.repeatPenalty !== undefined && {
+          repetition_penalty: request.settings.repeatPenalty,
+        }),
+      } as OpenAI.Chat.Completions.ChatCompletionCreateParams;
 
       // Add OpenRouter-specific provider routing if configured
       const providerSettings = request.settings.openRouterProvider;

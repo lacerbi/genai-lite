@@ -201,6 +201,12 @@ export class GeminiClientAdapter implements ILLMClientAdapter {
       maxOutputTokens: request.settings.maxTokens,
       temperature: request.settings.temperature,
       ...(request.settings.topP && { topP: request.settings.topP }),
+      ...(request.settings.topK !== undefined && {
+        topK: request.settings.topK,
+      }),
+      ...(request.settings.seed !== undefined && {
+        seed: request.settings.seed,
+      }),
       ...(request.settings.stopSequences &&
         request.settings.stopSequences.length > 0 && {
           stopSequences: request.settings.stopSequences,

@@ -177,6 +177,36 @@ describe('LLM Config', () => {
       expect(validateLLMSettings({ presencePenalty: 2.1 })).toContain('presencePenalty must be a number between -2 and 2');
     });
 
+    it('should validate topK', () => {
+      expect(validateLLMSettings({ topK: -1 })).toContain('topK must be a non-negative integer');
+      expect(validateLLMSettings({ topK: 1.5 })).toContain('topK must be a non-negative integer');
+      expect(validateLLMSettings({ topK: 'invalid' as any })).toContain('topK must be a non-negative integer');
+      expect(validateLLMSettings({ topK: 0 })).toEqual([]);
+      expect(validateLLMSettings({ topK: 64 })).toEqual([]);
+    });
+
+    it('should validate minP bounds', () => {
+      expect(validateLLMSettings({ minP: -0.1 })).toContain('minP must be a number between 0 and 1');
+      expect(validateLLMSettings({ minP: 1.1 })).toContain('minP must be a number between 0 and 1');
+      expect(validateLLMSettings({ minP: 0 })).toEqual([]);
+      expect(validateLLMSettings({ minP: 0.05 })).toEqual([]);
+    });
+
+    it('should validate repeatPenalty', () => {
+      expect(validateLLMSettings({ repeatPenalty: 0 })).toContain('repeatPenalty must be a positive number');
+      expect(validateLLMSettings({ repeatPenalty: -1 })).toContain('repeatPenalty must be a positive number');
+      expect(validateLLMSettings({ repeatPenalty: 'invalid' as any })).toContain('repeatPenalty must be a positive number');
+      expect(validateLLMSettings({ repeatPenalty: 1.0 })).toEqual([]);
+      expect(validateLLMSettings({ repeatPenalty: 1.3 })).toEqual([]);
+    });
+
+    it('should validate seed', () => {
+      expect(validateLLMSettings({ seed: 1.5 })).toContain('seed must be an integer');
+      expect(validateLLMSettings({ seed: 'invalid' as any })).toContain('seed must be an integer');
+      expect(validateLLMSettings({ seed: -1 })).toEqual([]); // llama.cpp uses -1 for random
+      expect(validateLLMSettings({ seed: 42 })).toEqual([]);
+    });
+
     it('should validate stopSequences', () => {
       expect(validateLLMSettings({ stopSequences: 'invalid' as any })).toContain('stopSequences must be an array');
       expect(validateLLMSettings({ stopSequences: ['1', '2', '3', '4', '5'] })).toContain('stopSequences can contain at most 4 sequences');

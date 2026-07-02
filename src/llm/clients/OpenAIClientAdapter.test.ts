@@ -38,6 +38,10 @@ describe('OpenAIClientAdapter', () => {
         topP: 1,
         frequencyPenalty: 0,
         presencePenalty: 0,
+        topK: undefined as any,
+        minP: undefined as any,
+        repeatPenalty: undefined as any,
+        seed: undefined as any,
         stopSequences: [],
         user: 'test-user',
         geminiSafetySettings: [],
@@ -108,6 +112,35 @@ describe('OpenAIClientAdapter', () => {
       expect(successResponse.model).toBe('gpt-4.1');
       expect(successResponse.choices[0].message.content).toBe('Hello! How can I help you today?');
       expect(successResponse.usage?.total_tokens).toBe(30);
+    });
+
+    it('should map seed and never send llama.cpp-style sampling params', async () => {
+      mockCreate.mockResolvedValueOnce({
+        id: 'chatcmpl-seed',
+        object: 'chat.completion',
+        created: 1234567890,
+        model: 'gpt-4.1',
+        choices: [{
+          index: 0,
+          message: { role: 'assistant', content: 'Hi' },
+          finish_reason: 'stop'
+        }],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 }
+      });
+
+      basicRequest.settings.seed = 42;
+      // Even if these survive service-level filtering, the adapter must not emit them
+      basicRequest.settings.topK = 40;
+      basicRequest.settings.minP = 0.05;
+      basicRequest.settings.repeatPenalty = 1.1;
+
+      await adapter.sendMessage(basicRequest, 'test-api-key');
+
+      const params = mockCreate.mock.calls[0][0];
+      expect(params.seed).toBe(42);
+      expect(params).not.toHaveProperty('top_k');
+      expect(params).not.toHaveProperty('min_p');
+      expect(params).not.toHaveProperty('repeat_penalty');
     });
 
     it('should handle system messages correctly', async () => {

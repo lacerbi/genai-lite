@@ -49,6 +49,10 @@ describe('LlamaCppClientAdapter', () => {
         stopSequences: [],
         frequencyPenalty: 0.0,
         presencePenalty: 0.0,
+        topK: undefined as any,
+        minP: undefined as any,
+        repeatPenalty: undefined as any,
+        seed: undefined as any,
         supportsSystemMessage: true,
         systemMessageFallback: { format: 'xml', tagName: 'system', separator: '---' },
         user: '' as any,
@@ -602,6 +606,60 @@ describe('LlamaCppClientAdapter', () => {
           stop: ['END'],
         })
       );
+    });
+
+    it('should pass llama.cpp-native sampling params (top_k, min_p, repeat_penalty, seed)', async () => {
+      mockCreate.mockResolvedValueOnce({
+        id: 'chatcmpl-sampling',
+        choices: [
+          {
+            message: { role: 'assistant', content: 'Response' },
+            finish_reason: 'stop',
+          },
+        ],
+      });
+
+      const fullRequest = {
+        ...basicRequest,
+        settings: {
+          ...basicRequest.settings,
+          topK: 20,
+          minP: 0,
+          repeatPenalty: 1.0,
+          seed: 42,
+        },
+      };
+
+      await adapter.sendMessage(fullRequest, 'not-needed');
+
+      expect(mockCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          top_k: 20,
+          min_p: 0,
+          repeat_penalty: 1.0,
+          seed: 42,
+        })
+      );
+    });
+
+    it('should omit llama.cpp-native sampling params when unset', async () => {
+      mockCreate.mockResolvedValueOnce({
+        id: 'chatcmpl-nosampling',
+        choices: [
+          {
+            message: { role: 'assistant', content: 'Response' },
+            finish_reason: 'stop',
+          },
+        ],
+      });
+
+      await adapter.sendMessage(basicRequest, 'not-needed');
+
+      const callArgs = mockCreate.mock.calls[0][0];
+      expect(callArgs).not.toHaveProperty('top_k');
+      expect(callArgs).not.toHaveProperty('min_p');
+      expect(callArgs).not.toHaveProperty('repeat_penalty');
+      expect(callArgs).not.toHaveProperty('seed');
     });
 
     it('should omit frequency penalty when zero', async () => {

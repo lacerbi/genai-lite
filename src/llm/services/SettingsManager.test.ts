@@ -35,6 +35,22 @@ describe('SettingsManager', () => {
   });
 
   describe('mergeSettingsForModel', () => {
+    it('should merge new sampling settings from request over defaults', () => {
+      const result = settingsManager.mergeSettingsForModel('gpt-4.1', 'openai', {
+        topK: 20,
+        minP: 0,
+        repeatPenalty: 1.0,
+        seed: 42,
+      });
+
+      expect(result.topK).toBe(20);
+      expect(result.minP).toBe(0);
+      expect(result.repeatPenalty).toBe(1.0);
+      expect(result.seed).toBe(42);
+      // Untouched defaults still flow through
+      expect(result.temperature).toBe(0.7);
+    });
+
     it('should return default settings when no request settings provided', () => {
       const result = settingsManager.mergeSettingsForModel('gpt-4.1', 'openai');
 
@@ -196,6 +212,10 @@ describe('SettingsManager', () => {
       stopSequences: [],
       frequencyPenalty: 0,
       presencePenalty: 0,
+      topK: undefined as any,
+      minP: undefined as any,
+      repeatPenalty: undefined as any,
+      seed: undefined as any,
       user: '',
       supportsSystemMessage: true,
       systemMessageFallback: { format: 'xml', tagName: 'system', separator: '---' },
@@ -237,6 +257,33 @@ describe('SettingsManager', () => {
       );
 
       expect(result).toEqual(baseSettings);
+    });
+
+    it('should filter out new sampling parameters when provider marks them unsupported', () => {
+      const providerWithExclusions: ProviderInfo = {
+        ...mockProviderInfo,
+        unsupportedParameters: ['topK', 'minP', 'repeatPenalty', 'seed'],
+      };
+
+      const settingsWithSampling = {
+        ...baseSettings,
+        topK: 40,
+        minP: 0.05,
+        repeatPenalty: 1.1,
+        seed: 42,
+      };
+
+      const result = settingsManager.filterUnsupportedParameters(
+        settingsWithSampling,
+        mockModelInfo,
+        providerWithExclusions
+      );
+
+      expect(result.topK).toBeUndefined();
+      expect(result.minP).toBeUndefined();
+      expect(result.repeatPenalty).toBeUndefined();
+      expect(result.seed).toBeUndefined();
+      expect(result.temperature).toBe(0.7); // Should remain unchanged
     });
 
     it('should filter out provider-level unsupported parameters', () => {

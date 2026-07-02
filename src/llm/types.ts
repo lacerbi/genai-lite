@@ -329,6 +329,32 @@ export interface LLMSettings {
   frequencyPenalty?: number;
   /** Number between -2.0 and 2.0. Positive values penalize new tokens based on whether they appear in the text so far */
   presencePenalty?: number;
+  /**
+   * Limits sampling to the K most likely tokens (integer >= 0; 0 disables top-k filtering).
+   * Supported by: Anthropic (top_k), Gemini (topK), llama.cpp (top_k), OpenRouter (top_k).
+   * Not supported by OpenAI or Mistral (stripped automatically).
+   */
+  topK?: number;
+  /**
+   * Minimum probability threshold relative to the most likely token (0.0 to 1.0; 0 disables).
+   * Note: llama.cpp's server default is 0.05, which matches no vendor recommendation —
+   * detected GGUF models get an explicit 0 by default.
+   * Supported by: llama.cpp (min_p), OpenRouter (min_p). Stripped for other providers.
+   */
+  minP?: number;
+  /**
+   * Multiplicative repetition penalty over prompt + output tokens (1.0 = disabled).
+   * Distinct from presencePenalty (additive, output-only). For Qwen models prefer
+   * presencePenalty and keep repeatPenalty at 1.0 (vendor guidance).
+   * Supported by: llama.cpp (repeat_penalty), OpenRouter (repetition_penalty). Stripped elsewhere.
+   */
+  repeatPenalty?: number;
+  /**
+   * Seed for (best-effort) deterministic sampling. Integer; llama.cpp treats -1 as random.
+   * Supported by: OpenAI (beta; ignored by reasoning models), Gemini, Mistral (randomSeed),
+   * llama.cpp, OpenRouter. Not supported by Anthropic (stripped automatically).
+   */
+  seed?: number;
   /** A unique identifier representing your end-user, which can help monitor and detect abuse */
   user?: string;
   /** Whether the LLM supports system message (almost all LLMs do nowadays) */

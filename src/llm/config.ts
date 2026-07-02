@@ -75,6 +75,10 @@ export const DEFAULT_LLM_SETTINGS: Required<LLMSettings> = {
   stopSequences: [],
   frequencyPenalty: 0.0,
   presencePenalty: 0.0,
+  topK: undefined as any, // No universal default; provider support varies, filtered when undefined
+  minP: undefined as any, // No universal default; explicit per-model defaults for detected GGUF models
+  repeatPenalty: undefined as any, // No universal default; explicit per-model defaults for detected GGUF models
+  seed: undefined as any, // No universal default; deterministic sampling is opt-in
   supportsSystemMessage: true,
   systemMessageFallback: {
     format: 'xml',
@@ -140,19 +144,22 @@ export const SUPPORTED_PROVIDERS: ProviderInfo[] = [
   {
     id: "openai",
     name: "OpenAI",
-    unsupportedParameters: ["frequencyPenalty"],
+    unsupportedParameters: ["frequencyPenalty", "topK", "minP", "repeatPenalty"],
   },
   {
     id: "anthropic",
     name: "Anthropic",
+    unsupportedParameters: ["seed", "minP", "repeatPenalty"],
   },
   {
     id: "gemini",
     name: "Google Gemini",
+    unsupportedParameters: ["minP", "repeatPenalty"],
   },
   {
     id: "mistral",
     name: "Mistral AI",
+    unsupportedParameters: ["topK", "minP", "repeatPenalty"],
   },
   {
     id: "llamacpp",
@@ -695,7 +702,7 @@ export const SUPPORTED_MODELS: ModelInfo[] = [
     supportsImages: true,
     supportsPromptCache: true,
     cacheReadsPrice: 0.4375,
-    unsupportedParameters: ["temperature", "topP"],
+    unsupportedParameters: ["temperature", "topP", "seed"],
     reasoning: {
       supported: true,
       enabledByDefault: false,
@@ -719,7 +726,7 @@ export const SUPPORTED_MODELS: ModelInfo[] = [
     supportsImages: true,
     supportsPromptCache: true,
     cacheReadsPrice: 0.3125,
-    unsupportedParameters: ["temperature", "topP"],
+    unsupportedParameters: ["temperature", "topP", "seed"],
     reasoning: {
       supported: true,
       enabledByDefault: false,
@@ -743,7 +750,7 @@ export const SUPPORTED_MODELS: ModelInfo[] = [
     supportsImages: true,
     supportsPromptCache: true,
     cacheReadsPrice: 0.0625,
-    unsupportedParameters: ["temperature", "topP"],
+    unsupportedParameters: ["temperature", "topP", "seed"],
     reasoning: {
       supported: true,
       enabledByDefault: false,
@@ -767,7 +774,7 @@ export const SUPPORTED_MODELS: ModelInfo[] = [
     supportsImages: true,
     supportsPromptCache: true,
     cacheReadsPrice: 0.0125,
-    unsupportedParameters: ["temperature", "topP"],
+    unsupportedParameters: ["temperature", "topP", "seed"],
     reasoning: {
       supported: true,
       enabledByDefault: false,
@@ -792,7 +799,7 @@ export const SUPPORTED_MODELS: ModelInfo[] = [
     supportsImages: true,
     supportsPromptCache: true,
     cacheReadsPrice: 0.275,
-    unsupportedParameters: ["topP"],
+    unsupportedParameters: ["topP", "seed"],
     reasoning: {
       supported: true,
       enabledByDefault: true,
@@ -1227,6 +1234,37 @@ export function validateLLMSettings(settings: Partial<LLMSettings>): string[] {
       )
     ) {
       errors.push("stopSequences must contain only non-empty strings");
+    }
+  }
+
+  if (settings.topK !== undefined) {
+    if (!Number.isInteger(settings.topK) || settings.topK < 0) {
+      errors.push("topK must be a non-negative integer");
+    }
+  }
+
+  if (settings.minP !== undefined) {
+    if (
+      typeof settings.minP !== "number" ||
+      settings.minP < 0 ||
+      settings.minP > 1
+    ) {
+      errors.push("minP must be a number between 0 and 1");
+    }
+  }
+
+  if (settings.repeatPenalty !== undefined) {
+    if (
+      typeof settings.repeatPenalty !== "number" ||
+      settings.repeatPenalty <= 0
+    ) {
+      errors.push("repeatPenalty must be a positive number");
+    }
+  }
+
+  if (settings.seed !== undefined) {
+    if (!Number.isInteger(settings.seed)) {
+      errors.push("seed must be an integer");
     }
   }
 

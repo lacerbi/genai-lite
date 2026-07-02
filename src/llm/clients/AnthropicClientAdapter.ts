@@ -76,6 +76,9 @@ export class AnthropicClientAdapter implements ILLMClientAdapter {
         max_tokens: request.settings.maxTokens,
         temperature: request.settings.temperature,
         top_p: request.settings.topP,
+        ...(request.settings.topK !== undefined && {
+          top_k: request.settings.topK,
+        }),
         ...(systemMessage && { system: systemMessage }),
         ...(request.settings.stopSequences.length > 0 && {
           stop_sequences: request.settings.stopSequences,

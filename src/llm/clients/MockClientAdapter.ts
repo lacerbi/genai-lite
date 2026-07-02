@@ -321,6 +321,10 @@ export class MockClientAdapter implements ILLMClientAdapter {
     }
 - Frequency Penalty: ${settings.frequencyPenalty}
 - Presence Penalty: ${settings.presencePenalty}
+- Top K: ${settings.topK ?? "not set"}
+- Min P: ${settings.minP ?? "not set"}
+- Repeat Penalty: ${settings.repeatPenalty ?? "not set"}
+- Seed: ${settings.seed ?? "not set"}
 - User: ${settings.user || "not set"}`;
   }
 

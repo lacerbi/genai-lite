@@ -36,6 +36,10 @@ describe('AnthropicClientAdapter', () => {
         topP: 1,
         frequencyPenalty: 0,
         presencePenalty: 0,
+        topK: undefined as any,
+        minP: undefined as any,
+        repeatPenalty: undefined as any,
+        seed: undefined as any,
         stopSequences: [],
         user: 'test-user',
         geminiSafetySettings: [],
@@ -102,6 +106,33 @@ describe('AnthropicClientAdapter', () => {
       expect(successResponse.model).toBe('claude-3-5-sonnet-20241022');
       expect(successResponse.choices[0].message.content).toBe('Hello! How can I help you today?');
       expect(successResponse.usage?.total_tokens).toBe(30);
+    });
+
+    it('should map topK to top_k and never send seed', async () => {
+      mockCreate.mockResolvedValueOnce({
+        id: 'msg_topk',
+        type: 'message',
+        role: 'assistant',
+        model: 'claude-3-5-sonnet-20241022',
+        content: [{ type: 'text', text: 'Hi' }],
+        stop_reason: 'end_turn',
+        stop_sequence: null,
+        usage: { input_tokens: 1, output_tokens: 1 }
+      });
+
+      basicRequest.settings.topK = 64;
+      // Even if these survive service-level filtering, the adapter must not emit them
+      basicRequest.settings.seed = 42;
+      basicRequest.settings.minP = 0.05;
+      basicRequest.settings.repeatPenalty = 1.1;
+
+      await adapter.sendMessage(basicRequest, 'test-api-key');
+
+      const params = mockCreate.mock.calls[0][0];
+      expect(params.top_k).toBe(64);
+      expect(params).not.toHaveProperty('seed');
+      expect(params).not.toHaveProperty('min_p');
+      expect(params).not.toHaveProperty('repeat_penalty');
     });
 
     it('should handle system messages by merging into first user message', async () => {

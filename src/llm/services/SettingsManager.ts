@@ -39,6 +39,11 @@ export class SettingsManager {
         requestSettings?.frequencyPenalty ?? modelDefaults.frequencyPenalty,
       presencePenalty:
         requestSettings?.presencePenalty ?? modelDefaults.presencePenalty,
+      topK: requestSettings?.topK ?? modelDefaults.topK,
+      minP: requestSettings?.minP ?? modelDefaults.minP,
+      repeatPenalty:
+        requestSettings?.repeatPenalty ?? modelDefaults.repeatPenalty,
+      seed: requestSettings?.seed ?? modelDefaults.seed,
       user: requestSettings?.user ?? modelDefaults.user,
       supportsSystemMessage:
         requestSettings?.supportsSystemMessage ??
@@ -169,6 +174,10 @@ export class SettingsManager {
       'stopSequences',
       'frequencyPenalty',
       'presencePenalty',
+      'topK',
+      'minP',
+      'repeatPenalty',
+      'seed',
       'user',
       'supportsSystemMessage',
       'geminiSafetySettings',
@@ -217,6 +226,34 @@ export class SettingsManager {
       if ((key === 'frequencyPenalty' || key === 'presencePenalty')) {
         if (typeof value !== 'number' || value < -2 || value > 2) {
           this.logger.warn(`Invalid ${key} value in template: ${value}. Must be a number between -2 and 2.`);
+          continue;
+        }
+      }
+
+      if (key === 'topK') {
+        if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
+          this.logger.warn(`Invalid topK value in template: ${value}. Must be a non-negative integer.`);
+          continue;
+        }
+      }
+
+      if (key === 'minP') {
+        if (typeof value !== 'number' || value < 0 || value > 1) {
+          this.logger.warn(`Invalid minP value in template: ${value}. Must be a number between 0 and 1.`);
+          continue;
+        }
+      }
+
+      if (key === 'repeatPenalty') {
+        if (typeof value !== 'number' || value <= 0) {
+          this.logger.warn(`Invalid repeatPenalty value in template: ${value}. Must be a positive number.`);
+          continue;
+        }
+      }
+
+      if (key === 'seed') {
+        if (typeof value !== 'number' || !Number.isInteger(value)) {
+          this.logger.warn(`Invalid seed value in template: ${value}. Must be an integer.`);
           continue;
         }
       }

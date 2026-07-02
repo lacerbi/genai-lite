@@ -107,6 +107,9 @@ export class MistralClientAdapter implements ILLMClientAdapter {
         ...(request.settings.stopSequences.length > 0 && {
           stop: request.settings.stopSequences,
         }),
+        ...(request.settings.seed !== undefined && {
+          randomSeed: request.settings.seed,
+        }),
         // Note: Mistral does not support frequency_penalty or presence_penalty
       };
 

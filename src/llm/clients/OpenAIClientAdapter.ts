@@ -80,6 +80,9 @@ export class OpenAIClientAdapter implements ILLMClientAdapter {
           ...(request.settings.presencePenalty !== 0 && {
             presence_penalty: request.settings.presencePenalty,
           }),
+          ...(request.settings.seed !== undefined && {
+            seed: request.settings.seed,
+          }),
           ...(request.settings.user && {
             user: request.settings.user,
           }),

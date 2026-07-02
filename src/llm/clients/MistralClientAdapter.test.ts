@@ -41,6 +41,10 @@ describe('MistralClientAdapter', () => {
         topP: 1,
         frequencyPenalty: 0,
         presencePenalty: 0,
+        topK: undefined as any,
+        minP: undefined as any,
+        repeatPenalty: undefined as any,
+        seed: undefined as any,
         stopSequences: [],
         user: undefined as any,
         geminiSafetySettings: [],
@@ -110,6 +114,36 @@ describe('MistralClientAdapter', () => {
       expect(successResponse.model).toBe('mistral-small-latest');
       expect(successResponse.choices[0].message.content).toBe('Hello! How can I help you today?');
       expect(successResponse.usage?.total_tokens).toBe(30);
+    });
+
+    it('should map seed to randomSeed and never send top_k-style params', async () => {
+      mockComplete.mockResolvedValueOnce({
+        id: 'chat-seed',
+        object: 'chat.completion',
+        created: 1234567890,
+        model: 'mistral-small-latest',
+        choices: [{
+          index: 0,
+          message: { role: 'assistant', content: 'Hi' },
+          finishReason: 'stop'
+        }],
+        usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 }
+      });
+
+      basicRequest.settings.seed = 7;
+      // Even if these survive service-level filtering, the adapter must not emit them
+      basicRequest.settings.topK = 40;
+      basicRequest.settings.minP = 0.05;
+      basicRequest.settings.repeatPenalty = 1.1;
+
+      await adapter.sendMessage(basicRequest, 'test-api-key-12345678901234567890');
+
+      const params = mockComplete.mock.calls[0][0];
+      expect(params.randomSeed).toBe(7);
+      expect(params).not.toHaveProperty('topK');
+      expect(params).not.toHaveProperty('top_k');
+      expect(params).not.toHaveProperty('minP');
+      expect(params).not.toHaveProperty('repeatPenalty');
     });
 
     it('should handle system messages correctly', async () => {
