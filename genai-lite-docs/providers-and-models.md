@@ -314,8 +314,9 @@ Some models support advanced reasoning capabilities for enhanced problem-solving
 **OpenAI**: `gpt-5.2`, `gpt-5.1`, `gpt-5-mini-2025-08-07`, `gpt-5-nano-2025-08-07`, `o4-mini` (always on)
 
 **llama.cpp** (local, via GGUF detection — requires llama-server `--jinja`):
-- **Hybrid (toggle with `reasoning.enabled`)**: Qwen 3.x (3.5, 3.6, original), Gemma 4, Ministral 3 (Instruct template)
+- **Hybrid (toggle with `reasoning.enabled`)**: Qwen 3.x (3.5, 3.6, original), Gemma 4
 - **Always-on**: GPT-OSS, DeepSeek R1, Qwen 3 Thinking-2507, Ministral 3 Reasoning variants
+- **Not reasoning-capable** (thinking kept off via the template flag): Ministral 3 Instruct
 
 See [Reasoning on/off for Hybrid Models](llamacpp-integration.md#reasoning-onoff-for-hybrid-models).
 

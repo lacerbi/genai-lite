@@ -14,11 +14,12 @@ export { renderTemplate } from './template';
 export { countTokens, getSmartPreview, extractRandomVariables } from './content';
 
 // Response parsing
-export { 
-  parseStructuredContent, 
-  extractInitialTaggedContent, 
-  parseRoleTags, 
-  parseTemplateWithMetadata 
+export {
+  parseStructuredContent,
+  extractInitialTaggedContent,
+  extractMarkerDelimitedContent,
+  parseRoleTags,
+  parseTemplateWithMetadata
 } from './parser';
 
 // Types

@@ -85,8 +85,8 @@ export MISTRAL_API_KEY=...
 For local models via llama.cpp or genai-electron, no API keys are needed:
 
 ```bash
-# llama.cpp base URL (optional, default: http://localhost:8080)
-export LLAMACPP_API_BASE_URL=http://localhost:8080
+# llama.cpp base URL (optional, default: http://127.0.0.1:8080)
+export LLAMACPP_API_BASE_URL=http://127.0.0.1:8080
 
 # genai-electron base URL (optional, default: http://localhost:8081)
 export GENAI_ELECTRON_IMAGE_BASE_URL=http://localhost:8081

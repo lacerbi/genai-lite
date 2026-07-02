@@ -116,7 +116,7 @@ if (response.object === 'chat.completion') {
 export LLAMACPP_API_BASE_URL=http://127.0.0.1:8080  # Default
 ```
 
-> **Note (Windows):** the default base URL is `http://127.0.0.1:8080`, not `http://localhost:8080`. On Windows, `localhost` resolves to IPv6 (`::1`) first; when llama-server listens on IPv4 only, every fresh connection waits ~2s for the IPv6 attempt to time out (measured ~9x per-request slowdown). Using `127.0.0.1` avoids this. Set `LLAMACPP_API_BASE_URL` to override.
+> **Note (Windows):** the default base URL is `http://127.0.0.1:8080`, not `http://127.0.0.1:8080`. On Windows, `localhost` resolves to IPv6 (`::1`) first; when llama-server listens on IPv4 only, every fresh connection waits ~2s for the IPv6 attempt to time out (measured ~9x per-request slowdown). Using `127.0.0.1` avoids this. Set `LLAMACPP_API_BASE_URL` to override.
 
 ### Multiple Servers
 
@@ -127,7 +127,7 @@ const service = new LLMService(async () => 'not-needed');
 
 service.registerAdapter(
   'llamacpp-small',
-  new LlamaCppClientAdapter({ baseURL: 'http://localhost:8080' })
+  new LlamaCppClientAdapter({ baseURL: 'http://127.0.0.1:8080' })
 );
 
 service.registerAdapter(
@@ -148,7 +148,7 @@ const response = await service.sendMessage({
 import { LlamaCppClientAdapter } from 'genai-lite';
 
 const adapter = new LlamaCppClientAdapter({
-  baseURL: 'http://localhost:8080',
+  baseURL: 'http://127.0.0.1:8080',
   checkHealth: true
 });
 
@@ -262,7 +262,7 @@ Template-injected "nothink" prefixes (an empty think block some templates leak i
 ```typescript
 import { LlamaCppServerClient } from 'genai-lite';
 
-const client = new LlamaCppServerClient('http://localhost:8080');
+const client = new LlamaCppServerClient('http://127.0.0.1:8080');
 
 const health = await client.getHealth();
 console.log(health.status); // 'ok', 'loading', or 'error'
@@ -276,7 +276,7 @@ const metrics = await client.getMetrics();
 ### Tokenization
 
 ```typescript
-const client = new LlamaCppServerClient('http://localhost:8080');
+const client = new LlamaCppServerClient('http://127.0.0.1:8080');
 
 const { tokens } = await client.tokenize('Hello, world!');
 console.log(tokens);
@@ -293,7 +293,7 @@ const { content } = await client.detokenize([123, 456, 789]);
 ### Text Embeddings
 
 ```typescript
-const client = new LlamaCppServerClient('http://localhost:8080');
+const client = new LlamaCppServerClient('http://127.0.0.1:8080');
 
 const { embedding } = await client.createEmbedding('Search query text');
 console.log(embedding.length);
@@ -307,7 +307,7 @@ const { embedding: multimodalEmbed } = await client.createEmbedding(
 ### Code Infilling
 
 ```typescript
-const client = new LlamaCppServerClient('http://localhost:8080');
+const client = new LlamaCppServerClient('http://127.0.0.1:8080');
 
 const result = await client.infill(
   'def calculate_fibonacci(n):\n    ',
@@ -399,7 +399,7 @@ if (response.object === 'error') {
 
 **Server not responding:**
 ```bash
-curl http://localhost:8080/health  # Should return: {"status":"ok"}
+curl http://127.0.0.1:8080/health  # Should return: {"status":"ok"}
 ps aux | grep llama-server
 lsof -i :8080
 ```

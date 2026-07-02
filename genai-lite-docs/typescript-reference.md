@@ -244,7 +244,7 @@ interface LLMSettings {
 }
 
 interface LLMReasoningSettings {
-  enabled: boolean;
+  enabled?: boolean;
   effort?: 'low' | 'medium' | 'high';
   maxTokens?: number;
   exclude?: boolean;
@@ -266,7 +266,7 @@ interface LocalReasoningMetadata {
 }
 
 interface LLMThinkingTagFallbackSettings {
-  enabled: boolean;
+  enabled?: boolean;
   tagName?: string;
   enforce?: boolean;
 }
@@ -337,8 +337,8 @@ interface ModelContext {
 
 interface CreateMessagesResult {
   messages: LLMMessage[];
-  modelContext: ModelContext;
-  settings?: Partial<LLMSettings>;
+  modelContext: ModelContext | null;
+  settings: Partial<LLMSettings>;
 }
 
 interface TemplateMetadata {
@@ -489,11 +489,13 @@ interface ImagePreset {
 
 ```typescript
 interface LlamaCppClientConfig {
-  baseURL?: string;
-  timeout?: number;
+  baseURL?: string;      // default: http://127.0.0.1:8080
   checkHealth?: boolean;
+  logger?: Logger;
 }
 ```
+
+Request timeouts are configured at the service level (`LLMServiceOptions.timeoutMs`) or per call (`SendMessageOptions.timeoutMs`), not on the adapter.
 
 ### Server Response Types
 
@@ -601,7 +603,7 @@ function extractRandomVariables(
 
 function parseTemplateWithMetadata(
   template: string
-): { template: string; metadata: TemplateMetadata };
+): { metadata: TemplateMetadata; content: string };
 ```
 
 ## Logging Types

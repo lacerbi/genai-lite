@@ -59,7 +59,7 @@ const imageService = new ImageService(fromEnvironment);
 
 **Optional: Override base URLs** via environment variables:
 - `OPENAI_API_BASE_URL` - Override OpenAI endpoint (default: `https://api.openai.com/v1`)
-- `LLAMACPP_API_BASE_URL` - Local llama.cpp server (default: `http://localhost:8080`)
+- `LLAMACPP_API_BASE_URL` - Local llama.cpp server (default: `http://127.0.0.1:8080`)
 - `GENAI_ELECTRON_IMAGE_BASE_URL` - Local diffusion server (default: `http://localhost:8081`)
 
 ### Custom API Key Providers

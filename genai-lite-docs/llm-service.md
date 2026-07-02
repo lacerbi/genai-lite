@@ -712,9 +712,9 @@ const response = await llmService.sendMessage({
 
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
-| `temperature` | number | 0.7 | Controls randomness (0=deterministic, 2=very random) |
+| `temperature` | number | 0.5 | Controls randomness (0=deterministic, 2=very random) |
 | `maxTokens` | number | Model default | Maximum tokens to generate |
-| `topP` | number | 1.0 | Nucleus sampling threshold |
+| `topP` | number | 0.95 | Nucleus sampling threshold |
 | `stopSequences` | string[] | `[]` | Stop generation at these sequences |
 | `topK` | number | - | Limit sampling to the K most likely tokens (integer ≥ 0; 0 disables). Anthropic, Gemini, llama.cpp, OpenRouter |
 | `minP` | number | - | Minimum probability relative to the top token (0.0-1.0; 0 disables). llama.cpp, OpenRouter |

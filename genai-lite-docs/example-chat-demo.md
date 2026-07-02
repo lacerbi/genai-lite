@@ -75,7 +75,7 @@ async function checkApiKeyAvailable(providerId: string): Promise<boolean> {
   // For llama.cpp, check if the server is running
   if (providerId === 'llamacpp') {
     try {
-      const baseURL = process.env.LLAMACPP_API_BASE_URL || 'http://localhost:8080';
+      const baseURL = process.env.LLAMACPP_API_BASE_URL || 'http://127.0.0.1:8080';
       const response = await fetch(`${baseURL}/health`, {
         signal: AbortSignal.timeout(2000)  // 2 second timeout
       });
@@ -220,7 +220,7 @@ Frontend displays rendered messages, model context variables, and resolved setti
 // server/routes/llamacpp.ts
 import { LlamaCppServerClient } from 'genai-lite';
 
-const baseURL = process.env.LLAMACPP_API_BASE_URL || 'http://localhost:8080';
+const baseURL = process.env.LLAMACPP_API_BASE_URL || 'http://127.0.0.1:8080';
 const llamacppClient = new LlamaCppServerClient(baseURL);
 
 // Tokenization
@@ -373,7 +373,7 @@ cp .env.example .env
 # Edit .env: OPENAI_API_KEY=sk-..., ANTHROPIC_API_KEY=sk-ant-..., etc.
 
 # For llama.cpp (optional):
-# export LLAMACPP_API_BASE_URL=http://localhost:8080
+# export LLAMACPP_API_BASE_URL=http://127.0.0.1:8080
 
 npm run dev
 # Frontend: http://localhost:5173

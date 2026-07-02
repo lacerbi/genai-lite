@@ -279,7 +279,7 @@ curl $GENAI_ELECTRON_IMAGE_BASE_URL/health
 
 ### Network Error Codes
 
-From `errorUtils.ts:92-102`:
+Recognized network error codes (mapped in `src/shared/adapters/errorUtils.ts`):
 - `ENOTFOUND`: DNS resolution failed (check hostname)
 - `ECONNREFUSED`: Server not listening (check if server is running)
 - `ETIMEDOUT`: Connection timed out (check network/firewall)
