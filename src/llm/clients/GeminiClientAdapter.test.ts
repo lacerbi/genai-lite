@@ -130,6 +130,27 @@ describe('GeminiClientAdapter', () => {
       expect(callArgs.config).not.toHaveProperty('repeat_penalty');
     });
 
+    it('should pass abort signal and timeout into the request config', async () => {
+      mockGenerateContent.mockResolvedValueOnce({
+        text: () => 'Hi',
+        candidates: [{
+          finishReason: 'STOP',
+          content: { parts: [{ text: 'Hi' }], role: 'model' }
+        }],
+        usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 1, totalTokenCount: 2 }
+      });
+
+      const controller = new AbortController();
+      await adapter.sendMessage(basicRequest, 'test-api-key', {
+        signal: controller.signal,
+        timeoutMs: 7000,
+      });
+
+      const callArgs = mockGenerateContent.mock.calls[0][0];
+      expect(callArgs.config.abortSignal).toBe(controller.signal);
+      expect(callArgs.config.httpOptions).toEqual({ timeout: 7000 });
+    });
+
     it('should handle system messages correctly', async () => {
       basicRequest.messages = [
         { role: 'system', content: 'You are a helpful assistant.' },

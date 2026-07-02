@@ -531,6 +531,10 @@ export interface LLMError {
   code?: string | number;
   type?: string;
   param?: string;
+  /** HTTP status code from the provider, when available */
+  status?: number;
+  /** Provider-suggested wait before retrying in ms (from a Retry-After header) */
+  retryAfterMs?: number;
   providerError?: any;
 }
 

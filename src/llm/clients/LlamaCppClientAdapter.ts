@@ -6,6 +6,7 @@ import type { LLMResponse, LLMFailureResponse, ModelInfo } from "../types";
 import type {
   ILLMClientAdapter,
   InternalLLMChatRequest,
+  AdapterRequestOptions,
 } from "./types";
 import { ADAPTER_ERROR_CODES } from "./types";
 import { getCommonMappedErrorDetails } from "../../shared/adapters/errorUtils";
@@ -162,7 +163,8 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
    */
   async sendMessage(
     request: InternalLLMChatRequest,
-    apiKey: string
+    apiKey: string,
+    options?: AdapterRequestOptions
   ): Promise<LLMResponse | LLMFailureResponse> {
     try {
       // Optional health check before making request
@@ -191,6 +193,7 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
       const openai = new OpenAI({
         apiKey: apiKey || 'not-needed',
         baseURL: `${this.baseURL}/v1`,
+        maxRetries: 0, // retries are owned by the unified LLMService retry layer
       });
 
       // Format messages for OpenAI-compatible API
@@ -304,7 +307,14 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
       this.logger.info(`Making llama.cpp API call for model: ${request.modelId}`);
 
       // Make the API call
-      const completion = await openai.chat.completions.create(completionParams);
+      const transportOptions = {
+        ...(options?.signal && { signal: options.signal }),
+        ...(options?.timeoutMs !== undefined && { timeout: options.timeoutMs }),
+      };
+      const completion =
+        Object.keys(transportOptions).length > 0
+          ? await openai.chat.completions.create(completionParams, transportOptions)
+          : await openai.chat.completions.create(completionParams);
 
       // Type guard to ensure we have a non-streaming response
       if ('id' in completion && 'choices' in completion) {
@@ -577,6 +587,7 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
         code: mappedError.errorCode,
         type: mappedError.errorType,
         ...(mappedError.status && { status: mappedError.status }),
+        ...(mappedError.retryAfterMs !== undefined && { retryAfterMs: mappedError.retryAfterMs }),
         providerError: error,
       },
       object: "error",

@@ -149,6 +149,32 @@ describe('MistralClientAdapter', () => {
       expect(params).not.toHaveProperty('repeatPenalty');
     });
 
+    it('should pass timeout and abort signal as per-call options', async () => {
+      mockComplete.mockResolvedValueOnce({
+        id: 'chat-transport',
+        object: 'chat.completion',
+        created: 1234567890,
+        model: 'mistral-small-latest',
+        choices: [{
+          index: 0,
+          message: { role: 'assistant', content: 'Hi' },
+          finishReason: 'stop'
+        }],
+        usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 }
+      });
+
+      const controller = new AbortController();
+      await adapter.sendMessage(basicRequest, 'test-api-key-12345678901234567890', {
+        signal: controller.signal,
+        timeoutMs: 9000,
+      });
+
+      expect(mockComplete).toHaveBeenCalledWith(expect.anything(), {
+        timeoutMs: 9000,
+        fetchOptions: { signal: controller.signal },
+      });
+    });
+
     it('should handle system messages correctly', async () => {
       basicRequest.messages = [
         { role: 'system', content: 'You are a helpful assistant.' },

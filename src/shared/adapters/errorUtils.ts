@@ -12,6 +12,52 @@ export interface MappedErrorDetails {
   errorMessage: string;
   errorType: string;
   status?: number;
+  /** Provider-suggested wait before retrying (parsed from a Retry-After header) */
+  retryAfterMs?: number;
+}
+
+/**
+ * Parses a Retry-After header value (delta-seconds or HTTP-date) into milliseconds.
+ *
+ * @param value - The raw header value
+ * @returns Milliseconds to wait, or undefined when unparseable/negative
+ */
+export function parseRetryAfterMs(value: string | null | undefined): number | undefined {
+  if (!value) return undefined;
+
+  const seconds = Number(value);
+  if (!Number.isNaN(seconds)) {
+    return seconds >= 0 ? Math.round(seconds * 1000) : undefined;
+  }
+
+  const dateMs = Date.parse(value);
+  if (!Number.isNaN(dateMs)) {
+    const delta = dateMs - Date.now();
+    return delta > 0 ? delta : undefined;
+  }
+
+  return undefined;
+}
+
+/**
+ * Extracts a Retry-After value in ms from an SDK error object, tolerating the
+ * different places SDKs keep response headers (openai/anthropic `error.headers`
+ * as a Headers instance or plain object; Speakeasy-style `error.rawResponse`).
+ */
+export function extractRetryAfterMs(error: any): number | undefined {
+  const headerSources = [error?.headers, error?.rawResponse?.headers];
+  for (const headers of headerSources) {
+    if (!headers) continue;
+    let raw: string | null | undefined;
+    if (typeof headers.get === 'function') {
+      raw = headers.get('retry-after');
+    } else if (typeof headers === 'object') {
+      raw = headers['retry-after'] ?? headers['Retry-After'];
+    }
+    const parsed = parseRetryAfterMs(raw);
+    if (parsed !== undefined) return parsed;
+  }
+  return undefined;
 }
 
 /**
@@ -37,6 +83,33 @@ export function getCommonMappedErrorDetails(
   let errorMessage = providerMessageOverride || error?.message || 'Unknown error occurred';
   let errorType = 'server_error';
   let status: number | undefined;
+  const retryAfterMs = extractRetryAfterMs(error);
+
+  // Handle user-initiated aborts and client-side timeouts first — the SDKs raise
+  // these as named errors (openai: APIUserAbortError/APIConnectionTimeoutError;
+  // fetch/undici: AbortError/TimeoutError DOMExceptions)
+  if (
+    error &&
+    (error.name === 'APIUserAbortError' ||
+      error.name === 'AbortError' ||
+      (error instanceof DOMException && error.name === 'AbortError'))
+  ) {
+    return {
+      errorCode: ADAPTER_ERROR_CODES.REQUEST_ABORTED,
+      errorMessage: providerMessageOverride || error.message || 'Request was aborted',
+      errorType: 'abort_error',
+    };
+  }
+  if (
+    error &&
+    (error.name === 'APIConnectionTimeoutError' || error.name === 'TimeoutError')
+  ) {
+    return {
+      errorCode: ADAPTER_ERROR_CODES.REQUEST_TIMEOUT,
+      errorMessage: providerMessageOverride || error.message || 'Request timed out',
+      errorType: 'timeout_error',
+    };
+  }
 
   // Handle API errors with HTTP status codes
   if (error && typeof error.status === 'number') {
@@ -117,6 +190,7 @@ export function getCommonMappedErrorDetails(
     errorCode,
     errorMessage,
     errorType,
-    status
+    status,
+    ...(retryAfterMs !== undefined && { retryAfterMs })
   };
 }

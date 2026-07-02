@@ -11,6 +11,7 @@ import type {
   ILLMClientAdapter,
   InternalLLMChatRequest,
   AdapterErrorCode,
+  AdapterRequestOptions,
 } from "./types";
 import { ADAPTER_ERROR_CODES } from "./types";
 import { getCommonMappedErrorDetails } from "../../shared/adapters/errorUtils";
@@ -56,10 +57,11 @@ export class GeminiClientAdapter implements ILLMClientAdapter {
    */
   async sendMessage(
     request: InternalLLMChatRequest,
-    apiKey: string
+    apiKey: string,
+    options?: AdapterRequestOptions
   ): Promise<LLMResponse | LLMFailureResponse> {
     try {
-      // Initialize Gemini client
+      // Initialize Gemini client (note: @google/genai performs no automatic retries)
       const genAI = new GoogleGenAI({ apiKey });
 
       // Format the request for Gemini API
@@ -84,6 +86,10 @@ export class GeminiClientAdapter implements ILLMClientAdapter {
           ...generationConfig,
           safetySettings: safetySettings,
           ...(systemInstruction && { systemInstruction: systemInstruction }),
+          ...(options?.signal && { abortSignal: options.signal }),
+          ...(options?.timeoutMs !== undefined && {
+            httpOptions: { timeout: options.timeoutMs },
+          }),
         },
       });
 
@@ -387,7 +393,7 @@ export class GeminiClientAdapter implements ILLMClientAdapter {
   ): LLMFailureResponse {
     // Use shared error mapping utility for common error patterns
     const initialProviderMessage = error?.message;
-    let { errorCode, errorMessage, errorType, status } =
+    let { errorCode, errorMessage, errorType, status, retryAfterMs } =
       getCommonMappedErrorDetails(error, initialProviderMessage);
 
     // Apply Gemini-specific refinements for certain error types
@@ -420,6 +426,7 @@ export class GeminiClientAdapter implements ILLMClientAdapter {
         code: errorCode,
         type: errorType,
         ...(status && { status }),
+        ...(retryAfterMs !== undefined && { retryAfterMs }),
         providerError: error,
       },
       object: "error",

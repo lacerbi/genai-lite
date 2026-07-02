@@ -1,4 +1,5 @@
 import { LLMService } from './LLMService';
+import { MockClientAdapter } from './clients/MockClientAdapter';
 import type { ApiKeyProvider } from '../types';
 import type { LLMChatRequest, LLMResponse, LLMFailureResponse } from './types';
 
@@ -37,6 +38,113 @@ describe('LLMService', () => {
       
       // Verify API key provider was called
       expect(mockApiKeyProvider).toHaveBeenCalledWith('openai');
+    });
+  });
+
+  describe('retry layer', () => {
+    const mockRequest = (content: string): LLMChatRequest => ({
+      providerId: 'mock',
+      modelId: 'mock-model',
+      messages: [{ role: 'user', content }],
+    });
+
+    it('retries transient failures and returns the last failure after exhaustion', async () => {
+      const retryingService = new LLMService(mockApiKeyProvider, {
+        retry: { maxRetries: 2, initialDelayMs: 1, maxDelayMs: 2 },
+        logLevel: 'silent',
+      });
+      const spy = jest.spyOn(MockClientAdapter.prototype, 'sendMessage');
+
+      const response = await retryingService.sendMessage(mockRequest('error_rate_limit'));
+
+      expect(response.object).toBe('error');
+      expect((response as LLMFailureResponse).error.code).toBe('RATE_LIMIT_EXCEEDED');
+      expect(spy).toHaveBeenCalledTimes(3); // 1 initial + 2 retries
+
+      spy.mockRestore();
+    });
+
+    it('does not retry non-retryable failures', async () => {
+      const retryingService = new LLMService(mockApiKeyProvider, {
+        retry: { maxRetries: 2, initialDelayMs: 1 },
+        logLevel: 'silent',
+      });
+      const spy = jest.spyOn(MockClientAdapter.prototype, 'sendMessage');
+
+      const response = await retryingService.sendMessage(mockRequest('error_invalid_key'));
+
+      expect(response.object).toBe('error');
+      expect(spy).toHaveBeenCalledTimes(1);
+
+      spy.mockRestore();
+    });
+
+    it('does not retry successful responses', async () => {
+      const retryingService = new LLMService(mockApiKeyProvider, {
+        retry: { maxRetries: 2, initialDelayMs: 1 },
+        logLevel: 'silent',
+      });
+      const spy = jest.spyOn(MockClientAdapter.prototype, 'sendMessage');
+
+      const response = await retryingService.sendMessage(mockRequest('Hello'));
+
+      expect(response.object).toBe('chat.completion');
+      expect(spy).toHaveBeenCalledTimes(1);
+
+      spy.mockRestore();
+    });
+
+    it('can be disabled with maxRetries: 0', async () => {
+      const noRetryService = new LLMService(mockApiKeyProvider, {
+        retry: { maxRetries: 0 },
+        logLevel: 'silent',
+      });
+      const spy = jest.spyOn(MockClientAdapter.prototype, 'sendMessage');
+
+      await noRetryService.sendMessage(mockRequest('error_rate_limit'));
+
+      expect(spy).toHaveBeenCalledTimes(1);
+
+      spy.mockRestore();
+    });
+
+    it('returns REQUEST_ABORTED without retrying when the signal is aborted', async () => {
+      const retryingService = new LLMService(mockApiKeyProvider, {
+        retry: { maxRetries: 2, initialDelayMs: 1 },
+        logLevel: 'silent',
+      });
+      const spy = jest.spyOn(MockClientAdapter.prototype, 'sendMessage');
+      const controller = new AbortController();
+      controller.abort();
+
+      const response = await retryingService.sendMessage(mockRequest('Hello'), {
+        signal: controller.signal,
+      });
+
+      expect(response.object).toBe('error');
+      expect((response as LLMFailureResponse).error.code).toBe('REQUEST_ABORTED');
+      expect(spy).toHaveBeenCalledTimes(1);
+
+      spy.mockRestore();
+    });
+
+    it('passes signal and timeout through to the adapter', async () => {
+      const timedService = new LLMService(mockApiKeyProvider, {
+        timeoutMs: 12345,
+        logLevel: 'silent',
+      });
+      const spy = jest.spyOn(MockClientAdapter.prototype, 'sendMessage');
+      const controller = new AbortController();
+
+      await timedService.sendMessage(mockRequest('Hello'), { signal: controller.signal });
+
+      expect(spy).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.any(String),
+        expect.objectContaining({ signal: controller.signal, timeoutMs: 12345 })
+      );
+
+      spy.mockRestore();
     });
   });
 

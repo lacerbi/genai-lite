@@ -241,6 +241,7 @@ describe('OpenRouterClientAdapter', () => {
       // Verify OpenAI was instantiated with the API key and OpenRouter base URL
       expect(MockOpenAI).toHaveBeenCalledWith({
         apiKey: 'sk-or-v1-test-api-key',
+        maxRetries: 0,
         baseURL: 'https://openrouter.ai/api/v1',
         defaultHeaders: {}
       });

@@ -89,7 +89,8 @@ describe('AnthropicClientAdapter', () => {
       // Verify Anthropic was instantiated with the API key
       expect(MockAnthropic).toHaveBeenCalledWith({
         apiKey: 'test-api-key',
-        baseURL: undefined
+        baseURL: undefined,
+        maxRetries: 0
       });
 
       // Verify the create method was called with correct parameters

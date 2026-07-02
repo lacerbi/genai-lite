@@ -94,7 +94,8 @@ describe('OpenAIClientAdapter', () => {
       // Verify OpenAI was instantiated with the API key
       expect(MockOpenAI).toHaveBeenCalledWith({
         apiKey: 'test-api-key',
-        baseURL: undefined
+        baseURL: undefined,
+        maxRetries: 0
       });
 
       // Verify the create method was called with correct parameters
@@ -181,6 +182,32 @@ describe('OpenAIClientAdapter', () => {
       ]);
     });
 
+    it('should pass abort signal and timeout to the SDK call', async () => {
+      mockCreate.mockResolvedValueOnce({
+        id: 'chatcmpl-transport',
+        object: 'chat.completion',
+        created: 1234567890,
+        model: 'gpt-4.1',
+        choices: [{
+          index: 0,
+          message: { role: 'assistant', content: 'Hi' },
+          finish_reason: 'stop'
+        }],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 }
+      });
+
+      const controller = new AbortController();
+      await adapter.sendMessage(basicRequest, 'test-api-key', {
+        signal: controller.signal,
+        timeoutMs: 5000,
+      });
+
+      expect(mockCreate).toHaveBeenCalledWith(expect.anything(), {
+        signal: controller.signal,
+        timeout: 5000,
+      });
+    });
+
     it('should handle system messages correctly', async () => {
       basicRequest.messages = [
         { role: 'system', content: 'You are a helpful assistant.' },
@@ -250,7 +277,8 @@ describe('OpenAIClientAdapter', () => {
 
       expect(MockOpenAI).toHaveBeenCalledWith({
         apiKey: 'test-api-key',
-        baseURL: 'https://custom.api.com'
+        baseURL: 'https://custom.api.com',
+        maxRetries: 0
       });
     });
 

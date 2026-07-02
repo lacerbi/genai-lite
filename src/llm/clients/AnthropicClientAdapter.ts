@@ -7,6 +7,7 @@ import type {
   ILLMClientAdapter,
   InternalLLMChatRequest,
   AdapterErrorCode,
+  AdapterRequestOptions,
 } from "./types";
 import { ADAPTER_ERROR_CODES } from "./types";
 import { getCommonMappedErrorDetails } from "../../shared/adapters/errorUtils";
@@ -52,7 +53,8 @@ export class AnthropicClientAdapter implements ILLMClientAdapter {
    */
   async sendMessage(
     request: InternalLLMChatRequest,
-    apiKey: string
+    apiKey: string,
+    options?: AdapterRequestOptions
   ): Promise<LLMResponse | LLMFailureResponse> {
     try {
       // Check if structured output is requested - need beta API
@@ -63,7 +65,14 @@ export class AnthropicClientAdapter implements ILLMClientAdapter {
       const anthropic = new Anthropic({
         apiKey,
         ...(this.baseURL && { baseURL: this.baseURL }),
+        maxRetries: 0, // retries are owned by the unified LLMService retry layer
       });
+
+      // Per-request transport options (abort signal, timeout)
+      const requestTransportOptions = {
+        ...(options?.signal && { signal: options.signal }),
+        ...(options?.timeoutMs !== undefined && { timeout: options.timeoutMs }),
+      };
 
       // Format messages for Anthropic API (Claude has specific requirements)
       const { messages, systemMessage } =
@@ -160,9 +169,13 @@ export class AnthropicClientAdapter implements ILLMClientAdapter {
           headers: {
             'anthropic-beta': 'structured-outputs-2025-11-13',
           },
+          ...requestTransportOptions,
         } as any);
       } else {
-        completion = await anthropic.messages.create(messageParams);
+        completion =
+          Object.keys(requestTransportOptions).length > 0
+            ? await anthropic.messages.create(messageParams, requestTransportOptions)
+            : await anthropic.messages.create(messageParams);
       }
 
       this.logger.info(
@@ -471,7 +484,7 @@ export class AnthropicClientAdapter implements ILLMClientAdapter {
     // Use shared error mapping utility for common error patterns
     const initialProviderMessage =
       error instanceof Anthropic.APIError ? error.message : undefined;
-    let { errorCode, errorMessage, errorType, status } =
+    let { errorCode, errorMessage, errorType, status, retryAfterMs } =
       getCommonMappedErrorDetails(error, initialProviderMessage);
 
     // Apply Anthropic-specific refinements for 400 errors based on message content
@@ -499,6 +512,7 @@ export class AnthropicClientAdapter implements ILLMClientAdapter {
         code: errorCode,
         type: errorType,
         ...(status && { status }),
+        ...(retryAfterMs !== undefined && { retryAfterMs }),
         providerError: error,
       },
       object: "error",

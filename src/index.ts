@@ -3,7 +3,11 @@ export type { ApiKeyProvider, PresetMode } from "./types";
 
 // --- LLM Service ---
 export { LLMService } from "./llm/LLMService";
-export type { LLMServiceOptions, CreateMessagesResult } from "./llm/LLMService";
+export type { LLMServiceOptions, SendMessageOptions, CreateMessagesResult } from "./llm/LLMService";
+
+// --- Retry Utilities ---
+export { withRetry, DEFAULT_RETRY_POLICY } from "./shared/services/withRetry";
+export type { RetryPolicy, RetryVerdict, WithRetryOptions } from "./shared/services/withRetry";
 
 // --- Model Presets ---
 export type { ModelPreset } from "./types/presets";

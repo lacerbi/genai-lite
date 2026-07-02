@@ -6,6 +6,7 @@ import type { LLMResponse, LLMFailureResponse } from "../types";
 import type {
   ILLMClientAdapter,
   InternalLLMChatRequest,
+  AdapterRequestOptions,
 } from "./types";
 import { ADAPTER_ERROR_CODES } from "./types";
 import { getCommonMappedErrorDetails } from "../../shared/adapters/errorUtils";
@@ -88,12 +89,14 @@ export class OpenRouterClientAdapter implements ILLMClientAdapter {
    */
   async sendMessage(
     request: InternalLLMChatRequest,
-    apiKey: string
+    apiKey: string,
+    options?: AdapterRequestOptions
   ): Promise<LLMResponse | LLMFailureResponse> {
     try {
       // Initialize OpenAI client with OpenRouter base URL and custom headers
       const openai = new OpenAI({
         apiKey,
+        maxRetries: 0, // retries are owned by the unified LLMService retry layer
         baseURL: this.baseURL,
         defaultHeaders: {
           ...(this.httpReferer && { 'HTTP-Referer': this.httpReferer }),
@@ -219,7 +222,14 @@ export class OpenRouterClientAdapter implements ILLMClientAdapter {
       this.logger.info(`Making OpenRouter API call for model: ${request.modelId}`);
 
       // Make the API call
-      const completion = await openai.chat.completions.create(completionParams);
+      const transportOptions = {
+        ...(options?.signal && { signal: options.signal }),
+        ...(options?.timeoutMs !== undefined && { timeout: options.timeoutMs }),
+      };
+      const completion =
+        Object.keys(transportOptions).length > 0
+          ? await openai.chat.completions.create(completionParams, transportOptions)
+          : await openai.chat.completions.create(completionParams);
 
       // Type guard to ensure we have a non-streaming response
       if ('id' in completion && 'choices' in completion) {
@@ -421,6 +431,7 @@ export class OpenRouterClientAdapter implements ILLMClientAdapter {
         code: mappedError.errorCode,
         type: mappedError.errorType,
         ...(mappedError.status && { status: mappedError.status }),
+        ...(mappedError.retryAfterMs !== undefined && { retryAfterMs: mappedError.retryAfterMs }),
         providerError: error,
       },
       object: "error",
