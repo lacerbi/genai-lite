@@ -2,7 +2,7 @@
  * Tests for response parsing utilities
  */
 
-import { parseStructuredContent, extractInitialTaggedContent, parseRoleTags, parseTemplateWithMetadata } from './parser';
+import { parseStructuredContent, extractInitialTaggedContent, extractMarkerDelimitedContent, parseRoleTags, parseTemplateWithMetadata } from './parser';
 
 describe('parseStructuredContent', () => {
   it('should parse properly closed tags', () => {
@@ -590,5 +590,60 @@ describe('parseTemplateWithMetadata', () => {
     // META block not at start, so it's not parsed
     expect(result.metadata).toEqual({ settings: {} });
     expect(result.content).toBe(template);
+  });
+});
+
+describe('extractMarkerDelimitedContent', () => {
+  it('extracts a fully-closed marker pair from anywhere in the content', () => {
+    const result = extractMarkerDelimitedContent(
+      'prefix <think>reasoning here</think> suffix',
+      '<think>',
+      '</think>'
+    );
+    expect(result.extracted).toBe('reasoning here');
+    expect(result.content).toBe('prefix  suffix');
+  });
+
+  it('handles non-XML markers (Gemma 4 channel style)', () => {
+    const result = extractMarkerDelimitedContent(
+      '<|channel>thought\nsome plan\n<channel|>The answer.',
+      '<|channel>thought',
+      '<channel|>'
+    );
+    expect(result.extracted).toBe('some plan');
+    expect(result.content).toBe('The answer.');
+  });
+
+  it('returns content untouched when the open marker is missing', () => {
+    const result = extractMarkerDelimitedContent('no markers here', '<think>', '</think>');
+    expect(result.extracted).toBeNull();
+    expect(result.content).toBe('no markers here');
+  });
+
+  it('returns content untouched when the close marker is missing (unclosed pair)', () => {
+    const original = '<think>started thinking but never closed';
+    const result = extractMarkerDelimitedContent(original, '<think>', '</think>');
+    expect(result.extracted).toBeNull();
+    expect(result.content).toBe(original);
+  });
+
+  it('collapses empty extracted content to null but still strips the markers', () => {
+    const result = extractMarkerDelimitedContent(
+      '<think>   </think>Answer',
+      '<think>',
+      '</think>'
+    );
+    expect(result.extracted).toBeNull();
+    expect(result.content).toBe('Answer');
+  });
+
+  it('trims leading whitespace from the cleaned content', () => {
+    const result = extractMarkerDelimitedContent(
+      '<think>x</think>\n\nAnswer',
+      '<think>',
+      '</think>'
+    );
+    expect(result.content).toBe('Answer');
+    expect(result.extracted).toBe('x');
   });
 });

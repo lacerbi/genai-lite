@@ -195,7 +195,8 @@ export class LLMService {
       const finalSettings = this.settingsManager.mergeSettingsForModel(
         modelId!,
         providerId!,
-        combinedSettings
+        combinedSettings,
+        modelInfo
       );
 
       // Validate reasoning settings for model capabilities
@@ -517,7 +518,8 @@ export class LLMService {
         const mergedSettings = this.settingsManager.mergeSettingsForModel(
           modelId!,
           providerId!,
-          settings || {}
+          settings || {},
+          modelInfo
         );
         
         // Calculate native reasoning status

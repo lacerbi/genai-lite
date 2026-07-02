@@ -92,6 +92,97 @@ describe('OpenRouterClientAdapter', () => {
       expect(params.seed).toBe(42);
     });
 
+    describe('reasoning forwarding', () => {
+      const okResponse = (extra?: Record<string, any>) => ({
+        id: 'gen-reasoning',
+        object: 'chat.completion',
+        created: 1234567890,
+        model: 'some-vendor/some-model',
+        choices: [{
+          index: 0,
+          message: { role: 'assistant', content: 'Hi', ...extra },
+          finish_reason: 'stop'
+        }],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 }
+      });
+      const KEY = 'sk-or-test-api-key-1234567890123456789012345678901234567890';
+
+      it('sends reasoning.enabled when reasoning is requested without effort/maxTokens', async () => {
+        mockCreate.mockResolvedValueOnce(okResponse());
+        basicRequest.settings.reasoning = { enabled: true, exclude: false } as any;
+
+        await adapter.sendMessage(basicRequest, KEY);
+
+        expect(mockCreate.mock.calls[0][0].reasoning).toEqual({ enabled: true });
+      });
+
+      it('sends reasoning.effort when effort is set', async () => {
+        mockCreate.mockResolvedValueOnce(okResponse());
+        basicRequest.settings.reasoning = { enabled: true, effort: 'high', exclude: false } as any;
+
+        await adapter.sendMessage(basicRequest, KEY);
+
+        expect(mockCreate.mock.calls[0][0].reasoning).toEqual({ effort: 'high' });
+      });
+
+      it('prefers max_tokens over effort when both are set (effort and max_tokens are mutually exclusive)', async () => {
+        mockCreate.mockResolvedValueOnce(okResponse());
+        basicRequest.settings.reasoning = {
+          enabled: true, effort: 'high', maxTokens: 2048, exclude: false
+        } as any;
+
+        await adapter.sendMessage(basicRequest, KEY);
+
+        expect(mockCreate.mock.calls[0][0].reasoning).toEqual({ max_tokens: 2048 });
+      });
+
+      it('adds exclude:true when reasoning.exclude is set', async () => {
+        mockCreate.mockResolvedValueOnce(okResponse());
+        basicRequest.settings.reasoning = { enabled: true, exclude: true } as any;
+
+        await adapter.sendMessage(basicRequest, KEY);
+
+        expect(mockCreate.mock.calls[0][0].reasoning).toEqual({ enabled: true, exclude: true });
+      });
+
+      it('sends no reasoning param when reasoning is not requested', async () => {
+        mockCreate.mockResolvedValueOnce(okResponse());
+
+        await adapter.sendMessage(basicRequest, KEY);
+
+        expect(mockCreate.mock.calls[0][0]).not.toHaveProperty('reasoning');
+      });
+
+      it('extracts message.reasoning and reasoning_details from the response', async () => {
+        mockCreate.mockResolvedValueOnce(okResponse({
+          reasoning: 'Thinking about it...',
+          reasoning_details: [{ type: 'reasoning.text', text: 'Thinking about it...' }],
+        }));
+        basicRequest.settings.reasoning = { enabled: true, exclude: false } as any;
+
+        const response = await adapter.sendMessage(basicRequest, KEY);
+
+        expect(response.object).toBe('chat.completion');
+        if (response.object === 'chat.completion') {
+          expect(response.choices[0].reasoning).toBe('Thinking about it...');
+          expect(response.choices[0].reasoning_details).toEqual([
+            { type: 'reasoning.text', text: 'Thinking about it...' },
+          ]);
+        }
+      });
+
+      it('drops response reasoning when exclude is set', async () => {
+        mockCreate.mockResolvedValueOnce(okResponse({ reasoning: 'hidden trace' }));
+        basicRequest.settings.reasoning = { enabled: true, exclude: true } as any;
+
+        const response = await adapter.sendMessage(basicRequest, KEY);
+
+        if (response.object === 'chat.completion') {
+          expect(response.choices[0].reasoning).toBeUndefined();
+        }
+      });
+    });
+
     it('should format the request correctly and call the OpenRouter API', async () => {
       // Setup mock response
       mockCreate.mockResolvedValueOnce({

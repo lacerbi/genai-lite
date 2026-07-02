@@ -106,6 +106,47 @@ export function extractInitialTaggedContent(
 }
 
 /**
+ * Extracts content delimited by an arbitrary open/close marker pair from anywhere
+ * in a string.
+ *
+ * Unlike {@link extractInitialTaggedContent}, the markers are free-form strings
+ * (not derived from an XML tag name) and may appear anywhere in the content —
+ * useful for local-model thinking traces whose markers aren't XML-shaped
+ * (e.g. Gemma 4's `<|channel>thought` … `<channel|>`).
+ *
+ * Only a fully-closed pair is extracted: if either marker is missing, the
+ * original content is returned untouched and `extracted` is null. Extracted
+ * content that is empty after trimming also yields null.
+ *
+ * @param content The string to parse.
+ * @param openMarker The opening marker (exact match).
+ * @param closeMarker The closing marker (exact match, searched after the opener).
+ * @returns The content with the delimited block removed (leading whitespace
+ *          trimmed), and the extracted inner text (or null).
+ */
+export function extractMarkerDelimitedContent(
+  content: string,
+  openMarker: string,
+  closeMarker: string
+): { content: string; extracted: string | null } {
+  const start = content.indexOf(openMarker);
+  if (start === -1) {
+    return { content, extracted: null };
+  }
+  const end = content.indexOf(closeMarker, start + openMarker.length);
+  if (end === -1) {
+    return { content, extracted: null };
+  }
+
+  const inner = content.substring(start + openMarker.length, end).trim();
+  const cleaned = (
+    content.substring(0, start) + content.substring(end + closeMarker.length)
+  ).trimStart();
+
+  return { content: cleaned, extracted: inner || null };
+}
+
+/**
  * Parses role tags from a template string without rendering variables.
  * 
  * This function extracts <SYSTEM>, <USER>, and <ASSISTANT> tags from a template

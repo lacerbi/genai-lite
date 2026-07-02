@@ -51,10 +51,68 @@ describe('SettingsManager', () => {
       expect(result.temperature).toBe(0.7);
     });
 
+    it('should apply reasoningDefaultSettings overlay when reasoning is enabled', () => {
+      const modelInfo = {
+        id: 'llamacpp',
+        name: 'Local',
+        providerId: 'llamacpp',
+        supportsPromptCache: false,
+        reasoningDefaultSettings: { temperature: 1.0, topP: 0.95 },
+      } as any;
+
+      const result = settingsManager.mergeSettingsForModel(
+        'llamacpp',
+        'llamacpp',
+        { reasoning: { enabled: true } },
+        modelInfo
+      );
+
+      expect(result.temperature).toBe(1.0);
+      expect(result.topP).toBe(0.95);
+    });
+
+    it('should not apply reasoningDefaultSettings when reasoning is off', () => {
+      const modelInfo = {
+        id: 'llamacpp',
+        name: 'Local',
+        providerId: 'llamacpp',
+        supportsPromptCache: false,
+        reasoningDefaultSettings: { temperature: 1.0 },
+      } as any;
+
+      const result = settingsManager.mergeSettingsForModel(
+        'llamacpp',
+        'llamacpp',
+        { reasoning: { enabled: false } },
+        modelInfo
+      );
+
+      expect(result.temperature).toBe(0.7); // mocked model default, no overlay
+    });
+
+    it('should let explicit request settings beat the reasoning overlay', () => {
+      const modelInfo = {
+        id: 'llamacpp',
+        name: 'Local',
+        providerId: 'llamacpp',
+        supportsPromptCache: false,
+        reasoningDefaultSettings: { temperature: 1.0 },
+      } as any;
+
+      const result = settingsManager.mergeSettingsForModel(
+        'llamacpp',
+        'llamacpp',
+        { reasoning: { enabled: true }, temperature: 0.3 },
+        modelInfo
+      );
+
+      expect(result.temperature).toBe(0.3);
+    });
+
     it('should return default settings when no request settings provided', () => {
       const result = settingsManager.mergeSettingsForModel('gpt-4.1', 'openai');
 
-      expect(getDefaultSettingsForModel).toHaveBeenCalledWith('gpt-4.1', 'openai');
+      expect(getDefaultSettingsForModel).toHaveBeenCalledWith('gpt-4.1', 'openai', undefined);
       expect(result).toEqual({
         temperature: 0.7,
         maxTokens: 1000,

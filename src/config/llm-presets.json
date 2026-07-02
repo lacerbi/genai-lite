@@ -1,5 +1,29 @@
 [
   {
+    "id": "llamacpp-local-default",
+    "displayName": "llama.cpp - Local Model",
+    "description": "Local GGUF model via llama.cpp server. Vendor sampling defaults and thinking-off are applied automatically for recognized models (Qwen 3.x, Gemma 3/4, GPT-OSS, Ministral 3, Granite 4.1, ...).",
+    "providerId": "llamacpp",
+    "modelId": "llamacpp",
+    "settings": {
+      "reasoning": {
+        "enabled": false
+      }
+    }
+  },
+  {
+    "id": "llamacpp-local-thinking",
+    "displayName": "llama.cpp - Local Model (Thinking)",
+    "description": "Local GGUF model with reasoning/thinking enabled. For hybrid models (Qwen 3.5/3.6, Gemma 4) this sends enable_thinking=true; the reasoning trace is returned on choice.reasoning.",
+    "providerId": "llamacpp",
+    "modelId": "llamacpp",
+    "settings": {
+      "reasoning": {
+        "enabled": true
+      }
+    }
+  },
+  {
     "id": "anthropic-claude-opus-4-5-20251101-default",
     "displayName": "Anthropic - Claude Opus 4.5",
     "description": "Default preset for Claude Opus 4.5.",

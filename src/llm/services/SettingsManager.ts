@@ -23,10 +23,24 @@ export class SettingsManager {
   mergeSettingsForModel(
     modelId: string,
     providerId: ApiProviderId,
-    requestSettings?: Partial<LLMSettings>
+    requestSettings?: Partial<LLMSettings>,
+    modelInfo?: ModelInfo
   ): Required<LLMSettings> {
-    // Get model-specific defaults
-    const modelDefaults = getDefaultSettingsForModel(modelId, providerId);
+    // Get model-specific defaults (threading the resolved ModelInfo lets detected
+    // GGUF/unknown models contribute capabilities and vendor default settings)
+    let modelDefaults = getDefaultSettingsForModel(modelId, providerId, modelInfo);
+
+    // Apply the reasoning-mode default overlay when reasoning is effectively on for
+    // this request (either explicitly requested or enabled by model default).
+    // Per-key precedence: request > reasoningDefaultSettings > defaultSettings.
+    const reasoningOn =
+      requestSettings?.reasoning?.enabled ?? modelDefaults.reasoning?.enabled;
+    if (reasoningOn === true && modelInfo?.reasoningDefaultSettings) {
+      modelDefaults = {
+        ...modelDefaults,
+        ...modelInfo.reasoningDefaultSettings,
+      };
+    }
 
     // Merge with user-provided settings (user settings take precedence)
     const mergedSettings: Required<LLMSettings> = {

@@ -83,7 +83,7 @@ export type {
 // --- Utilities ---
 export { renderTemplate } from "./prompting/template";
 export { countTokens, getSmartPreview, extractRandomVariables } from "./prompting/content";
-export { parseStructuredContent, parseRoleTags, extractInitialTaggedContent, parseTemplateWithMetadata } from "./prompting/parser";
+export { parseStructuredContent, parseRoleTags, extractInitialTaggedContent, extractMarkerDelimitedContent, parseTemplateWithMetadata } from "./prompting/parser";
 export type { TemplateMetadata } from "./prompting/parser";
 export { createFallbackModelInfo, detectGgufCapabilities, KNOWN_GGUF_MODELS } from "./llm/config";
 export type { GgufModelPattern } from "./llm/config";

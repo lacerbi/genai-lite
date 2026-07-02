@@ -175,6 +175,31 @@ export class OpenRouterClientAdapter implements ILLMClientAdapter {
         };
       }
 
+      // Map unified reasoning settings to OpenRouter's reasoning body param.
+      // effort and max_tokens are mutually exclusive on OpenRouter; max_tokens wins
+      // when both are set (matching the Anthropic adapter's precedence). OpenRouter
+      // silently ignores the param for models without reasoning support.
+      const reasoningSettings = request.settings.reasoning;
+      if (
+        reasoningSettings &&
+        (reasoningSettings.enabled === true ||
+          reasoningSettings.effort !== undefined ||
+          reasoningSettings.maxTokens !== undefined)
+      ) {
+        const reasoning: Record<string, any> = {};
+        if (reasoningSettings.maxTokens !== undefined) {
+          reasoning.max_tokens = reasoningSettings.maxTokens;
+        } else if (reasoningSettings.effort) {
+          reasoning.effort = reasoningSettings.effort;
+        } else {
+          reasoning.enabled = true;
+        }
+        if (reasoningSettings.exclude === true) {
+          reasoning.exclude = true;
+        }
+        (completionParams as any).reasoning = reasoning;
+      }
+
       this.logger.debug(`OpenRouter API parameters:`, {
         baseURL: this.baseURL,
         model: completionParams.model,
@@ -319,14 +344,29 @@ export class OpenRouterClientAdapter implements ILLMClientAdapter {
       provider: request.providerId,
       model: completion.model || request.modelId,
       created: completion.created,
-      choices: completion.choices.map((c) => ({
-        message: {
-          role: "assistant",
-          content: c.message.content || "",
-        },
-        finish_reason: c.finish_reason,
-        index: c.index,
-      })),
+      choices: completion.choices.map((c) => {
+        const mappedChoice: any = {
+          message: {
+            role: "assistant",
+            content: c.message.content || "",
+          },
+          finish_reason: c.finish_reason,
+          index: c.index,
+        };
+
+        // OpenRouter returns the reasoning trace on message.reasoning (plus
+        // structured reasoning_details) for models that expose it
+        const messageReasoning = (c.message as any).reasoning;
+        if (messageReasoning && request.settings.reasoning?.exclude !== true) {
+          mappedChoice.reasoning = messageReasoning;
+        }
+        const reasoningDetails = (c.message as any).reasoning_details;
+        if (reasoningDetails && request.settings.reasoning?.exclude !== true) {
+          mappedChoice.reasoning_details = reasoningDetails;
+        }
+
+        return mappedChoice;
+      }),
       usage: completion.usage
         ? {
             prompt_tokens: completion.usage.prompt_tokens,

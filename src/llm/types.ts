@@ -564,6 +564,51 @@ export interface ModelInfo {
   unsupportedParameters?: (keyof LLMSettings)[];
   /** Structured output capabilities */
   structuredOutput?: ModelStructuredOutputCapabilities;
+  /**
+   * Model-specific default settings (e.g. vendor-recommended sampling parameters).
+   * Merged below request settings: DEFAULT < provider < MODEL_DEFAULT_SETTINGS <
+   * defaultSettings < request. Used heavily by detected GGUF models, whose vendors
+   * publish sampling profiles that differ from llama.cpp's server defaults.
+   */
+  defaultSettings?: Partial<LLMSettings>;
+  /**
+   * Additional default-settings overlay applied only when reasoning/thinking is
+   * active for the request (e.g. Qwen recommends a different sampling profile in
+   * thinking mode). Per-key precedence: request > reasoningDefaultSettings > defaultSettings.
+   */
+  reasoningDefaultSettings?: Partial<LLMSettings>;
+  /**
+   * Local-model (llama.cpp) reasoning-toggle and output-cleanup metadata.
+   * Battle-tested constants sourced from real chat-template behavior.
+   */
+  localReasoning?: LocalReasoningMetadata;
+}
+
+/**
+ * Metadata describing how a local (GGUF/llama.cpp) model's chat template handles
+ * thinking mode, and how to clean its output.
+ */
+export interface LocalReasoningMetadata {
+  /**
+   * Name of the chat-template kwarg that toggles thinking (e.g. "enable_thinking").
+   * When set, the llama.cpp adapter sends `chat_template_kwargs: { [toggleKwarg]: <bool> }`
+   * derived from `settings.reasoning.enabled` (explicitly false when reasoning is not
+   * requested). Requires the server to run with `--jinja`. Omit for models whose
+   * thinking cannot be toggled (always-on reasoning models).
+   */
+  toggleKwarg?: string;
+  /**
+   * Exact prefix some chat templates inject into response content when thinking is
+   * disabled (e.g. Qwen's "<think>\n\n</think>\n\n"). Stripped verbatim (exact
+   * startsWith match) from message content before the response is returned.
+   */
+  nothinkPrefix?: string;
+  /**
+   * Open/close marker pair used to extract a reasoning trace from message content
+   * when the server does not populate `reasoning_content` (model/template dependent).
+   * Only fully-closed pairs are extracted.
+   */
+  markers?: [string, string];
 }
 
 /**
