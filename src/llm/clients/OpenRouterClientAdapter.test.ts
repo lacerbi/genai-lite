@@ -42,6 +42,9 @@ describe('OpenRouterClientAdapter', () => {
         minP: undefined as any,
         repeatPenalty: undefined as any,
         seed: undefined as any,
+        logprobs: undefined as any,
+        topLogprobs: undefined as any,
+        llamacpp: undefined as any,
         stopSequences: [],
         user: undefined as any,
         geminiSafetySettings: [],
@@ -90,6 +93,34 @@ describe('OpenRouterClientAdapter', () => {
       expect(params.min_p).toBe(0);
       expect(params.repetition_penalty).toBe(1.0);
       expect(params.seed).toBe(42);
+    });
+
+    it('should pass through logprobs request params and map the response', async () => {
+      mockCreate.mockResolvedValueOnce({
+        id: 'gen-lp',
+        object: 'chat.completion',
+        created: 1234567890,
+        model: 'google/gemma-3-27b-it:free',
+        choices: [{
+          index: 0,
+          message: { role: 'assistant', content: 'Hi' },
+          finish_reason: 'stop',
+          logprobs: { content: [{ token: 'Hi', logprob: -0.2 }] }
+        }],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 }
+      });
+
+      basicRequest.settings.logprobs = true;
+
+      const response = await adapter.sendMessage(
+        basicRequest,
+        'sk-or-test-api-key-1234567890123456789012345678901234567890'
+      );
+
+      expect(mockCreate.mock.calls[0][0].logprobs).toBe(true);
+      if (response.object === 'chat.completion') {
+        expect(response.choices[0].logprobs).toEqual([{ token: 'Hi', logprob: -0.2 }]);
+      }
     });
 
     describe('reasoning forwarding', () => {

@@ -10,6 +10,7 @@ import type {
 } from "./types";
 import { ADAPTER_ERROR_CODES } from "./types";
 import { getCommonMappedErrorDetails } from "../../shared/adapters/errorUtils";
+import { mapOpenAIChatLogprobs } from "../../shared/adapters/logprobsUtils";
 import {
   collectSystemContent,
   prependSystemToFirstUserMessage,
@@ -82,6 +83,12 @@ export class OpenAIClientAdapter implements ILLMClientAdapter {
           }),
           ...(request.settings.seed !== undefined && {
             seed: request.settings.seed,
+          }),
+          ...(request.settings.logprobs === true && {
+            logprobs: true,
+            ...(request.settings.topLogprobs !== undefined && {
+              top_logprobs: request.settings.topLogprobs,
+            }),
           }),
           ...(request.settings.user && {
             user: request.settings.user,
@@ -308,6 +315,12 @@ export class OpenAIClientAdapter implements ILLMClientAdapter {
     // (Currently o-series models don't return reasoning tokens)
     if ((choice as any).reasoning && request.settings.reasoning && !request.settings.reasoning.exclude) {
       responseChoice.reasoning = (choice as any).reasoning;
+    }
+
+    // Per-token log probabilities (when requested via settings.logprobs)
+    const logprobs = mapOpenAIChatLogprobs((choice as any).logprobs);
+    if (logprobs) {
+      responseChoice.logprobs = logprobs;
     }
 
     return {

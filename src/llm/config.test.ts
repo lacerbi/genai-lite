@@ -210,6 +210,47 @@ describe('LLM Config', () => {
       expect(validateLLMSettings({ seed: 42 })).toEqual([]);
     });
 
+    it('should validate logprobs and topLogprobs', () => {
+      expect(validateLLMSettings({ logprobs: 'yes' as any })).toContain('logprobs must be a boolean');
+      expect(validateLLMSettings({ logprobs: true })).toEqual([]);
+      expect(validateLLMSettings({ topLogprobs: -1 })).toContain('topLogprobs must be an integer between 0 and 20');
+      expect(validateLLMSettings({ topLogprobs: 21 })).toContain('topLogprobs must be an integer between 0 and 20');
+      expect(validateLLMSettings({ topLogprobs: 2.5 })).toContain('topLogprobs must be an integer between 0 and 20');
+      expect(validateLLMSettings({ topLogprobs: 20 })).toEqual([]);
+    });
+
+    it('should validate the llamacpp namespace', () => {
+      expect(validateLLMSettings({ llamacpp: 'invalid' as any })).toContain('llamacpp must be an object');
+      expect(validateLLMSettings({ llamacpp: { grammar: 123 as any } })).toContain('llamacpp.grammar must be a string (GBNF grammar)');
+      expect(validateLLMSettings({ llamacpp: { chatTemplateKwargs: 'nope' as any } })).toContain('llamacpp.chatTemplateKwargs must be an object');
+      expect(validateLLMSettings({ llamacpp: { chatTemplateKwargs: { bad: { nested: true } } as any } })).toContain('llamacpp.chatTemplateKwargs values must be strings, numbers, or booleans');
+      expect(validateLLMSettings({
+        llamacpp: { grammar: 'root ::= "yes"', chatTemplateKwargs: { enable_thinking: false } }
+      })).toEqual([]);
+    });
+
+    it('should reject grammar together with structuredOutput', () => {
+      const errors = validateLLMSettings({
+        llamacpp: { grammar: 'root ::= "yes"' },
+        structuredOutput: {
+          name: 'answer',
+          schema: { type: 'object', properties: {} },
+        },
+      });
+      expect(errors.some((e) => e.includes('mutually exclusive'))).toBe(true);
+
+      // Disabled structured output does not conflict
+      const noConflict = validateLLMSettings({
+        llamacpp: { grammar: 'root ::= "yes"' },
+        structuredOutput: {
+          enabled: false,
+          name: 'answer',
+          schema: { type: 'object', properties: {} },
+        },
+      });
+      expect(noConflict.some((e) => e.includes('mutually exclusive'))).toBe(false);
+    });
+
     it('should validate stopSequences', () => {
       expect(validateLLMSettings({ stopSequences: 'invalid' as any })).toContain('stopSequences must be an array');
       expect(validateLLMSettings({ stopSequences: ['1', '2', '3', '4', '5'] })).toContain('stopSequences can contain at most 4 sequences');

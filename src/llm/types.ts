@@ -400,6 +400,57 @@ export interface LLMSettings {
    * @see StructuredOutputSettings
    */
   structuredOutput?: StructuredOutputSettings;
+
+  /**
+   * Request per-token log probabilities on the response.
+   * Supported by: llama.cpp, OpenAI, OpenRouter (pass-through; model-dependent).
+   * Stripped for Anthropic/Gemini/Mistral. Results land on `choice.logprobs`.
+   */
+  logprobs?: boolean;
+  /**
+   * Number of most-likely alternatives to return per token (0-20).
+   * Requires `logprobs: true`.
+   */
+  topLogprobs?: number;
+  /**
+   * llama.cpp-specific settings.
+   * Only used when providerId is 'llamacpp'; ignored by other adapters.
+   * @see LlamaCppSettings
+   */
+  llamacpp?: LlamaCppSettings;
+}
+
+/**
+ * llama.cpp-specific request settings
+ */
+export interface LlamaCppSettings {
+  /**
+   * Raw GBNF grammar string for constrained decoding.
+   * Mutually exclusive with `structuredOutput` (llama-server rejects both:
+   * "Either 'json_schema' or 'grammar' can be specified, but not both").
+   * Caveat: current llama.cpp builds may not apply the grammar while thinking
+   * is active — prefer grammar with reasoning disabled.
+   */
+  grammar?: string;
+  /**
+   * Extra chat-template kwargs forwarded verbatim to llama-server (requires --jinja).
+   * Merged over any library-derived kwargs (e.g. the reasoning toggle's
+   * enable_thinking), so explicit values here always win.
+   */
+  chatTemplateKwargs?: Record<string, string | number | boolean>;
+}
+
+/**
+ * Per-token log probability entry (OpenAI-compatible shape, also produced by
+ * llama.cpp's chat completions endpoint).
+ */
+export interface TokenLogprob {
+  /** The generated token text */
+  token: string;
+  /** Log probability of the token */
+  logprob: number;
+  /** Most-likely alternative tokens at this position (when topLogprobs requested) */
+  topLogprobs?: Array<{ token: string; logprob: number }>;
 }
 
 /**
@@ -436,6 +487,8 @@ export interface LLMChoice {
   reasoning?: string;
   /** Provider-specific reasoning details that need to be preserved */
   reasoning_details?: any;
+  /** Per-token log probabilities (when settings.logprobs was requested and supported) */
+  logprobs?: TokenLogprob[];
   /**
    * Parsed JSON content when structuredOutput is enabled and autoParse is true.
    * Contains the parsed object/array from the JSON response.

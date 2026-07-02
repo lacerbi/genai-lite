@@ -311,6 +311,27 @@ describe('LLMService.createMessages', () => {
       });
     });
 
+    it('should pass logprobs and llamacpp settings through META block validation', async () => {
+      const result = await service.createMessages({
+        template: `<META>
+{
+  "settings": {
+    "logprobs": true,
+    "topLogprobs": 5,
+    "llamacpp": { "grammar": "root ::= \\"yes\\" | \\"no\\"" }
+  }
+}
+</META>
+<USER>Test</USER>`
+      });
+
+      expect(result.settings).toEqual({
+        logprobs: true,
+        topLogprobs: 5,
+        llamacpp: { grammar: 'root ::= "yes" | "no"' }
+      });
+    });
+
     it('should reject invalid sampling settings in META block', async () => {
       const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation();
 

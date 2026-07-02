@@ -9,6 +9,7 @@ import type {
 } from "./types";
 import { ADAPTER_ERROR_CODES } from "./types";
 import { getCommonMappedErrorDetails } from "../../shared/adapters/errorUtils";
+import { mapOpenAIChatLogprobs } from "../../shared/adapters/logprobsUtils";
 import {
   collectSystemContent,
   prependSystemToFirstUserMessage,
@@ -132,6 +133,12 @@ export class OpenRouterClientAdapter implements ILLMClientAdapter {
         }),
         ...(request.settings.repeatPenalty !== undefined && {
           repetition_penalty: request.settings.repeatPenalty,
+        }),
+        ...(request.settings.logprobs === true && {
+          logprobs: true,
+          ...(request.settings.topLogprobs !== undefined && {
+            top_logprobs: request.settings.topLogprobs,
+          }),
         }),
       } as OpenAI.Chat.Completions.ChatCompletionCreateParams;
 
@@ -363,6 +370,12 @@ export class OpenRouterClientAdapter implements ILLMClientAdapter {
         const reasoningDetails = (c.message as any).reasoning_details;
         if (reasoningDetails && request.settings.reasoning?.exclude !== true) {
           mappedChoice.reasoning_details = reasoningDetails;
+        }
+
+        // Per-token log probabilities (OpenAI-compatible shape)
+        const logprobs = mapOpenAIChatLogprobs((c as any).logprobs);
+        if (logprobs) {
+          mappedChoice.logprobs = logprobs;
         }
 
         return mappedChoice;

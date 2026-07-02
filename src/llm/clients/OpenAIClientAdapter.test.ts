@@ -42,6 +42,9 @@ describe('OpenAIClientAdapter', () => {
         minP: undefined as any,
         repeatPenalty: undefined as any,
         seed: undefined as any,
+        logprobs: undefined as any,
+        topLogprobs: undefined as any,
+        llamacpp: undefined as any,
         stopSequences: [],
         user: 'test-user',
         geminiSafetySettings: [],
@@ -141,6 +144,41 @@ describe('OpenAIClientAdapter', () => {
       expect(params).not.toHaveProperty('top_k');
       expect(params).not.toHaveProperty('min_p');
       expect(params).not.toHaveProperty('repeat_penalty');
+    });
+
+    it('should request and map logprobs', async () => {
+      mockCreate.mockResolvedValueOnce({
+        id: 'chatcmpl-lp',
+        object: 'chat.completion',
+        created: 1234567890,
+        model: 'gpt-4.1',
+        choices: [{
+          index: 0,
+          message: { role: 'assistant', content: 'Hi' },
+          finish_reason: 'stop',
+          logprobs: {
+            content: [
+              { token: 'Hi', logprob: -0.1, top_logprobs: [{ token: 'Hi', logprob: -0.1 }] }
+            ]
+          }
+        }],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 }
+      });
+
+      basicRequest.settings.logprobs = true;
+      basicRequest.settings.topLogprobs = 3;
+
+      const response = await adapter.sendMessage(basicRequest, 'test-api-key');
+
+      expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({
+        logprobs: true,
+        top_logprobs: 3
+      }));
+      expect(response.object).toBe('chat.completion');
+      const successResponse = response as LLMResponse;
+      expect(successResponse.choices[0].logprobs).toEqual([
+        { token: 'Hi', logprob: -0.1, topLogprobs: [{ token: 'Hi', logprob: -0.1 }] }
+      ]);
     });
 
     it('should handle system messages correctly', async () => {

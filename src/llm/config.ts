@@ -107,6 +107,9 @@ export const DEFAULT_LLM_SETTINGS: Required<LLMSettings> = {
   },
   openRouterProvider: undefined as any, // Optional, only used with OpenRouter provider
   structuredOutput: undefined as any, // Optional, enables JSON schema-constrained output
+  logprobs: undefined as any, // Optional, per-token log probabilities (llama.cpp/OpenAI/OpenRouter)
+  topLogprobs: undefined as any, // Optional, number of alternatives per token
+  llamacpp: undefined as any, // Optional, llama.cpp-specific settings (grammar, chatTemplateKwargs)
 };
 
 /**
@@ -151,17 +154,18 @@ export const SUPPORTED_PROVIDERS: ProviderInfo[] = [
   {
     id: "anthropic",
     name: "Anthropic",
-    unsupportedParameters: ["seed", "minP", "repeatPenalty"],
+    unsupportedParameters: ["seed", "minP", "repeatPenalty", "logprobs", "topLogprobs"],
   },
   {
     id: "gemini",
     name: "Google Gemini",
-    unsupportedParameters: ["minP", "repeatPenalty"],
+    // Gemini has its own logprobs mechanism with a different shape; not mapped yet
+    unsupportedParameters: ["minP", "repeatPenalty", "logprobs", "topLogprobs"],
   },
   {
     id: "mistral",
     name: "Mistral AI",
-    unsupportedParameters: ["topK", "minP", "repeatPenalty"],
+    unsupportedParameters: ["topK", "minP", "repeatPenalty", "logprobs", "topLogprobs"],
   },
   {
     id: "llamacpp",
@@ -1873,6 +1877,58 @@ export function validateLLMSettings(settings: Partial<LLMSettings>): string[] {
   if (settings.seed !== undefined) {
     if (!Number.isInteger(settings.seed)) {
       errors.push("seed must be an integer");
+    }
+  }
+
+  if (settings.logprobs !== undefined && typeof settings.logprobs !== "boolean") {
+    errors.push("logprobs must be a boolean");
+  }
+
+  if (settings.topLogprobs !== undefined) {
+    if (
+      !Number.isInteger(settings.topLogprobs) ||
+      settings.topLogprobs < 0 ||
+      settings.topLogprobs > 20
+    ) {
+      errors.push("topLogprobs must be an integer between 0 and 20");
+    }
+  }
+
+  if (settings.llamacpp !== undefined) {
+    if (typeof settings.llamacpp !== "object" || settings.llamacpp === null) {
+      errors.push("llamacpp must be an object");
+    } else {
+      if (
+        settings.llamacpp.grammar !== undefined &&
+        typeof settings.llamacpp.grammar !== "string"
+      ) {
+        errors.push("llamacpp.grammar must be a string (GBNF grammar)");
+      }
+      if (settings.llamacpp.chatTemplateKwargs !== undefined) {
+        const kwargs = settings.llamacpp.chatTemplateKwargs;
+        if (typeof kwargs !== "object" || kwargs === null || Array.isArray(kwargs)) {
+          errors.push("llamacpp.chatTemplateKwargs must be an object");
+        } else if (
+          Object.values(kwargs).some(
+            (v) => !["string", "number", "boolean"].includes(typeof v)
+          )
+        ) {
+          errors.push(
+            "llamacpp.chatTemplateKwargs values must be strings, numbers, or booleans"
+          );
+        }
+      }
+      // llama-server rejects requests carrying both a raw grammar and a JSON schema:
+      // "Either 'json_schema' or 'grammar' can be specified, but not both"
+      if (
+        settings.llamacpp.grammar &&
+        settings.structuredOutput?.schema &&
+        settings.structuredOutput.enabled !== false
+      ) {
+        errors.push(
+          "llamacpp.grammar and structuredOutput are mutually exclusive (llama-server rejects both together)"
+        );
+      }
     }
   }
 

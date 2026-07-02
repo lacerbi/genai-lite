@@ -16,6 +16,7 @@ import {
 import { LlamaCppServerClient } from "./LlamaCppServerClient";
 import { detectGgufCapabilities } from "../config";
 import { extractMarkerDelimitedContent } from "../../prompting/parser";
+import { mapOpenAIChatLogprobs } from "../../shared/adapters/logprobsUtils";
 import type { Logger } from "../../logging/types";
 import { createDefaultLogger } from "../../logging/defaultLogger";
 
@@ -243,14 +244,24 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
       // Requires llama-server running with --jinja; servers without it ignore the kwarg.
       const detectedCaps = await this.getModelCapabilities();
       const localReasoning = detectedCaps?.localReasoning;
+      const derivedKwargs: Record<string, string | number | boolean> = {};
       if (localReasoning?.toggleKwarg) {
-        const thinkingEnabled = request.settings.reasoning?.enabled === true;
-
+        derivedKwargs[localReasoning.toggleKwarg] =
+          request.settings.reasoning?.enabled === true;
+      }
+      // User-supplied chat-template kwargs (escape hatch) win over derived ones
+      const chatTemplateKwargs = {
+        ...derivedKwargs,
+        ...(request.settings.llamacpp?.chatTemplateKwargs || {}),
+      };
+      if (Object.keys(chatTemplateKwargs).length > 0) {
         // llama-server rejects assistant prefill together with enable_thinking=true
         // (HTTP 400: "Assistant response prefill is incompatible with enable_thinking.")
         // Fail fast with a clear message instead of surfacing the raw server error.
+        const thinkingKwarg = localReasoning?.toggleKwarg ?? 'enable_thinking';
+        const effectiveThinking = chatTemplateKwargs[thinkingKwarg] === true;
         const lastMessage = messages[messages.length - 1];
-        if (thinkingEnabled && lastMessage?.role === 'assistant') {
+        if (effectiveThinking && lastMessage?.role === 'assistant') {
           return {
             provider: request.providerId,
             model: request.modelId,
@@ -265,9 +276,21 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
           };
         }
 
-        (completionParams as any).chat_template_kwargs = {
-          [localReasoning.toggleKwarg]: thinkingEnabled,
-        };
+        (completionParams as any).chat_template_kwargs = chatTemplateKwargs;
+      }
+
+      // GBNF grammar for constrained decoding (validated as mutually exclusive
+      // with structuredOutput upstream)
+      if (request.settings.llamacpp?.grammar) {
+        (completionParams as any).grammar = request.settings.llamacpp.grammar;
+      }
+
+      // Per-token log probabilities (OpenAI-compatible request/response shape)
+      if (request.settings.logprobs === true) {
+        (completionParams as any).logprobs = true;
+        if (request.settings.topLogprobs !== undefined) {
+          (completionParams as any).top_logprobs = request.settings.topLogprobs;
+        }
       }
 
       this.logger.debug(`llama.cpp API parameters:`, {
@@ -490,6 +513,12 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
               mappedChoice.reasoning = extracted;
             }
           }
+        }
+
+        // Per-token log probabilities (OpenAI-compatible shape)
+        const logprobs = mapOpenAIChatLogprobs((c as any).logprobs);
+        if (logprobs) {
+          mappedChoice.logprobs = logprobs;
         }
 
         return mappedChoice;

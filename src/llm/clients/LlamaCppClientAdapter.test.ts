@@ -55,6 +55,9 @@ describe('LlamaCppClientAdapter', () => {
         minP: undefined as any,
         repeatPenalty: undefined as any,
         seed: undefined as any,
+        logprobs: undefined as any,
+        topLogprobs: undefined as any,
+        llamacpp: undefined as any,
         supportsSystemMessage: true,
         systemMessageFallback: { format: 'xml', tagName: 'system', separator: '---' },
         user: '' as any,
@@ -812,6 +815,127 @@ describe('LlamaCppClientAdapter', () => {
         expect(response.choices[0].reasoning).toBe('Always thinking');
       }
       expect(mockCreate.mock.calls[0][0]).not.toHaveProperty('chat_template_kwargs');
+    });
+  });
+
+  describe('grammar and logprobs', () => {
+    const okResponse = (content: string, extra?: Record<string, any>) => ({
+      id: 'chatcmpl-gl',
+      choices: [
+        {
+          message: { role: 'assistant', content },
+          finish_reason: 'stop',
+          ...extra,
+        },
+      ],
+    });
+
+    it('sends a GBNF grammar from the llamacpp namespace', async () => {
+      mockCreate.mockResolvedValueOnce(okResponse('yes'));
+
+      basicRequest.settings.llamacpp = { grammar: 'root ::= "yes" | "no"' };
+      await adapter.sendMessage(basicRequest, 'not-needed');
+
+      expect(mockCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ grammar: 'root ::= "yes" | "no"' })
+      );
+    });
+
+    it('lets user chatTemplateKwargs override the derived enable_thinking', async () => {
+      mockGetModels.mockResolvedValue({ data: [{ id: 'Qwen3.5-4B-Q4_K_M.gguf' }] });
+      mockCreate.mockResolvedValueOnce(okResponse('Hello'));
+
+      // Reasoning off would derive enable_thinking:false; the explicit user kwarg wins
+      basicRequest.settings.llamacpp = { chatTemplateKwargs: { enable_thinking: true } };
+      await adapter.sendMessage(basicRequest, 'not-needed');
+
+      expect(mockCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          chat_template_kwargs: { enable_thinking: true },
+        })
+      );
+    });
+
+    it('sends user chatTemplateKwargs even without a detected toggle', async () => {
+      mockGetModels.mockResolvedValue({ data: [{ id: 'some-custom-model.gguf' }] });
+      mockCreate.mockResolvedValueOnce(okResponse('Hello'));
+
+      basicRequest.settings.llamacpp = { chatTemplateKwargs: { custom_flag: 'on' } };
+      await adapter.sendMessage(basicRequest, 'not-needed');
+
+      expect(mockCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          chat_template_kwargs: { custom_flag: 'on' },
+        })
+      );
+    });
+
+    it('applies the prefill guard to user-forced enable_thinking', async () => {
+      mockGetModels.mockResolvedValue({ data: [{ id: 'some-custom-model.gguf' }] });
+
+      basicRequest.settings.llamacpp = { chatTemplateKwargs: { enable_thinking: true } };
+      basicRequest.messages = [
+        { role: 'user', content: 'Q' },
+        { role: 'assistant', content: 'partial' },
+      ];
+
+      const response = await adapter.sendMessage(basicRequest, 'not-needed');
+
+      expect(response.object).toBe('error');
+      expect(mockCreate).not.toHaveBeenCalled();
+    });
+
+    it('requests and maps logprobs (OpenAI-compatible shape)', async () => {
+      mockCreate.mockResolvedValueOnce(
+        okResponse('yes', {
+          logprobs: {
+            content: [
+              {
+                token: 'yes',
+                logprob: -0.01,
+                top_logprobs: [
+                  { token: 'yes', logprob: -0.01 },
+                  { token: 'no', logprob: -4.2 },
+                ],
+              },
+            ],
+          },
+        })
+      );
+
+      basicRequest.settings.logprobs = true;
+      basicRequest.settings.topLogprobs = 5;
+      const response = await adapter.sendMessage(basicRequest, 'not-needed');
+
+      expect(mockCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ logprobs: true, top_logprobs: 5 })
+      );
+      expect(response.object).toBe('chat.completion');
+      if (response.object === 'chat.completion') {
+        expect(response.choices[0].logprobs).toEqual([
+          {
+            token: 'yes',
+            logprob: -0.01,
+            topLogprobs: [
+              { token: 'yes', logprob: -0.01 },
+              { token: 'no', logprob: -4.2 },
+            ],
+          },
+        ]);
+      }
+    });
+
+    it('omits logprobs request params and response field when not requested', async () => {
+      mockCreate.mockResolvedValueOnce(okResponse('Hello'));
+
+      const response = await adapter.sendMessage(basicRequest, 'not-needed');
+
+      const callArgs = mockCreate.mock.calls[0][0];
+      expect(callArgs).not.toHaveProperty('logprobs');
+      expect(callArgs).not.toHaveProperty('top_logprobs');
+      if (response.object === 'chat.completion') {
+        expect(response.choices[0].logprobs).toBeUndefined();
+      }
     });
   });
 });
