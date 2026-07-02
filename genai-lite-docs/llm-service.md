@@ -14,6 +14,8 @@ Complete guide to text generation and chat completions using genai-lite's LLMSer
 - [Model Presets](#model-presets) - Pre-configured model settings
 - [Advanced Settings](#advanced-settings) - Fine-tuning model behavior
   - [System Message Fallback](#system-message-fallback) - Handling models without system message support
+  - [Log Probabilities](#log-probabilities) - Per-token log probabilities
+- [Retries, Timeouts and Cancellation](#retries-timeouts-and-cancellation) - Resilience and per-call control
 - [Error Handling](#error-handling) - Handling failures
 - [Related Documentation](#related-documentation) - Provider info, utilities
 
@@ -714,9 +716,18 @@ const response = await llmService.sendMessage({
 | `maxTokens` | number | Model default | Maximum tokens to generate |
 | `topP` | number | 1.0 | Nucleus sampling threshold |
 | `stopSequences` | string[] | `[]` | Stop generation at these sequences |
+| `topK` | number | - | Limit sampling to the K most likely tokens (integer ≥ 0; 0 disables). Anthropic, Gemini, llama.cpp, OpenRouter |
+| `minP` | number | - | Minimum probability relative to the top token (0.0-1.0; 0 disables). llama.cpp, OpenRouter |
+| `repeatPenalty` | number | - | Multiplicative repetition penalty over prompt + output (1.0 = disabled). llama.cpp, OpenRouter |
+| `seed` | number | - | Best-effort deterministic sampling (integer; llama.cpp uses -1 for random). OpenAI (non-reasoning models), Gemini, Mistral, llama.cpp, OpenRouter |
+| `logprobs` | boolean | - | Return per-token log probabilities on `choice.logprobs` (see [Log Probabilities](#log-probabilities)). llama.cpp, OpenAI, OpenRouter |
+| `topLogprobs` | number | - | Number of alternatives to return per token (0-20; requires `logprobs: true`) |
 | `reasoning` | object | - | Reasoning configuration (see [Reasoning Mode](#reasoning-mode)) |
 | `thinkingTagFallback` | object | - | Thinking tag configuration (see [Thinking Tag Fallback](#thinking-tag-fallback)) |
 | `systemMessageFallback` | object | - | System message format when model lacks native support (see below) |
+| `llamacpp` | object | - | llama.cpp-only settings (`grammar`, `chatTemplateKwargs`); see [llama.cpp Integration](llamacpp-integration.md#advanced-features) |
+
+**Provider support:** Sampling parameters that the selected provider or model doesn't support are silently stripped before the request is sent (via the provider's `unsupportedParameters` list). For example, `topK` is dropped for OpenAI and Mistral, and `seed` is dropped for Anthropic and for OpenAI reasoning models. See [Providers & Models](providers-and-models.md#llm-providers) for the per-provider breakdown.
 
 ### System Messages
 
@@ -777,6 +788,88 @@ const response = await llmService.sendMessage({
 | `plain` | `{content}\n\n{user message}` |
 
 This is handled automatically for models with `supportsSystemMessage: false` in their configuration. Most users won't need to configure this manually.
+
+### Log Probabilities
+
+Set `logprobs: true` to receive per-token log probabilities on `choice.logprobs`. Add `topLogprobs` (0-20) to also get the most likely alternatives at each position. Supported by **llama.cpp**, **OpenAI**, and **OpenRouter** (pass-through, model-dependent); silently stripped for Anthropic, Gemini, and Mistral.
+
+```typescript
+const response = await llmService.sendMessage({
+  providerId: 'openai',
+  modelId: 'gpt-4.1-mini',
+  messages: [{ role: 'user', content: 'Reply with exactly one word: yes' }],
+  settings: {
+    logprobs: true,
+    topLogprobs: 5   // up to 5 alternatives per token (requires logprobs: true)
+  }
+});
+
+if (response.object === 'chat.completion') {
+  for (const tok of response.choices[0].logprobs ?? []) {
+    console.log(tok.token, tok.logprob);
+    tok.topLogprobs?.forEach((alt) => console.log('  alt:', alt.token, alt.logprob));
+  }
+}
+```
+
+Each entry is a `TokenLogprob` (`{ token, logprob, topLogprobs? }`). See [TypeScript Reference](typescript-reference.md#settings-types).
+
+---
+
+## Retries, Timeouts and Cancellation
+
+`LLMService` includes a unified retry layer and per-request timeout/cancellation controls. Retries are configured at the service level; timeouts, cancellation, and a retry cap can also be set per call via the second argument to `sendMessage()`.
+
+```typescript
+import { LLMService, fromEnvironment } from 'genai-lite';
+
+// Service-level defaults for every request
+const llmService = new LLMService(fromEnvironment, {
+  timeoutMs: 30000,      // default per-request timeout (SDK default applies when unset)
+  retry: {
+    maxRetries: 2,        // retries after the first attempt (default 2 → up to 3 attempts)
+    initialDelayMs: 500,  // first backoff delay in ms (default 500)
+    maxDelayMs: 10000,    // cap on any single delay in ms (default 10000)
+    backoffFactor: 2,     // exponential growth per attempt (default 2)
+    retryOnTimeout: true  // whether REQUEST_TIMEOUT is retryable (default true)
+  }
+});
+
+// Per-call overrides + client-side cancellation
+const controller = new AbortController();
+setTimeout(() => controller.abort(), 5000); // cancel after 5s
+
+const response = await llmService.sendMessage(
+  {
+    providerId: 'openai',
+    modelId: 'gpt-4.1-mini',
+    messages: [{ role: 'user', content: 'Summarize the theory of relativity.' }]
+  },
+  {
+    signal: controller.signal, // cancel the request (see caveat below)
+    timeoutMs: 8000,           // overrides the service-level timeout for this call
+    maxRetries: 0              // disable retries for this call
+  }
+);
+
+if (response.object === 'error') {
+  if (response.error.code === 'REQUEST_ABORTED') {
+    console.log('Cancelled by the caller');
+  } else if (response.error.code === 'REQUEST_TIMEOUT') {
+    console.log('Timed out; provider retry-after hint (ms):', response.error.retryAfterMs);
+  }
+}
+```
+
+**What gets retried:** only transient failures — `RATE_LIMIT_EXCEEDED`, `NETWORK_ERROR`, `REQUEST_TIMEOUT` (unless `retryOnTimeout: false`), and `PROVIDER_ERROR` responses carrying HTTP status **408**, **409**, or **5xx**. A provider `Retry-After` header is honored (used when larger than the computed backoff). Backoff is exponential with ±20% jitter.
+
+**What never gets retried:** aborts (`REQUEST_ABORTED`), authentication errors, validation errors, and other non-transient failures. Set `maxRetries: 0` to disable retries entirely.
+
+**Attempt count:** provider SDK-internal retries are disabled, so this layer is the single owner of retry behavior — the total number of attempts is `maxRetries + 1`.
+
+**Cancellation caveat:** aborting is **client-side only**. The provider may still process (and bill) a request that was already dispatched. Each retry attempt is logged at `warn` level (see [Logging](logging.md)).
+
+Two new error codes accompany this feature: `REQUEST_TIMEOUT` (error `type: 'timeout_error'`) and `REQUEST_ABORTED` (`type: 'abort_error'`). The error object also exposes typed `status` (HTTP status) and `retryAfterMs` fields. See [Core Concepts - Error Handling](core-concepts.md#error-handling).
 
 ---
 

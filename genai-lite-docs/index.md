@@ -43,10 +43,10 @@ Complete documentation for genai-lite - A lightweight, portable TypeScript libra
 genai-lite is a lightweight TypeScript library providing a unified interface for LLM chat and AI image generation across multiple providers (cloud and local).
 
 **Core Services**:
-- **LLMService** - Text generation (OpenAI, Anthropic, Gemini, Mistral, llama.cpp)
+- **LLMService** - Text generation (OpenAI, Anthropic, Gemini, Mistral, OpenRouter, llama.cpp)
 - **ImageService** - Image generation (OpenAI Images, genai-electron diffusion)
 
-**Key Features**: Unified API, TypeScript-first, flexible API key management, model presets, template engine, local model support (llama.cpp, stable-diffusion.cpp).
+**Key Features**: Unified API, TypeScript-first, flexible API key management, model presets, template engine, local model support (llama.cpp, stable-diffusion.cpp), reasoning on/off for local hybrid models (Qwen 3.x, Gemma 4) with automatic GGUF capability detection, log probabilities, and a built-in retry/timeout/cancellation layer.
 
 See [Core Concepts](core-concepts.md) for patterns like ApiKeyProvider, preset system, settings hierarchy, and error handling.
 

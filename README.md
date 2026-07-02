@@ -1,6 +1,6 @@
 # genai-lite
 
-A lightweight, portable Node.js/TypeScript library providing a unified interface for interacting with multiple Generative AI providers—both cloud-based (OpenAI, Anthropic, Google Gemini, Mistral) and local (llama.cpp, stable-diffusion.cpp). Supports both LLM chat and AI image generation.
+A lightweight, portable Node.js/TypeScript library providing a unified interface for interacting with multiple Generative AI providers—both cloud-based (OpenAI, Anthropic, Google Gemini, Mistral, OpenRouter) and local (llama.cpp, stable-diffusion.cpp). Supports both LLM chat and AI image generation.
 
 ## Features
 
@@ -12,6 +12,8 @@ A lightweight, portable Node.js/TypeScript library providing a unified interface
 - 🎯 **TypeScript First** - Full type safety and IntelliSense support
 - ⚡ **Lightweight** - Minimal dependencies, focused functionality
 - 🛡️ **Provider Normalization** - Consistent responses across different AI APIs
+- 🧠 **Local Reasoning Toggle** - Turn thinking on/off for detected GGUF models (Qwen 3.5-class, Gemma 4, and more) with vendor-tuned sampling defaults
+- 🔁 **Built-in Reliability** - Automatic retries with backoff/`Retry-After`, per-request timeouts, and abort signals
 - 🎨 **Configurable Model Presets** - Built-in presets with full customization options
 - 🎭 **Template Engine** - Sophisticated templating with conditionals and variable substitution
 - 📊 **Configurable Logging** - Debug mode, custom loggers (pino, winston), and silent mode for tests
@@ -129,9 +131,10 @@ Comprehensive documentation is available in the **[`genai-lite-docs`](./genai-li
 ### LLM Providers
 - **OpenAI** - GPT-5 (5.2, 5.1, mini, nano), GPT-4.1, o4-mini
 - **Anthropic** - Claude 4.5 (Opus, Sonnet, Haiku), Claude 4, Claude 3.7, Claude 3.5
-- **Google Gemini** - Gemini 3 (Pro, Flash preview), Gemini 2.5, Gemini 2.0, Gemma 3 (free)
+- **Google Gemini** - Gemini 3 (Pro, Flash preview), Gemini 2.5, Gemma 3 & 4 (free)
 - **Mistral** - Codestral, Devstral
-- **llama.cpp** - Run any GGUF model locally (no API keys required)
+- **OpenRouter** - Unified gateway to 100+ models (unknown models assumed reasoning-capable)
+- **llama.cpp** - Run any GGUF model locally (no API keys required); local reasoning toggle for detected models
 
 ### Image Providers
 - **OpenAI Images** - gpt-image-1, dall-e-3, dall-e-2

@@ -35,7 +35,7 @@ Full-featured React + Express application demonstrating integration patterns for
 
 **Chat Interface**:
 - Tab navigation (Chat, Templates, llama.cpp Tools)
-- Collapsible settings sidebar
+- Collapsible settings sidebar (sampling controls: temperature, top-P, top-K, min-P, repeat penalty, seed, plus max tokens)
 - Message history with reasoning display
 - Copy/export (JSON, Markdown)
 - Settings persistence (localStorage)
@@ -415,6 +415,7 @@ The chat demo is excellent for quickly testing LLMService changes interactively.
 **Settings Management**:
 - Preset application
 - Settings hierarchy (model → preset → runtime)
+- Sampling parameters (topK, minP, repeatPenalty, seed) forwarded to providers that support them (stripped elsewhere)
 - localStorage persistence
 
 **llama.cpp Features**:
