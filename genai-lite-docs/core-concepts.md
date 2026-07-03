@@ -60,7 +60,7 @@ const imageService = new ImageService(fromEnvironment);
 **Optional: Override base URLs** via environment variables:
 - `OPENAI_API_BASE_URL` - Override OpenAI endpoint (default: `https://api.openai.com/v1`)
 - `LLAMACPP_API_BASE_URL` - Local llama.cpp server (default: `http://127.0.0.1:8080`)
-- `GENAI_ELECTRON_IMAGE_BASE_URL` - Local diffusion server (default: `http://localhost:8081`)
+- `GENAI_ELECTRON_IMAGE_BASE_URL` - Local diffusion server (default: `http://127.0.0.1:8081`)
 
 ### Custom API Key Providers
 
@@ -265,10 +265,13 @@ type ErrorType =
   | 'server_error'           // Server error (5xx errors)
   | 'connection_error'       // Network/connection issues
   | 'timeout_error'          // Request timed out (code REQUEST_TIMEOUT) — retryable
-  | 'abort_error';           // Request cancelled via AbortSignal (code REQUEST_ABORTED) — never retried
+  | 'abort_error'            // Request cancelled via AbortSignal (code REQUEST_ABORTED) — never retried
+  | 'client_error';          // Unclassified client-side error (code UNKNOWN_ERROR)
 ```
 
 **Timeout and abort errors** (added for the retry/cancellation layer) carry the machine-readable codes `REQUEST_TIMEOUT` and `REQUEST_ABORTED`. The error object may also include a typed `status` (HTTP status) and `retryAfterMs` (from a provider `Retry-After` header). See [LLM Service - Retries, Timeouts and Cancellation](llm-service.md#retries-timeouts-and-cancellation).
+
+**Image failures share this taxonomy** (since v0.10.0): `ImageFailureResponse.error` carries the adapter's `code`/`type`/`status` — e.g. a busy genai-electron server surfaces as `RATE_LIMIT_EXCEEDED`/`rate_limit_error`, a cancelled generation as `REQUEST_ABORTED`/`abort_error`. Unknown/unmapped adapter errors fall back to `PROVIDER_ERROR`/`server_error`. `ImageService` performs no automatic retries. See [Image Service - Error Handling](image-service.md#error-handling) for the genai-electron code mappings and [Image Service - Cancellation](image-service.md#cancellation) for `generateImage(request, { signal })`.
 
 ### Handling Errors
 

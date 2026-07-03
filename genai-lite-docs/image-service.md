@@ -104,7 +104,7 @@ if (result.object === 'image.result') {
 }
 ```
 
-**Configuration**: Set `GENAI_ELECTRON_IMAGE_BASE_URL` environment variable to override default `http://localhost:8081`.
+**Configuration**: Set `GENAI_ELECTRON_IMAGE_BASE_URL` environment variable to override default `http://127.0.0.1:8081` (use `127.0.0.1`, not `localhost`, to avoid a ~2s/request IPv6-fallback stall on Windows — especially costly for the 500ms polling loop).
 
 See [Providers & Models - genai-electron Diffusion](providers-and-models.md#genai-electron-diffusion-local).
 
@@ -179,6 +179,42 @@ type ImageProgressCallback = (progress: {
   percentage?: number;
 }) => void;
 ```
+
+---
+
+## Cancellation
+
+Pass an `AbortSignal` as a second argument to cancel an in-flight generation:
+
+```typescript
+const controller = new AbortController();
+
+// e.g. wired to a Cancel button
+cancelButton.onclick = () => controller.abort();
+
+const result = await imageService.generateImage(
+  {
+    providerId: 'genai-electron-images',
+    modelId: 'stable-diffusion',
+    prompt: 'A detailed landscape painting',
+  },
+  { signal: controller.signal }
+);
+
+if (result.object === 'error' && result.error.type === 'abort_error') {
+  console.log('Generation cancelled');  // error.code === 'REQUEST_ABORTED'
+}
+```
+
+**Behavior**:
+- Aborted requests surface as failures with `code: 'REQUEST_ABORTED'`, `type: 'abort_error'`.
+- **genai-electron**: aborting also issues a best-effort server-side cancellation
+  (`DELETE /v1/images/generations/:id`, available since genai-electron 0.6.0),
+  which halts the diffusion process and frees the GPU. The same cleanup runs if
+  the adapter's client-side poll timeout (default 120s) expires — the timeout
+  still surfaces as `code: 'REQUEST_TIMEOUT'`, `type: 'timeout_error'`.
+- **OpenAI Images**: the signal cancels the HTTP request client-side; an
+  already-dispatched generation may still be processed and billed by OpenAI.
 
 ---
 
@@ -380,13 +416,22 @@ if (result.object === 'error') {
       console.error('Invalid API key');
       break;
     case 'rate_limit_error':
-      console.error('Rate limit exceeded');
+      console.error('Rate limited or server busy:', result.error.message);
       break;
     case 'validation_error':
       console.error('Invalid request:', result.error.message);
       break;
-    case 'network_error':
+    case 'connection_error':
       console.error('Server not reachable:', result.error.message);
+      break;
+    case 'timeout_error':
+      console.error('Request timed out:', result.error.message);
+      break;
+    case 'abort_error':
+      console.log('Request cancelled');
+      break;
+    case 'server_error':
+      console.error('Provider/backend error:', result.error.message);
       break;
     default:
       console.error('Error:', result.error.message);
@@ -396,6 +441,21 @@ if (result.object === 'error') {
   console.log('Generated:', image.seed);
 }
 ```
+
+`result.error.code` carries a stable machine-readable code (e.g. `REQUEST_ABORTED`,
+`REQUEST_TIMEOUT`, `RATE_LIMIT_EXCEEDED`, `NETWORK_ERROR`, `PROVIDER_ERROR`), and
+`result.error.status` the HTTP status when the provider reported one.
+
+**genai-electron error mapping** (server error codes → envelope):
+
+| Server code | `error.code` | `error.type` |
+|---|---|---|
+| `SERVER_BUSY` (HTTP 503) | `RATE_LIMIT_EXCEEDED` | `rate_limit_error` |
+| `BACKEND_ERROR` | `PROVIDER_ERROR` | `server_error` |
+| `IO_ERROR` | `PROVIDER_ERROR` | `server_error` |
+| Generation cancelled server-side | `REQUEST_ABORTED` | `abort_error` |
+| Poll timeout (client-side) | `REQUEST_TIMEOUT` | `timeout_error` |
+| Server not reachable | `NETWORK_ERROR` | `connection_error` |
 
 See [Core Concepts - Error Handling](core-concepts.md#error-handling).
 

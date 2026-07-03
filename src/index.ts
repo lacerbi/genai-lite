@@ -81,6 +81,7 @@ export type {
   ImageProviderAdapterConfig,
   ImageProviderAdapter,
   ImageServiceOptions,
+  GenerateImageOptions,
   CreatePromptResult,
 } from "./types/image";
 

@@ -77,8 +77,9 @@ export class OpenAIImageAdapter implements ImageProviderAdapter {
     resolvedPrompt: string;
     settings: ResolvedImageGenerationSettings;
     apiKey: string | null;
+    signal?: AbortSignal;
   }): Promise<ImageGenerationResponse> {
-    const { request, resolvedPrompt, settings, apiKey } = config;
+    const { request, resolvedPrompt, settings, apiKey, signal } = config;
 
     if (!apiKey) {
       throw new Error('OpenAI API key is required but was not provided');
@@ -129,8 +130,11 @@ export class OpenAIImageAdapter implements ImageProviderAdapter {
         isGptImageModel,
       });
 
-      // Make API call
-      const response = await client.images.generate(params);
+      // Make API call (per-request abort signal when provided)
+      const response = await client.images.generate(
+        params,
+        signal ? { signal } : undefined
+      );
 
       if (!response.data || response.data.length === 0) {
         throw new Error('OpenAI API returned no images in response');
@@ -139,7 +143,7 @@ export class OpenAIImageAdapter implements ImageProviderAdapter {
       this.logger.info(`OpenAI Image API call successful, generated ${response.data.length} images`);
 
       // Process response
-      return await this.processResponse(response, request, isGptImageModel);
+      return await this.processResponse(response, request, isGptImageModel, signal);
     } catch (error) {
       this.logger.error('OpenAI Image API error:', error);
       throw this.handleError(error, request);
@@ -246,7 +250,8 @@ export class OpenAIImageAdapter implements ImageProviderAdapter {
   private async processResponse(
     response: any,
     request: ImageGenerationRequest,
-    isGptImageModel: boolean
+    isGptImageModel: boolean,
+    signal?: AbortSignal
   ): Promise<ImageGenerationResponse> {
     const images: GeneratedImage[] = [];
 
@@ -274,7 +279,7 @@ export class OpenAIImageAdapter implements ImageProviderAdapter {
         if (item.url) {
           // Fetch image from URL
           imageUrl = item.url;
-          const imageResponse = await fetch(item.url);
+          const imageResponse = await fetch(item.url, signal ? { signal } : undefined);
           if (!imageResponse.ok) {
             throw new Error(`Failed to fetch image from URL: ${imageResponse.statusText}`);
           }

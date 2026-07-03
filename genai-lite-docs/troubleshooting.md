@@ -173,17 +173,19 @@ llama-server -m model.gguf --port 8080 -c 2048
 **Solutions**:
 ```bash
 # Check if server is running
-curl http://localhost:8081/health
+curl http://127.0.0.1:8081/health
 
 # Set correct base URL if needed
-export GENAI_ELECTRON_IMAGE_BASE_URL=http://localhost:8081
+export GENAI_ELECTRON_IMAGE_BASE_URL=http://127.0.0.1:8081
 ```
+
+Use `127.0.0.1`, not `localhost` — on Windows, `localhost` can trigger a ~2s/request IPv6-fallback stall, which the 500ms polling loop pays repeatedly.
 
 **Problem**: 503 Server Busy
 
 **Cause**: genai-electron only handles one generation at a time
 
-**Solution**: Wait for current generation to complete before starting another
+**Solution**: Wait for current generation to complete before starting another. This surfaces as `code: 'RATE_LIMIT_EXCEEDED'`, `type: 'rate_limit_error'` on the failure envelope (since v0.10.0).
 
 For async API details, see `docs/devlog/2025-10-22-genai-electron-changes.md`.
 
@@ -216,6 +218,8 @@ See [Core Concepts - Error Handling](core-concepts.md#error-handling) for comple
 | `invalid_request_error` | Bad parameters | Verify request against model capabilities |
 | `timeout_error` | Request exceeded its timeout (code `REQUEST_TIMEOUT`) | Increase `timeoutMs`; retried automatically unless `retryOnTimeout: false` |
 | `abort_error` | Cancelled via `AbortSignal` (code `REQUEST_ABORTED`) | Expected when you abort; never retried |
+
+Since v0.10.0, image failures use the same taxonomy: `ImageFailureResponse.error` carries the adapter's `code`/`type`/`status` (previously always `PROVIDER_ERROR`/`server_error`). For the genai-electron code mappings (e.g. `SERVER_BUSY` → `rate_limit_error`), see [Image Service - Error Handling](image-service.md#error-handling). Note: `ImageService` does not auto-retry — the retry notes in this table apply to `LLMService` only.
 
 ### Validation Errors with Partial Response
 
@@ -273,7 +277,7 @@ export LLAMACPP_API_BASE_URL=http://localhost:8080
 curl $LLAMACPP_API_BASE_URL/health
 
 # For genai-electron
-export GENAI_ELECTRON_IMAGE_BASE_URL=http://localhost:8081
+export GENAI_ELECTRON_IMAGE_BASE_URL=http://127.0.0.1:8081
 curl $GENAI_ELECTRON_IMAGE_BASE_URL/health
 ```
 
@@ -312,6 +316,8 @@ await llmService.sendMessage(request, { timeoutMs: 8000 }); // per-call override
 **Problem**: Cancelling a request doesn't stop provider billing
 
 **Cause**: Aborting is client-side only — the provider may still process (and bill) a request that was already dispatched. Aborts return `REQUEST_ABORTED` / `abort_error` and are never retried.
+
+**Image generation**: `ImageService.generateImage(request, { signal })` supports the same cancellation (no automatic retries or `timeoutMs` option, though — adapters have their own fixed timeouts). For genai-electron, aborting also cancels the generation server-side (`DELETE /v1/images/generations/:id`), freeing the GPU; the same cleanup runs when the adapter's 120s poll timeout expires. See [Image Service - Cancellation](image-service.md#cancellation).
 
 **Tip**: Each retry attempt is logged at `warn` level. Enable `warn` (the default) or lower to see retry activity — look for `Retrying <provider>/<model> after failure (attempt N/M, waiting Xms)`.
 

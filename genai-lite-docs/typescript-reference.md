@@ -402,6 +402,12 @@ interface ImageGenerationRequestWithPreset {
   count?: number;
   settings?: ImageGenerationSettings;
 }
+
+// Second argument to ImageService.generateImage(request, options)
+interface GenerateImageOptions {
+  signal?: AbortSignal;   // Client-side cancel; genai-electron also gets a
+                          // best-effort server-side DELETE cancellation
+}
 ```
 
 ### Response Types
@@ -421,12 +427,18 @@ interface GeneratedImage {
 
 interface ImageFailureResponse {
   object: 'error';
+  providerId: string;
+  modelId?: string;
   error: {
-    type: 'authentication_error' | 'rate_limit_error' | 'validation_error' |
-          'network_error' | 'provider_error';
     message: string;
-    code?: string;
-    provider?: string;
+    code?: string | number; // e.g. REQUEST_ABORTED, REQUEST_TIMEOUT, RATE_LIMIT_EXCEEDED,
+                            // NETWORK_ERROR, PROVIDER_ERROR
+    type?: string;          // e.g. 'abort_error', 'timeout_error', 'rate_limit_error',
+                            // 'connection_error', 'server_error', 'authentication_error',
+                            // 'validation_error'
+    status?: number;        // HTTP status reported by the provider, when available
+    param?: string;
+    providerError?: any;    // Original provider error (for debugging)
   };
 }
 

@@ -1,10 +1,14 @@
 # ISSUE: Treat 'cancelled' as a terminal generation status in GenaiElectronImageAdapter
 
 Created: 2026-07-03
-Status: RESOLVED (2026-07-03, v0.9.2) — items 1–2 implemented: `'cancelled'`
+Status: RESOLVED (2026-07-03) — items 1–2 implemented in v0.9.2: `'cancelled'`
 added to the status union and treated as terminal in `pollForCompletion`,
 surfacing as `REQUEST_ABORTED`/`abort_error`. Item 3 (request-side DELETE
-cancellation) deferred until the ImageService API grows an AbortSignal.
+cancellation) implemented in v0.10.0: `ImageService.generateImage(request,
+{ signal })` threads an AbortSignal to the adapter, which sends a best-effort
+`DELETE /v1/images/generations/:id` on caller abort — and also on the
+client-side poll timeout (cancel-on-timeout), which still surfaces as
+`REQUEST_TIMEOUT`/`timeout_error`.
 Package: genai-lite (filed from genai-electron v0.6.0 work)
 
 ## Problem

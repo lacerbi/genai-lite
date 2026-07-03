@@ -13,7 +13,7 @@ A lightweight, portable Node.js/TypeScript library providing a unified interface
 - ⚡ **Lightweight** - Minimal dependencies, focused functionality
 - 🛡️ **Provider Normalization** - Consistent responses across different AI APIs
 - 🧠 **Local Reasoning Toggle** - Turn thinking on/off for detected GGUF models (Qwen 3.5-class, Gemma 4, and more) with vendor-tuned sampling defaults
-- 🔁 **Built-in Reliability** - Automatic retries with backoff/`Retry-After`, per-request timeouts, and abort signals
+- 🔁 **Built-in Reliability** - Automatic retries with backoff/`Retry-After`, per-request timeouts, and abort signals; image generation supports cancellation too (including server-side cancel for local diffusion)
 - 🎨 **Configurable Model Presets** - Built-in presets with full customization options
 - 🎭 **Template Engine** - Sophisticated templating with conditionals and variable substitution
 - 📊 **Configurable Logging** - Debug mode, custom loggers (pino, winston), and silent mode for tests

@@ -177,7 +177,9 @@ export const IMAGE_ADAPTER_CONFIGS: Record<ImageProviderId, ImageProviderAdapter
     timeout: 60000, // 60 seconds for image generation
   },
   'genai-electron-images': {
-    baseURL: process.env.GENAI_ELECTRON_IMAGE_BASE_URL || 'http://localhost:8081',
+    // 127.0.0.1 (not localhost) avoids a ~2s/request IPv6-fallback stall on
+    // Windows — especially costly for the 500ms polling loop
+    baseURL: process.env.GENAI_ELECTRON_IMAGE_BASE_URL || 'http://127.0.0.1:8081',
     timeout: 120000, // 120 seconds for local diffusion
     checkHealth: false, // Optional health checks
   },

@@ -276,7 +276,7 @@ The reasoning trace is returned on `choice.reasoning`, with any structured detai
 ### genai-electron Diffusion (Local)
 
 **Provider ID**: `genai-electron-images`
-**Environment Variable**: `GENAI_ELECTRON_IMAGE_BASE_URL` (default: `http://localhost:8081`)
+**Environment Variable**: `GENAI_ELECTRON_IMAGE_BASE_URL` (default: `http://127.0.0.1:8081`)
 **API Key**: Not required
 
 **Generic Model ID:**
@@ -287,6 +287,7 @@ The reasoning trace is returned on `choice.reasoning`, with any structured detai
 - Dimensions: 64-2048 pixels
 - Negative prompts, custom seeds, progress callbacks, batch generation
 - Steps: 1-150, CFG scale: 1.0-30.0
+- Request-side cancellation: `generateImage(request, { signal })` also cancels the generation server-side (genai-electron ≥ 0.6.0)
 
 **Samplers**: `euler_a`, `euler`, `dpm++2m`, `dpm++2s_a`, `heun`, `dpm2`, `lcm`
 
@@ -360,7 +361,7 @@ For models without native reasoning, use [Thinking Tag Fallback](llm-service.md#
 - `OPENAI_API_BASE_URL` (default: `https://api.openai.com/v1`)
 - `OPENROUTER_API_BASE_URL` (default: `https://openrouter.ai/api/v1`)
 - `LLAMACPP_API_BASE_URL` (default: `http://127.0.0.1:8080`)
-- `GENAI_ELECTRON_IMAGE_BASE_URL` (default: `http://localhost:8081`)
+- `GENAI_ELECTRON_IMAGE_BASE_URL` (default: `http://127.0.0.1:8081`)
 
 **OpenRouter App Attribution** (optional):
 - `OPENROUTER_HTTP_REFERER` - Your app's URL for rankings

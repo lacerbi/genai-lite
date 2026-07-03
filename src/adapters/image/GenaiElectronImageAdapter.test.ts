@@ -697,7 +697,7 @@ describe('GenaiElectronImageAdapter', () => {
       ).rejects.toThrow(/Generation not found/);
     });
 
-    it('should handle server busy error (503)', async () => {
+    it('should handle server busy error (503) as a typed rate-limit error', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: false,
         status: 503,
@@ -710,17 +710,22 @@ describe('GenaiElectronImageAdapter', () => {
           }),
       });
 
-      await expect(
-        adapter.generate({
-          request: defaultRequest,
-          resolvedPrompt: 'Test prompt',
-          settings: defaultSettings,
-          apiKey: null,
-        })
-      ).rejects.toThrow(/busy/);
+      const pending = adapter.generate({
+        request: defaultRequest,
+        resolvedPrompt: 'Test prompt',
+        settings: defaultSettings,
+        apiKey: null,
+      });
+
+      await expect(pending).rejects.toThrow(/busy/);
+      await expect(pending).rejects.toMatchObject({
+        code: 'RATE_LIMIT_EXCEEDED',
+        type: 'rate_limit_error',
+        status: 503,
+      });
     });
 
-    it('should handle generation error status', async () => {
+    it('should handle generation error status as a typed provider error', async () => {
       mockFetch
         .mockResolvedValueOnce({
           ok: true,
@@ -738,14 +743,50 @@ describe('GenaiElectronImageAdapter', () => {
           }),
         });
 
-      await expect(
-        adapter.generate({
-          request: defaultRequest,
-          resolvedPrompt: 'Test prompt',
-          settings: defaultSettings,
-          apiKey: null,
+      const pending = adapter.generate({
+        request: defaultRequest,
+        resolvedPrompt: 'Test prompt',
+        settings: defaultSettings,
+        apiKey: null,
+      });
+
+      await expect(pending).rejects.toThrow(/Failed to spawn/);
+      await expect(pending).rejects.toMatchObject({
+        code: 'PROVIDER_ERROR',
+        type: 'server_error',
+      });
+    });
+
+    it('should handle IO_ERROR generation status as a typed provider error', async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ id: 'gen_123', status: 'pending', createdAt: Date.now() }),
         })
-      ).rejects.toThrow(/Failed to spawn/);
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            id: 'gen_123',
+            status: 'error',
+            error: {
+              message: 'Disk full while writing output',
+              code: 'IO_ERROR',
+            },
+          }),
+        });
+
+      const pending = adapter.generate({
+        request: defaultRequest,
+        resolvedPrompt: 'Test prompt',
+        settings: defaultSettings,
+        apiKey: null,
+      });
+
+      await expect(pending).rejects.toThrow(/Image I\/O error/);
+      await expect(pending).rejects.toMatchObject({
+        code: 'PROVIDER_ERROR',
+        type: 'server_error',
+      });
     });
 
     it('should treat cancelled status as terminal with an abort-typed error', async () => {
@@ -780,34 +821,55 @@ describe('GenaiElectronImageAdapter', () => {
       expect(mockFetch).toHaveBeenCalledTimes(2);
     });
 
-    it('should handle network errors (ECONNREFUSED)', async () => {
+    it('should handle network errors (ECONNREFUSED) as typed connection errors', async () => {
       const networkError: any = new Error('connect ECONNREFUSED');
       networkError.code = 'ECONNREFUSED';
       mockFetch.mockRejectedValueOnce(networkError);
 
-      await expect(
-        adapter.generate({
-          request: defaultRequest,
-          resolvedPrompt: 'Test prompt',
-          settings: defaultSettings,
-          apiKey: null,
-        })
-      ).rejects.toThrow(/ECONNREFUSED/);
+      const pending = adapter.generate({
+        request: defaultRequest,
+        resolvedPrompt: 'Test prompt',
+        settings: defaultSettings,
+        apiKey: null,
+      });
+
+      await expect(pending).rejects.toThrow(/ECONNREFUSED/);
+      await expect(pending).rejects.toMatchObject({
+        code: 'NETWORK_ERROR',
+        type: 'connection_error',
+      });
     });
 
-    it('should handle timeout errors', async () => {
-      const timeoutError: any = new Error('Request timeout');
-      timeoutError.name = 'AbortError';
-      mockFetch.mockRejectedValueOnce(timeoutError);
+    it('should handle start-request timeouts as typed timeout errors', async () => {
+      const shortTimeoutAdapter = new GenaiElectronImageAdapter({
+        baseURL: 'http://localhost:8081',
+        timeout: 100, // 100ms
+      });
 
-      await expect(
-        adapter.generate({
-          request: defaultRequest,
-          resolvedPrompt: 'Test prompt',
-          settings: defaultSettings,
-          apiKey: null,
-        })
-      ).rejects.toThrow(/timeout/i);
+      // POST hangs until the adapter's timeout controller aborts it
+      mockFetch.mockImplementationOnce(
+        (_url: string, init: any) =>
+          new Promise((_resolve, reject) => {
+            init.signal.addEventListener('abort', () => {
+              const error: any = new Error('This operation was aborted');
+              error.name = 'AbortError';
+              reject(error);
+            });
+          })
+      );
+
+      const pending = shortTimeoutAdapter.generate({
+        request: defaultRequest,
+        resolvedPrompt: 'Test prompt',
+        settings: defaultSettings,
+        apiKey: null,
+      });
+
+      await expect(pending).rejects.toThrow(/timeout/i);
+      await expect(pending).rejects.toMatchObject({
+        code: 'REQUEST_TIMEOUT',
+        type: 'timeout_error',
+      });
     });
 
     it('should handle polling timeout', async () => {
@@ -832,14 +894,18 @@ describe('GenaiElectronImageAdapter', () => {
           }),
         });
 
-      await expect(
-        shortTimeoutAdapter.generate({
-          request: defaultRequest,
-          resolvedPrompt: 'Test prompt',
-          settings: defaultSettings,
-          apiKey: null,
-        })
-      ).rejects.toThrow(/timeout/i);
+      const pending = shortTimeoutAdapter.generate({
+        request: defaultRequest,
+        resolvedPrompt: 'Test prompt',
+        settings: defaultSettings,
+        apiKey: null,
+      });
+
+      await expect(pending).rejects.toThrow(/timeout/i);
+      await expect(pending).rejects.toMatchObject({
+        code: 'REQUEST_TIMEOUT',
+        type: 'timeout_error',
+      });
     });
 
     it('should include baseURL in error messages for network errors', async () => {
@@ -884,6 +950,185 @@ describe('GenaiElectronImageAdapter', () => {
           apiKey: null,
         })
       ).rejects.toThrow(/no result available/);
+    });
+  });
+
+  describe('Cancellation', () => {
+    it('rejects immediately with REQUEST_ABORTED when the signal is already aborted', async () => {
+      const controller = new AbortController();
+      controller.abort();
+
+      const pending = adapter.generate({
+        request: defaultRequest,
+        resolvedPrompt: 'Test prompt',
+        settings: defaultSettings,
+        apiKey: null,
+        signal: controller.signal,
+      });
+
+      await expect(pending).rejects.toMatchObject({
+        code: 'REQUEST_ABORTED',
+        type: 'abort_error',
+      });
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('classifies a caller abort during the start POST as REQUEST_ABORTED (user abort wins)', async () => {
+      const controller = new AbortController();
+
+      // POST hangs until aborted (by the caller, well before the 10s timeout)
+      mockFetch.mockImplementationOnce(
+        (_url: string, init: any) =>
+          new Promise((_resolve, reject) => {
+            init.signal.addEventListener('abort', () => {
+              const error: any = new Error('This operation was aborted');
+              error.name = 'AbortError';
+              reject(error);
+            });
+          })
+      );
+
+      setTimeout(() => controller.abort(), 30);
+
+      const pending = adapter.generate({
+        request: defaultRequest,
+        resolvedPrompt: 'Test prompt',
+        settings: defaultSettings,
+        apiKey: null,
+        signal: controller.signal,
+      });
+
+      await expect(pending).rejects.toMatchObject({
+        code: 'REQUEST_ABORTED',
+        type: 'abort_error',
+      });
+      // No generation ID yet — no DELETE cleanup should be attempted
+      expect(
+        mockFetch.mock.calls.some(([, init]: any[]) => init?.method === 'DELETE')
+      ).toBe(false);
+    });
+
+    it('aborts mid-poll, sends a best-effort DELETE, and rejects with REQUEST_ABORTED', async () => {
+      const controller = new AbortController();
+
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ id: 'gen_abort', status: 'pending', createdAt: Date.now() }),
+        })
+        // First poll: still in progress (abort fires during the following sleep)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            id: 'gen_abort',
+            status: 'in_progress',
+            progress: { currentStep: 1, totalSteps: 20, stage: 'diffusion' },
+          }),
+        })
+        // Any further call (the DELETE) succeeds
+        .mockResolvedValue({
+          ok: true,
+          json: async () => ({ id: 'gen_abort', status: 'cancelled' }),
+        });
+
+      setTimeout(() => controller.abort(), 50);
+
+      const pending = adapter.generate({
+        request: defaultRequest,
+        resolvedPrompt: 'Test prompt',
+        settings: defaultSettings,
+        apiKey: null,
+        signal: controller.signal,
+      });
+
+      await expect(pending).rejects.toMatchObject({
+        code: 'REQUEST_ABORTED',
+        type: 'abort_error',
+      });
+
+      const deleteCall = mockFetch.mock.calls.find(
+        ([, init]: any[]) => init?.method === 'DELETE'
+      );
+      expect(deleteCall).toBeDefined();
+      expect(deleteCall![0]).toBe('http://localhost:8081/v1/images/generations/gen_abort');
+    });
+
+    it('still surfaces REQUEST_ABORTED when the cancellation DELETE fails', async () => {
+      const controller = new AbortController();
+
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ id: 'gen_abort2', status: 'pending', createdAt: Date.now() }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            id: 'gen_abort2',
+            status: 'in_progress',
+            progress: { currentStep: 1, totalSteps: 20, stage: 'diffusion' },
+          }),
+        })
+        // The DELETE fails at the network level — must be swallowed
+        .mockRejectedValue(new Error('connect ECONNREFUSED'));
+
+      setTimeout(() => controller.abort(), 50);
+
+      const pending = adapter.generate({
+        request: defaultRequest,
+        resolvedPrompt: 'Test prompt',
+        settings: defaultSettings,
+        apiKey: null,
+        signal: controller.signal,
+      });
+
+      await expect(pending).rejects.toMatchObject({
+        code: 'REQUEST_ABORTED',
+        type: 'abort_error',
+      });
+      expect(
+        mockFetch.mock.calls.some(([, init]: any[]) => init?.method === 'DELETE')
+      ).toBe(true);
+    });
+
+    it('sends a best-effort DELETE when the poll loop times out (cancel-on-timeout)', async () => {
+      const shortTimeoutAdapter = new GenaiElectronImageAdapter({
+        baseURL: 'http://localhost:8081',
+        timeout: 100, // 100ms
+      });
+
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ id: 'gen_timeout', status: 'pending', createdAt: Date.now() }),
+        })
+        // Keep returning in_progress (the DELETE also gets this; its body is ignored)
+        .mockResolvedValue({
+          ok: true,
+          json: async () => ({
+            id: 'gen_timeout',
+            status: 'in_progress',
+            progress: { currentStep: 1, totalSteps: 20, stage: 'diffusion' },
+          }),
+        });
+
+      const pending = shortTimeoutAdapter.generate({
+        request: defaultRequest,
+        resolvedPrompt: 'Test prompt',
+        settings: defaultSettings,
+        apiKey: null,
+      });
+
+      await expect(pending).rejects.toMatchObject({
+        code: 'REQUEST_TIMEOUT',
+        type: 'timeout_error',
+      });
+
+      const deleteCall = mockFetch.mock.calls.find(
+        ([, init]: any[]) => init?.method === 'DELETE'
+      );
+      expect(deleteCall).toBeDefined();
+      expect(deleteCall![0]).toBe('http://localhost:8081/v1/images/generations/gen_timeout');
     });
   });
 

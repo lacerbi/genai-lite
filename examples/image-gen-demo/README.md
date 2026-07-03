@@ -53,7 +53,7 @@ OPENAI_API_KEY=sk-your-key-here
 **For genai-electron (optional):**
 ```bash
 # Start genai-electron diffusion server on port 8081
-GENAI_ELECTRON_IMAGE_BASE_URL=http://localhost:8081
+GENAI_ELECTRON_IMAGE_BASE_URL=http://127.0.0.1:8081
 ```
 
 ### 3. Run the Demo
@@ -162,7 +162,7 @@ npm run preview
 
 ### genai-electron Not Available
 - Start genai-electron diffusion server on port 8081
-- Verify the server is running: `curl http://localhost:8081/health`
+- Verify the server is running: `curl http://127.0.0.1:8081/health`
 - Check `GENAI_ELECTRON_IMAGE_BASE_URL` in `.env`
 
 ### Port Already in Use

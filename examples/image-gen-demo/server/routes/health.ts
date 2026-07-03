@@ -7,7 +7,7 @@ export const healthRouter = express.Router();
  * Check if genai-electron diffusion server is running and available
  */
 healthRouter.get('/genai-electron', async (req, res) => {
-  const baseURL = process.env.GENAI_ELECTRON_IMAGE_BASE_URL || 'http://localhost:8081';
+  const baseURL = process.env.GENAI_ELECTRON_IMAGE_BASE_URL || 'http://127.0.0.1:8081';
 
   try {
     // Call genai-electron's /health endpoint

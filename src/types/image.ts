@@ -284,6 +284,8 @@ export interface ImageFailureResponse {
     code?: string | number;
     /** Error type (authentication_error, rate_limit_error, etc.) */
     type?: string;
+    /** HTTP status code reported by the provider, when available */
+    status?: number;
     /** Parameter that caused the error (if applicable) */
     param?: string;
     /** Original provider error (for debugging) */
@@ -399,6 +401,8 @@ export interface ImageProviderAdapter {
     resolvedPrompt: string;
     settings: ResolvedImageGenerationSettings;
     apiKey: string | null;
+    /** Abort signal for request-side cancellation (optional) */
+    signal?: AbortSignal;
   }): Promise<ImageGenerationResponse>;
 
   /**
@@ -438,6 +442,19 @@ export interface ImageServiceOptions {
   logLevel?: LogLevel;
   /** Custom logger implementation. If provided, logLevel is ignored. */
   logger?: Logger;
+}
+
+/**
+ * Per-call options for ImageService.generateImage
+ */
+export interface GenerateImageOptions {
+  /**
+   * Abort signal to cancel the request (client-side — the provider may still
+   * process an already-dispatched request; for local diffusion the adapter
+   * additionally issues a best-effort server-side cancellation). Aborted
+   * requests surface as REQUEST_ABORTED / abort_error failures.
+   */
+  signal?: AbortSignal;
 }
 
 /**

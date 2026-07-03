@@ -69,6 +69,71 @@ describe('OpenAIImageAdapter', () => {
     });
   });
 
+  describe('Cancellation', () => {
+    it('passes the abort signal to the OpenAI SDK call', async () => {
+      const mockResponse = {
+        created: Math.floor(Date.now() / 1000),
+        data: [{ b64_json: 'dGVzdA==' }],
+      };
+      mockOpenAIClient.images.generate.mockResolvedValue(mockResponse);
+
+      const controller = new AbortController();
+
+      await adapter.generate({
+        request: {
+          providerId: 'openai-images',
+          modelId: 'gpt-image-1-mini',
+          prompt: 'A cute otter',
+        },
+        resolvedPrompt: 'A cute otter',
+        settings: {
+          width: 1024,
+          height: 1024,
+          quality: 'auto',
+          responseFormat: 'buffer',
+          style: 'vivid',
+        },
+        apiKey: 'sk-test123456789012345',
+        signal: controller.signal,
+      });
+
+      expect(mockOpenAIClient.images.generate).toHaveBeenCalledWith(
+        expect.any(Object),
+        { signal: controller.signal }
+      );
+    });
+
+    it('omits per-request options when no signal is provided', async () => {
+      const mockResponse = {
+        created: Math.floor(Date.now() / 1000),
+        data: [{ b64_json: 'dGVzdA==' }],
+      };
+      mockOpenAIClient.images.generate.mockResolvedValue(mockResponse);
+
+      await adapter.generate({
+        request: {
+          providerId: 'openai-images',
+          modelId: 'gpt-image-1-mini',
+          prompt: 'A cute otter',
+        },
+        resolvedPrompt: 'A cute otter',
+        settings: {
+          width: 1024,
+          height: 1024,
+          quality: 'auto',
+          responseFormat: 'buffer',
+          style: 'vivid',
+        },
+        apiKey: 'sk-test123456789012345',
+      });
+
+      expect(mockOpenAIClient.images.generate).toHaveBeenCalledWith(
+        expect.any(Object),
+        undefined
+      );
+    });
+  });
+
   describe('gpt-image-1-mini Generation', () => {
     it('should generate image with gpt-image-1-mini and base64 response', async () => {
       const mockResponse = {
@@ -249,7 +314,10 @@ describe('OpenAIImageAdapter', () => {
 
       expect(result.data[0].url).toBe('https://example.com/generated-image.png');
       expect(Buffer.isBuffer(result.data[0].data)).toBe(true);
-      expect(global.fetch).toHaveBeenCalledWith('https://example.com/generated-image.png');
+      expect(global.fetch).toHaveBeenCalledWith(
+        'https://example.com/generated-image.png',
+        undefined
+      );
 
       const callArgs = mockOpenAIClient.images.generate.mock.calls[0][0];
       expect(callArgs.response_format).toBe('url');

@@ -50,7 +50,7 @@ async function checkProviderAvailable(providerId: string): Promise<boolean> {
   // For genai-electron, check if the server is running
   if (providerId === 'genai-electron-images') {
     try {
-      const baseURL = process.env.GENAI_ELECTRON_IMAGE_BASE_URL || 'http://localhost:8081';
+      const baseURL = process.env.GENAI_ELECTRON_IMAGE_BASE_URL || 'http://127.0.0.1:8081';
       const response = await fetch(`${baseURL}/health`, {
         signal: AbortSignal.timeout(2000) // 2 second timeout
       });

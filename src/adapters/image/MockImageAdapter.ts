@@ -12,6 +12,7 @@ import type {
   ImageProviderCapabilities,
   ResolvedImageGenerationSettings,
 } from '../../types/image';
+import { ADAPTER_ERROR_CODES } from '../../llm/clients/types';
 
 /**
  * Mock adapter for testing image generation
@@ -35,8 +36,17 @@ export class MockImageAdapter implements ImageProviderAdapter {
     resolvedPrompt: string;
     settings: ResolvedImageGenerationSettings;
     apiKey: string | null;
+    signal?: AbortSignal;
   }): Promise<ImageGenerationResponse> {
-    const { request, resolvedPrompt } = config;
+    const { request, resolvedPrompt, signal } = config;
+
+    if (signal?.aborted) {
+      const error: any = new Error('Image generation request was aborted');
+      error.code = ADAPTER_ERROR_CODES.REQUEST_ABORTED;
+      error.type = 'abort_error';
+      throw error;
+    }
+
     const count = request.count || 1;
 
     // Create mock image data (1x1 PNG)

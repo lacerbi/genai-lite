@@ -79,7 +79,7 @@ Check provider availability before displaying as options (`server/services/image
 async function checkProviderAvailable(providerId: string): Promise<boolean> {
   if (providerId === 'genai-electron-images') {
     try {
-      const baseURL = process.env.GENAI_ELECTRON_IMAGE_BASE_URL || 'http://localhost:8081';
+      const baseURL = process.env.GENAI_ELECTRON_IMAGE_BASE_URL || 'http://127.0.0.1:8081';
       const response = await fetch(`${baseURL}/health`, {
         signal: AbortSignal.timeout(2000)  // Prevent UI hangs
       });
@@ -414,7 +414,7 @@ npm install
 
 # Configure .env with API keys
 # OPENAI_API_KEY=sk-...
-# GENAI_ELECTRON_IMAGE_BASE_URL=http://localhost:8081  # optional
+# GENAI_ELECTRON_IMAGE_BASE_URL=http://127.0.0.1:8081  # optional
 
 npm run dev
 # Frontend: http://localhost:5174
@@ -463,7 +463,7 @@ Quick workflow for testing ImageService changes:
 
 ### genai-electron Not Available
 - Start genai-electron diffusion server on port 8081
-- Verify: `curl http://localhost:8081/health`
+- Verify: `curl http://127.0.0.1:8081/health`
 - Check `GENAI_ELECTRON_IMAGE_BASE_URL` in `.env`
 
 ### Port Already in Use

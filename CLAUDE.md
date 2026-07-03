@@ -338,14 +338,15 @@ The `examples/chat-demo` application provides a quick way to test library change
 
 **genai-electron Diffusion:**
 - Local stable-diffusion.cpp server - no API keys needed
-- Async polling architecture (POST starts generation, GET polls for progress/result)
+- Async polling architecture (POST starts generation, GET polls for progress/result, DELETE cancels — genai-electron ≥ 0.6.0)
 - Generic `stable-diffusion` model ID (like llama.cpp pattern)
 - Accepts arbitrary dimensions (width/height) within 64-2048 pixel range
 - Diffusion settings in `diffusion` namespace (negativePrompt, steps, cfgScale, sampler, seed)
-- Progress callbacks via polling (500ms interval, 120s timeout)
+- Progress callbacks via polling (500ms interval, 120s timeout); on caller abort or poll timeout the adapter sends a best-effort DELETE so the server frees the GPU (cancel-on-timeout still surfaces `REQUEST_TIMEOUT`)
 - Batch generation support (count parameter)
-- Configure via `GENAI_ELECTRON_IMAGE_BASE_URL` environment variable (default: http://localhost:8081)
-- See `docs/devlog/2025-10-22-genai-electron-changes.md` for async API specification
+- Configure via `GENAI_ELECTRON_IMAGE_BASE_URL` environment variable (default: http://127.0.0.1:8081 — use `127.0.0.1`, not `localhost`, to avoid a ~2s/request IPv6-fallback stall on Windows, paid repeatedly by the 500ms poll loop)
+- Error mapping: server codes → typed envelopes (`SERVER_BUSY` → `RATE_LIMIT_EXCEEDED`/`rate_limit_error`, `BACKEND_ERROR`/`IO_ERROR` → `PROVIDER_ERROR`/`server_error`, cancelled → `REQUEST_ABORTED`/`abort_error`)
+- See `docs/devlog/2025-10-22-genai-electron-changes.md` for the async API baseline (pre-0.6.0, no cancel endpoint); the cancel endpoint spec lives in the genai-electron repo's `image-generation.md`
 
 ### Error Handling
 
@@ -360,6 +361,7 @@ All adapters should use `adapterErrorUtils.ts` patterns:
 - Configure with `LLMServiceOptions.retry` (defaults: `maxRetries` 2, `initialDelayMs` 500, `maxDelayMs` 10000, `backoffFactor` 2, `retryOnTimeout` true) and `LLMServiceOptions.timeoutMs`. Override per call: `sendMessage(request, { signal, timeoutMs, maxRetries })`.
 - Only transient failures retry (429/network/timeout/408/409/5xx); `Retry-After` hints are honored and aborts are never retried.
 - New adapter error codes `REQUEST_TIMEOUT` (retryable) and `REQUEST_ABORTED` (never retried); `LLMError` carries `status` and `retryAfterMs`. Per-request transport options reach adapters via `AdapterRequestOptions` on `ILLMClientAdapter.sendMessage`.
+- `ImageService` (since v0.10.0): `generateImage(request, { signal })` supports cancellation (no retry layer, no per-call `timeoutMs`). The signal reaches image adapters via the `generate()` config bag; failure envelopes propagate adapter-shaped `code`/`type`/`status` (errors whose `code` isn't in `ADAPTER_ERROR_CODES` fall back to `PROVIDER_ERROR`/`server_error` so e.g. a failing `ApiKeyProvider`'s `ENOENT` doesn't leak).
 
 ## Code Style
 

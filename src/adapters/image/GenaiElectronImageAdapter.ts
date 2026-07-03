@@ -5,7 +5,7 @@
  * Supports stable-diffusion.cpp through HTTP wrapper with async polling for progress.
  *
  * Provider ID: 'genai-electron-images'
- * Default endpoint: http://localhost:8081
+ * Default endpoint: http://127.0.0.1:8081
  * Configure via: GENAI_ELECTRON_IMAGE_BASE_URL environment variable
  *
  * This adapter uses genai-electron's async image generation API which:
@@ -89,7 +89,7 @@ export class GenaiElectronImageAdapter implements ImageProviderAdapter {
   private logger: Logger;
 
   constructor(config?: ImageProviderAdapterConfig) {
-    this.baseURL = config?.baseURL || 'http://localhost:8081';
+    this.baseURL = config?.baseURL || 'http://127.0.0.1:8081';
     this.timeout = config?.timeout || 120000; // 120 seconds for diffusion
     this.pollInterval = 500; // Poll every 500ms
     this.logger = config?.logger ?? createDefaultLogger();
@@ -103,10 +103,18 @@ export class GenaiElectronImageAdapter implements ImageProviderAdapter {
     resolvedPrompt: string;
     settings: ResolvedImageGenerationSettings;
     apiKey: string | null;
+    signal?: AbortSignal;
   }): Promise<ImageGenerationResponse> {
-    const { request, resolvedPrompt, settings } = config;
+    const { request, resolvedPrompt, settings, signal } = config;
+    let generationId: string | undefined;
 
     try {
+      if (signal?.aborted) {
+        throw this.createAbortError(
+          'Image generation request was aborted before it started'
+        );
+      }
+
       // Build request payload
       const payload = this.buildRequestPayload(resolvedPrompt, request, settings);
 
@@ -118,22 +126,31 @@ export class GenaiElectronImageAdapter implements ImageProviderAdapter {
       });
 
       // Start generation (returns immediately with ID)
-      const generationId = await this.startGeneration(payload);
+      generationId = await this.startGeneration(payload, signal);
 
       this.logger.info(`GenaiElectron Image API: Generation started with ID: ${generationId}`);
 
       // Poll for completion
       const result = await this.pollForCompletion(
         generationId,
-        settings.diffusion?.onProgress
+        settings.diffusion?.onProgress,
+        signal
       );
 
       this.logger.info(`GenaiElectron Image API: Generation complete (${result.timeTaken}ms)`);
 
       // Convert to ImageGenerationResponse
       return this.convertToResponse(result, request);
-    } catch (error) {
+    } catch (error: any) {
       this.logger.error('GenaiElectron Image API error:', error);
+
+      // Best-effort server-side cancellation when a started generation is being
+      // abandoned (caller abort, or client-side poll timeout — cancel frees the
+      // GPU; the DELETE is cleanup, not a reclassification)
+      if (generationId && (signal?.aborted || error?.name === 'TimeoutError')) {
+        await this.cancelGeneration(generationId);
+      }
+
       throw this.handleError(error, request);
     }
   }
@@ -167,13 +184,28 @@ export class GenaiElectronImageAdapter implements ImageProviderAdapter {
 
   /**
    * Starts generation and returns the generation ID
+   *
+   * The adapter's timeout and the caller's abort signal share one controller,
+   * so both surface as AbortError — classification comes from adapter-side
+   * state (timer-fired flag vs signal.aborted), with the caller's abort winning.
    */
-  private async startGeneration(payload: any): Promise<string> {
+  private async startGeneration(payload: any, signal?: AbortSignal): Promise<string> {
     const url = `${this.baseURL}/v1/images/generations`;
 
-    // Create abort controller for timeout
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), this.timeout);
+    let timedOut = false;
+    const abortFromCaller = () => controller.abort();
+    if (signal) {
+      if (signal.aborted) {
+        controller.abort();
+      } else {
+        signal.addEventListener('abort', abortFromCaller, { once: true });
+      }
+    }
+    const timeoutId = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, this.timeout);
 
     try {
       const response = await fetch(url, {
@@ -183,8 +215,6 @@ export class GenaiElectronImageAdapter implements ImageProviderAdapter {
         signal: controller.signal,
       });
 
-      clearTimeout(timeoutId);
-
       if (!response.ok) {
         const errorText = await response.text();
         throw this.createHttpError(response.status, errorText, url);
@@ -193,16 +223,23 @@ export class GenaiElectronImageAdapter implements ImageProviderAdapter {
       const data: StartGenerationResponse = await response.json();
       return data.id;
     } catch (error: any) {
-      clearTimeout(timeoutId);
-
-      // Handle AbortError
       if (error.name === 'AbortError') {
-        throw new Error(
-          `Request timeout after ${this.timeout}ms (connecting to ${this.baseURL})`
-        );
+        if (signal?.aborted) {
+          throw this.createAbortError(
+            'Image generation request was aborted before it started'
+          );
+        }
+        if (timedOut) {
+          throw this.createTimeoutError(
+            `Request timeout after ${this.timeout}ms (connecting to ${this.baseURL})`
+          );
+        }
       }
 
       throw error;
+    } finally {
+      clearTimeout(timeoutId);
+      signal?.removeEventListener('abort', abortFromCaller);
     }
   }
 
@@ -211,21 +248,39 @@ export class GenaiElectronImageAdapter implements ImageProviderAdapter {
    */
   private async pollForCompletion(
     generationId: string,
-    onProgress?: ImageProgressCallback
+    onProgress?: ImageProgressCallback,
+    signal?: AbortSignal
   ): Promise<NonNullable<GenerationStatusResponse['result']>> {
     const url = `${this.baseURL}/v1/images/generations/${generationId}`;
     const startTime = Date.now();
 
     while (true) {
+      // Check caller abort (before timeout — user intent wins)
+      if (signal?.aborted) {
+        throw this.createAbortError(
+          `Image generation request was aborted (ID: ${generationId})`
+        );
+      }
+
       // Check overall timeout
       if (Date.now() - startTime > this.timeout) {
-        throw new Error(
+        throw this.createTimeoutError(
           `Generation timeout after ${this.timeout}ms (ID: ${generationId})`
         );
       }
 
       // Fetch status
-      const response = await fetch(url);
+      let response: Response;
+      try {
+        response = await fetch(url, signal ? { signal } : undefined);
+      } catch (error: any) {
+        if (error.name === 'AbortError' && signal?.aborted) {
+          throw this.createAbortError(
+            `Image generation request was aborted (ID: ${generationId})`
+          );
+        }
+        throw error;
+      }
 
       if (!response.ok) {
         const errorText = await response.text();
@@ -268,7 +323,34 @@ export class GenaiElectronImageAdapter implements ImageProviderAdapter {
       }
 
       // Wait before next poll
-      await this.sleep(this.pollInterval);
+      await this.sleep(this.pollInterval, signal);
+    }
+  }
+
+  /**
+   * Best-effort cancellation of a server-side generation
+   * (DELETE /v1/images/generations/:id, available since genai-electron 0.6.0).
+   *
+   * All failures are swallowed: 404/409 just mean there is nothing left to
+   * cancel, and cleanup must never mask the caller's primary error.
+   */
+  private async cancelGeneration(generationId: string): Promise<void> {
+    const url = `${this.baseURL}/v1/images/generations/${generationId}`;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+    try {
+      await fetch(url, { method: 'DELETE', signal: controller.signal });
+      this.logger.debug(
+        `GenaiElectron Image API: Requested cancellation of generation ${generationId}`
+      );
+    } catch (error) {
+      this.logger.debug(
+        `GenaiElectron Image API: Best-effort cancellation failed for ${generationId}:`,
+        error
+      );
+    } finally {
+      clearTimeout(timeoutId);
     }
   }
 
@@ -315,11 +397,15 @@ export class GenaiElectronImageAdapter implements ImageProviderAdapter {
    */
   private createHttpError(status: number, errorText: string, url: string): Error {
     let errorMessage = `HTTP ${status} error`;
+    let serverCode: string | undefined;
 
     try {
       const errorData = JSON.parse(errorText);
       if (errorData.error?.message) {
         errorMessage = errorData.error.message;
+      }
+      if (typeof errorData.error?.code === 'string') {
+        serverCode = errorData.error.code;
       }
     } catch {
       // Not JSON, use raw text
@@ -331,7 +417,30 @@ export class GenaiElectronImageAdapter implements ImageProviderAdapter {
     const error = new Error(`${errorMessage} (${url})`);
     (error as any).status = status;
     (error as any).url = url;
+    if (serverCode) {
+      (error as any).code = serverCode;
+    }
 
+    return error;
+  }
+
+  /**
+   * Creates a timeout-typed error: name 'TimeoutError' is recognized by the
+   * shared error mapping and classified as REQUEST_TIMEOUT / timeout_error
+   */
+  private createTimeoutError(message: string): Error {
+    const error = new Error(message);
+    error.name = 'TimeoutError';
+    return error;
+  }
+
+  /**
+   * Creates an abort-typed error: name 'AbortError' is recognized by the
+   * shared error mapping and classified as REQUEST_ABORTED / abort_error
+   */
+  private createAbortError(message: string): Error {
+    const error = new Error(message);
+    error.name = 'AbortError';
     return error;
   }
 
@@ -364,16 +473,20 @@ export class GenaiElectronImageAdapter implements ImageProviderAdapter {
       errorType = 'abort_error';
     } else if (error.code === 'SERVER_BUSY') {
       errorMessage = 'Image generation server is busy. Wait for current generation to complete.';
-      (error as any).type = 'rate_limit_error';
+      errorCode = ADAPTER_ERROR_CODES.RATE_LIMIT_EXCEEDED;
+      errorType = 'rate_limit_error';
     } else if (error.code === 'SERVER_NOT_RUNNING') {
       errorMessage = `Image generation server is not running (connecting to ${this.baseURL})`;
-      (error as any).type = 'connection_error';
+      errorCode = ADAPTER_ERROR_CODES.NETWORK_ERROR;
+      errorType = 'connection_error';
     } else if (error.code === 'BACKEND_ERROR') {
       errorMessage = `Diffusion backend error: ${error.message}`;
-      (error as any).type = 'server_error';
+      errorCode = ADAPTER_ERROR_CODES.PROVIDER_ERROR;
+      errorType = 'server_error';
     } else if (error.code === 'IO_ERROR') {
       errorMessage = `Image I/O error: ${error.message}`;
-      (error as any).type = 'server_error';
+      errorCode = ADAPTER_ERROR_CODES.PROVIDER_ERROR;
+      errorType = 'server_error';
     }
 
     // Add baseURL context for network errors
@@ -398,9 +511,24 @@ export class GenaiElectronImageAdapter implements ImageProviderAdapter {
   }
 
   /**
-   * Sleep helper for polling
+   * Sleep helper for polling; rejects immediately when the signal aborts
    */
-  private sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
+  private sleep(ms: number, signal?: AbortSignal): Promise<void> {
+    return new Promise((resolve, reject) => {
+      if (signal?.aborted) {
+        reject(this.createAbortError('Image generation request was aborted'));
+        return;
+      }
+
+      const onAbort = () => {
+        clearTimeout(timer);
+        reject(this.createAbortError('Image generation request was aborted'));
+      };
+      const timer = setTimeout(() => {
+        signal?.removeEventListener('abort', onAbort);
+        resolve();
+      }, ms);
+      signal?.addEventListener('abort', onAbort, { once: true });
+    });
   }
 }

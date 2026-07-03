@@ -631,10 +631,16 @@ For entirely new image generation providers:
        resolvedPrompt: string;
        settings: ResolvedImageGenerationSettings;
        apiKey: string | null;
+       signal?: AbortSignal;  // honor for request-side cancellation (optional)
      }): Promise<ImageGenerationResponse>;
      getModels?(): Promise<ImageModelInfo[]>;
    }
    ```
+
+   On failure, throw errors stamped with an `ADAPTER_ERROR_CODES` code plus
+   `type` (and `status` when an HTTP status is known) — `ImageService`
+   propagates those fields to the failure envelope; errors without a
+   recognized code fall back to `PROVIDER_ERROR`/`server_error`.
 3. Register in `src/image/config.ts`:
    - Add to `SUPPORTED_IMAGE_PROVIDERS`
    - Define models in provider configuration

@@ -19,7 +19,9 @@ import type {
   ImagePreset,
   ImageServiceOptions,
   ImageProviderAdapter,
+  GenerateImageOptions,
 } from '../types/image';
+import { ADAPTER_ERROR_CODES } from '../llm/clients/types';
 import { SUPPORTED_IMAGE_PROVIDERS, getImageModelsByProvider, IMAGE_ADAPTER_CONFIGS } from './config';
 import rawDefaultImagePresets from '../config/image-presets.json';
 import { PresetManager } from '../shared/services/PresetManager';
@@ -33,6 +35,10 @@ import { ImageModelResolver } from './services/ImageModelResolver';
 
 // Type assertion for the imported JSON
 const defaultImagePresets = rawDefaultImagePresets as ImagePreset[];
+
+// Error codes adapters stamp on the errors they throw; used to decide whether a
+// caught error's classification is safe to surface on the failure envelope
+const ADAPTER_ERROR_CODE_VALUES = new Set<string>(Object.values(ADAPTER_ERROR_CODES));
 
 /**
  * Main service for image generation operations
@@ -107,10 +113,12 @@ export class ImageService {
    * Generates images based on the request
    *
    * @param request - Image generation request
+   * @param options - Per-call options (e.g. an AbortSignal for cancellation)
    * @returns Promise resolving to response or error
    */
   async generateImage(
-    request: ImageGenerationRequest | ImageGenerationRequestWithPreset
+    request: ImageGenerationRequest | ImageGenerationRequestWithPreset,
+    options?: GenerateImageOptions
   ): Promise<ImageGenerationResponse | ImageFailureResponse> {
     this.logger.info('ImageService.generateImage called');
 
@@ -156,6 +164,20 @@ export class ImageService {
 
       // Get API key
       try {
+        // Short-circuit if the caller already aborted — don't touch the adapter
+        if (options?.signal?.aborted) {
+          return {
+            object: 'error',
+            providerId: providerId!,
+            modelId: modelId!,
+            error: {
+              message: 'Image generation request was aborted',
+              code: ADAPTER_ERROR_CODES.REQUEST_ABORTED,
+              type: 'abort_error',
+            },
+          };
+        }
+
         const apiKey = await this.getApiKey(providerId!);
 
         // Validate API key if adapter supports it
@@ -179,12 +201,21 @@ export class ImageService {
           resolvedPrompt,
           settings: resolvedSettings,
           apiKey,
+          signal: options?.signal,
         });
 
         this.logger.info('ImageService: Image generation completed successfully');
         return response;
       } catch (error) {
         this.logger.error('ImageService: Error during image generation:', error);
+        // Adapters throw errors stamped with an ADAPTER_ERROR_CODES code plus
+        // type/status — propagate that classification. Anything else caught here
+        // (e.g. a failing ApiKeyProvider whose error carries a foreign `.code`
+        // like ENOENT) keeps the generic fallback so unrelated codes don't leak
+        // into the API surface.
+        const thrown = error as any;
+        const isAdapterError =
+          typeof thrown?.code === 'string' && ADAPTER_ERROR_CODE_VALUES.has(thrown.code);
         return {
           object: 'error',
           providerId: providerId!,
@@ -194,8 +225,13 @@ export class ImageService {
               error instanceof Error
                 ? error.message
                 : 'An unknown error occurred during image generation',
-            code: 'PROVIDER_ERROR',
-            type: 'server_error',
+            code: isAdapterError ? thrown.code : 'PROVIDER_ERROR',
+            type:
+              isAdapterError && typeof thrown.type === 'string'
+                ? thrown.type
+                : 'server_error',
+            ...(isAdapterError &&
+              typeof thrown.status === 'number' && { status: thrown.status }),
             providerError: error,
           },
         };
