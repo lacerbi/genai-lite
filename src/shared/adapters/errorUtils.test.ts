@@ -100,6 +100,50 @@ describe('adapterErrorUtils', () => {
       });
     });
 
+    it('should map undici fetch-failed wrappers via cause code to network error', () => {
+      // Native fetch (undici) rejects with `TypeError: fetch failed` and keeps
+      // the real failure on `cause` — the shape @google/genai rethrows unwrapped
+      const error = Object.assign(new TypeError('fetch failed'), {
+        cause: Object.assign(new Error('connect ECONNREFUSED 142.250.74.106:443'), {
+          code: 'ECONNREFUSED',
+        }),
+      });
+
+      const result = getCommonMappedErrorDetails(error);
+
+      expect(result.errorCode).toBe(ADAPTER_ERROR_CODES.NETWORK_ERROR);
+      expect(result.errorType).toBe('connection_error');
+      expect(result.errorMessage).toBe(
+        'fetch failed: connect ECONNREFUSED 142.250.74.106:443'
+      );
+      expect(result.status).toBeUndefined();
+    });
+
+    it('should map undici connect-timeout causes to network error', () => {
+      const error = Object.assign(new TypeError('fetch failed'), {
+        cause: Object.assign(new Error('Connect Timeout Error'), {
+          name: 'ConnectTimeoutError',
+          code: 'UND_ERR_CONNECT_TIMEOUT',
+        }),
+      });
+
+      const result = getCommonMappedErrorDetails(error);
+
+      expect(result.errorCode).toBe(ADAPTER_ERROR_CODES.NETWORK_ERROR);
+      expect(result.errorType).toBe('connection_error');
+    });
+
+    it('should not treat non-network causes as network errors', () => {
+      const error = Object.assign(new Error('wrapper'), {
+        cause: new Error('some unrelated inner failure'),
+      });
+
+      const result = getCommonMappedErrorDetails(error);
+
+      expect(result.errorCode).toBe(ADAPTER_ERROR_CODES.UNKNOWN_ERROR);
+      expect(result.errorType).toBe('client_error');
+    });
+
     it('should handle generic Error instances', () => {
       const error = new Error('Something went wrong');
       const result = getCommonMappedErrorDetails(error);

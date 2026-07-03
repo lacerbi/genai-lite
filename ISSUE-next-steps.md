@@ -1,7 +1,7 @@
 # ISSUE: Post-v0.9.2 TODO — deferred follow-ups
 
 Created: 2026-07-03
-Updated: 2026-07-03 (v0.10.0 work: items 1, 6, 7 resolved; items 8–10 added)
+Updated: 2026-07-03 (v0.11.0 work: items 2, 5 resolved)
 Status: OPEN
 Package: genai-lite
 
@@ -35,16 +35,19 @@ Note: all "latest" package versions below were checked via `npm view` on
    the unpublished `@anthropic-ai/sdk` floor bump `^0.71.2` → `^0.72.1` from
    #91 shipped with v0.10.0.
 
-2. **`@google/genai` 2.x major upgrade** (floor `^1.0.1`, lockfile 1.52.0;
-   latest 2.10.0 as of 2026-07-03). Breaking. Review `GeminiClientAdapter`
-   against the 2.x API and re-verify the v0.9.2 adapter-owned timeout/abort
-   classification against 2.x internals. The adapter leans on exactly two SDK
-   surfaces that must still exist/behave the same in 2.x: `config.abortSignal`
-   on `models.generateContent`, and `httpOptions.timeout` (sent padded +1s as a
-   server-side hint; the adapter's own timer fires first). Note: 1.52 already
-   changed the SDK's fetch-rejection wrapper (typed `AbortError` in some paths
-   vs the old plain `Error`) — the state-based classification is unaffected,
-   but re-check item 5 assumptions while here.
+2. ~~**`@google/genai` 2.x major upgrade**~~ **RESOLVED (v0.11.0, 2026-07-03)** —
+   floor bumped `^1.0.1` → `^2.10.0`. Much smaller than feared: 2.0.0's breaking
+   changes are confined to the new Interactions API (`generateContent` untouched
+   per changelog, verified against 2.10.0 source). Both load-bearing surfaces
+   unchanged: `config.abortSignal` still funnels into the SDK's internal
+   controller; `httpOptions.timeout` still `setTimeout`+abort plus
+   `X-Server-Timeout` header (default headers always set, so the headerless
+   `{ timeout }` we pass does emit the hint). State-based timeout/abort
+   classification from v0.9.2 unaffected. New discovery, recorded in the adapter:
+   the SDK now has an **opt-in** internal retry layer
+   (`httpOptions.retryOptions`, p-retry, 5 attempts on 408/429/5xx) — verified
+   off by default in 1.52 and 2.10; it must stay unset or it would multiply
+   attempts under `withRetry`.
 
 3. **`@mistralai/mistralai` 2.x major upgrade** (floor `^1.11.0`, lockfile
    1.15.1; latest 2.4.0). Breaking; Speakeasy-generated SDK — check error
@@ -56,15 +59,19 @@ Note: all "latest" package versions below were checked via `npm view` on
    minor at a time. Consider a deliberate jump with adapter review instead of
    38 incremental PRs.
 
-5. **Gemini network-error flattening** (documented in
-   `docs/ISSUE-gemini-timeout-classification.md` Resolution notes).
-   `@google/genai` wraps network-level fetch failures (DNS, connection refused)
-   in plain Errors (`exception TypeError: fetch failed sending request`), so
-   they surface as `UNKNOWN_ERROR`/`client_error` and are never retried —
-   unlike every other provider. Fix requires best-effort message sniffing in
-   the Gemini adapter or an upstream SDK change; re-check under 2.x (item 2)
-   before building anything — 2.x may preserve `error.cause`, enabling
-   cause-code classification instead of message sniffing.
+5. ~~**Gemini network-error flattening**~~ **RESOLVED (v0.11.0, 2026-07-03)** —
+   turned out to be already unlocked: since 1.52 the SDK rethrows fetch
+   rejections that are `Error` instances unwrapped (`if (e instanceof Error)
+   throw e`), so network failures reach the adapter as undici's raw
+   `TypeError: fetch failed` with the real failure on `error.cause`
+   (`.code = 'ECONNREFUSED'` etc.). Fixed generically in
+   `src/shared/adapters/errorUtils.ts`: the network branch now checks
+   `error.cause` too (no message sniffing) and appends the cause message to
+   undici's generic "fetch failed". Gemini network failures now map to
+   `NETWORK_ERROR`/`connection_error` and are retried like every other
+   provider. The old flattening wrapper documented in
+   `docs/ISSUE-gemini-timeout-classification.md` (verified against 1.34/1.37)
+   no longer exists.
 
 6. ~~**Request-side image cancellation.**~~ **RESOLVED (v0.10.0, 2026-07-03)** —
    `ImageService.generateImage(request, { signal })` added; the genai-electron
@@ -104,11 +111,19 @@ Note: all "latest" package versions below were checked via `npm view` on
 
 ## Pickup point
 
-Item 2 (`@google/genai` 2.x) is next, the largest chunk; item 5 folds into it. For items 2–4: branch per upgrade, bump floor + lockfile,
+Item 3 (`@mistralai/mistralai` 2.x) is next, then item 4 (`@anthropic-ai/sdk`
+catch-up). For items 3–4: branch per upgrade, bump floor + lockfile,
 `npm run build` (tsc catches type breaks), full unit suite (adapters are
 mocked, so unit tests alone don't prove wire behavior), then a targeted e2e
 smoke (`npm run test:e2e` — real API calls, costs money, use sparingly per
 CLAUDE.md).
+
+**v0.11.0 release state**: items 2 + 5 shipped on branch
+`upgrade/google-genai-2x` (2026-07-03); unit suite green (814 tests), audit
+clean, `npm pack --dry-run` OK. **Gemini e2e wire smoke not run** — no
+`E2E_GEMINI_API_KEY` in the dev environment; run it before/after merging
+(the e2e suite auto-skips providers without keys, so setting just the Gemini
+key keeps the cost to one provider). Not yet merged/tagged/published.
 
 Sister-repo follow-up: DONE (2026-07-03, genai-electron commit `064a3d2`) —
 genai-electron's docs (`image-generation.md`, `index.md`,

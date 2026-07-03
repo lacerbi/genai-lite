@@ -61,11 +61,28 @@ export function extractRetryAfterMs(error: any): number | undefined {
 }
 
 /**
+ * Matches the error shapes Node's networking stack produces for connection-level
+ * failures (DNS lookup, connection refused, connect timeout). Native fetch
+ * (undici) wraps these in a generic `TypeError: fetch failed` and keeps the
+ * real failure on `cause`, so callers should check both the error and its cause.
+ */
+function isConnectionFailure(e: any): boolean {
+  return !!e && (
+    e.code === 'ENOTFOUND' ||
+    e.code === 'ECONNREFUSED' ||
+    e.code === 'ETIMEDOUT' ||
+    e.name === 'ConnectTimeoutError' ||
+    (typeof e.type === 'string' && e.type.includes('timeout'))
+  );
+}
+
+/**
  * Maps common error patterns to standardized error codes and types
- * 
+ *
  * This utility handles:
  * - Common HTTP status codes (401, 402, 404, 429, 4xx, 5xx)
- * - Network connection errors (ENOTFOUND, ECONNREFUSED, timeouts)
+ * - Network connection errors (ENOTFOUND, ECONNREFUSED, timeouts), including
+ *   undici's `TypeError: fetch failed` wrapper carrying the failure on `cause`
  * - Generic JavaScript errors
  * 
  * Individual adapters can further refine the mappings for provider-specific cases,
@@ -161,17 +178,23 @@ export function getCommonMappedErrorDetails(
         }
     }
   }
-  // Handle network connection errors
-  else if (error && (
-    error.code === 'ENOTFOUND' || 
-    error.code === 'ECONNREFUSED' || 
-    error.code === 'ETIMEDOUT' ||
-    error.name === 'ConnectTimeoutError' ||
-    (error.type && error.type.includes('timeout'))
-  )) {
+  // Handle network connection errors — either directly (Node error shapes) or
+  // wrapped by native fetch/undici as `TypeError: fetch failed` with the real
+  // failure on `cause` (e.g. @google/genai rethrows these unwrapped)
+  else if (isConnectionFailure(error) || isConnectionFailure(error?.cause)) {
     errorCode = ADAPTER_ERROR_CODES.NETWORK_ERROR;
     errorType = 'connection_error';
     errorMessage = providerMessageOverride || error.message || 'Network connection failed';
+    // Surface the underlying cause when the top-level message is just
+    // undici's generic "fetch failed"
+    if (
+      !isConnectionFailure(error) &&
+      typeof error?.cause?.message === 'string' &&
+      error.cause.message &&
+      !errorMessage.includes(error.cause.message)
+    ) {
+      errorMessage = `${errorMessage}: ${error.cause.message}`;
+    }
   }
   // Handle generic JavaScript errors
   else if (error instanceof Error) {

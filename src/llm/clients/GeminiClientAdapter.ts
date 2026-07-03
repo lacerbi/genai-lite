@@ -60,14 +60,17 @@ export class GeminiClientAdapter implements ILLMClientAdapter {
     apiKey: string,
     options?: AdapterRequestOptions
   ): Promise<LLMResponse | LLMFailureResponse> {
-    // The SDK enforces httpOptions.timeout by aborting an internal controller and
-    // wraps any fetch rejection in a plain Error (no name/status/code), so timeouts
-    // and caller aborts cannot be classified from the error object. The adapter owns
-    // the timeout instead and classifies from its own state in the catch block.
+    // The SDK enforces httpOptions.timeout by aborting the same internal controller
+    // the caller's abortSignal funnels into, so timeout and caller abort surface as
+    // identical AbortErrors and cannot be distinguished from the error object. The
+    // adapter owns the timeout instead and classifies from its own state in the
+    // catch block.
     let timedOut = false;
     let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
     try {
-      // Initialize Gemini client (note: @google/genai performs no automatic retries)
+      // Initialize Gemini client. The SDK's internal retry layer is opt-in via
+      // httpOptions.retryOptions — it must stay unset here because LLMService's
+      // withRetry owns retrying (SDK retries would multiply attempts).
       const genAI = new GoogleGenAI({ apiKey });
 
       // Format the request for Gemini API

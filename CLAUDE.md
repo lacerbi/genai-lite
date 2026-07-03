@@ -303,6 +303,8 @@ The `examples/chat-demo` application provides a quick way to test library change
 **Google Gemini:**
 - Different role naming (user/model vs user/assistant)
 - Unique safety settings structure
+- `@google/genai` ≥ 2.x: SDK-internal retries are **opt-in** via `httpOptions.retryOptions` and must stay unset (LLMService's `withRetry` owns retrying; enabling both would multiply attempts)
+- Network-level fetch failures surface as undici's `TypeError: fetch failed` with the real error on `error.cause` — classified to `NETWORK_ERROR` via the cause code in `errorUtils.ts` (since v0.11.0); timeout/abort are classified from adapter-side state, not the error object
 
 **OpenAI:**
 - Supports response_format for JSON mode
@@ -357,7 +359,7 @@ All adapters should use `adapterErrorUtils.ts` patterns:
 
 ### Reliability (Retries, Timeouts, Aborts)
 
-- `LLMService` owns a single unified retry layer (`withRetry`, exported from `src/shared/services/withRetry.ts`); provider SDK-internal retries are disabled (`maxRetries: 0` at client construction).
+- `LLMService` owns a single unified retry layer (`withRetry`, exported from `src/shared/services/withRetry.ts`); provider SDK-internal retries are disabled (`maxRetries: 0` at client construction; for `@google/genai` by leaving the opt-in `httpOptions.retryOptions` unset).
 - Configure with `LLMServiceOptions.retry` (defaults: `maxRetries` 2, `initialDelayMs` 500, `maxDelayMs` 10000, `backoffFactor` 2, `retryOnTimeout` true) and `LLMServiceOptions.timeoutMs`. Override per call: `sendMessage(request, { signal, timeoutMs, maxRetries })`.
 - Only transient failures retry (429/network/timeout/408/409/5xx); `Retry-After` hints are honored and aborts are never retried.
 - New adapter error codes `REQUEST_TIMEOUT` (retryable) and `REQUEST_ABORTED` (never retried); `LLMError` carries `status` and `retryAfterMs`. Per-request transport options reach adapters via `AdapterRequestOptions` on `ILLMClientAdapter.sendMessage`.
