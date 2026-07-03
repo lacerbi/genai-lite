@@ -171,7 +171,7 @@ const GEMMA4_LOCAL_REASONING: LocalReasoningMetadata = {
   description: "Gemma 4 E4B (4.5B effective) hybrid-thinking model",
   capabilities: {
     maxTokens: 8192,
-    contextWindow: 32768,
+    contextWindow: 131072,
     supportsImages: false,
     supportsPromptCache: false,
     supportsSystemMessage: true,

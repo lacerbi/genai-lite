@@ -557,7 +557,7 @@ export const KNOWN_GGUF_MODELS: GgufModelPattern[] = [
     description: "Gemma 4 E2B (2.3B effective) hybrid-thinking model",
     capabilities: {
       maxTokens: 8192,
-      contextWindow: 32768,
+      contextWindow: 131072,
       supportsImages: false,
       supportsPromptCache: false,
       supportsSystemMessage: true,
@@ -572,7 +572,22 @@ export const KNOWN_GGUF_MODELS: GgufModelPattern[] = [
     description: "Gemma 4 E4B (4.5B effective) hybrid-thinking model",
     capabilities: {
       maxTokens: 8192,
-      contextWindow: 32768,
+      contextWindow: 131072,
+      supportsImages: false,
+      supportsPromptCache: false,
+      supportsSystemMessage: true,
+      reasoning: { ...HYBRID_REASONING },
+      localReasoning: GEMMA4_LOCAL_REASONING,
+      defaultSettings: GEMMA_SAMPLING,
+    },
+  },
+  {
+    pattern: "gemma-4-12b",
+    name: "Gemma 4 12B",
+    description: "Gemma 4 12B dense hybrid-thinking model (256K context)",
+    capabilities: {
+      maxTokens: 16384,
+      contextWindow: 262144,
       supportsImages: false,
       supportsPromptCache: false,
       supportsSystemMessage: true,
@@ -584,10 +599,10 @@ export const KNOWN_GGUF_MODELS: GgufModelPattern[] = [
   {
     pattern: "gemma-4-26b-a4b",
     name: "Gemma 4 26B-A4B",
-    description: "Gemma 4 26B MoE (~4B active) hybrid-thinking model",
+    description: "Gemma 4 26B MoE (~4B active) hybrid-thinking model (256K context)",
     capabilities: {
       maxTokens: 16384,
-      contextWindow: 131072,
+      contextWindow: 262144,
       supportsImages: false,
       supportsPromptCache: false,
       supportsSystemMessage: true,
@@ -617,7 +632,7 @@ export const KNOWN_GGUF_MODELS: GgufModelPattern[] = [
     description: "Gemma 4 hybrid-thinking model (size not recognized)",
     capabilities: {
       maxTokens: 8192,
-      contextWindow: 32768,
+      contextWindow: 131072,
       supportsImages: false,
       supportsPromptCache: false,
       supportsSystemMessage: true,
@@ -1224,32 +1239,14 @@ export const SUPPORTED_MODELS: ModelInfo[] = [
   // Note: Reasoning left unsupported on the cloud entries — the Gemini API exposes
   // no thinking toggle for Gemma (the <|think|> system-token mechanism is not modeled)
   {
-    id: "gemma-4-4b-it",
-    name: "Gemma 4 4B",
-    providerId: "gemini",
-    contextWindow: 32768,
-    inputPrice: 0.0,
-    outputPrice: 0.0,
-    description:
-      "Google's Gemma 4 4B open model with system-message support (free via Gemini API)",
-    maxTokens: 8192,
-    supportsImages: false,
-    supportsPromptCache: false,
-    supportsSystemMessage: true,
-    structuredOutput: {
-      supported: false,
-      notes: "Gemma models do not support JSON mode via Google's API",
-    },
-  },
-  {
     id: "gemma-4-26b-a4b-it",
     name: "Gemma 4 26B-A4B",
     providerId: "gemini",
-    contextWindow: 131072,
+    contextWindow: 262144,
     inputPrice: 0.0,
     outputPrice: 0.0,
     description:
-      "Google's Gemma 4 26B MoE (~4B active) open model (free via Gemini API)",
+      "Google's Gemma 4 26B MoE (~4B active) open model with 256K context (free via Gemini API)",
     maxTokens: 8192,
     supportsImages: false,
     supportsPromptCache: false,

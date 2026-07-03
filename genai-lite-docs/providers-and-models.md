@@ -104,8 +104,7 @@ Complete reference of all supported AI providers and models in genai-lite.
 - `gemma-3-27b-it` - Gemma 3 27B (128K context, multimodal, free via Gemini API)
 
 **Gemma 4 (Open Weights, Free):**
-- `gemma-4-4b-it` - Gemma 4 4B (32K context, free via Gemini API, supports system role)
-- `gemma-4-26b-a4b-it` - Gemma 4 26B-A4B MoE (~4B active, 128K context, free via Gemini API)
+- `gemma-4-26b-a4b-it` - Gemma 4 26B-A4B MoE (~4B active, 256K context, free via Gemini API)
 - `gemma-4-31b-it` - Gemma 4 31B dense (256K context, free via Gemini API)
 
 **Notes:**
@@ -157,11 +156,11 @@ Complete reference of all supported AI providers and models in genai-lite.
 
 genai-lite automatically detects capabilities (reasoning support, context windows, token limits) by matching GGUF filenames from the server. No configuration needed.
 
-**Currently recognized (37 patterns):**
+**Currently recognized (38 patterns):**
 - **Qwen 3.5** (2B, 4B, 9B, generic) and **Qwen 3.6** (27B, 35B-A3B, generic) - hybrid thinking (`enable_thinking` toggle)
 - **Qwen 3 2507 refreshes** - Instruct-2507 (4B, 30B-A3B, non-thinking) and Thinking-2507 (4B, 30B-A3B, always-on)
 - **Qwen 3 (original)** (30B, 14B, 8B, 4B, 1.7B, 0.6B) - hybrid thinking
-- **Gemma 4** (E2B, E4B, 26B-A4B, 31B, generic) - hybrid thinking, supports the system role
+- **Gemma 4** (E2B, E4B, 12B, 26B-A4B, 31B, generic) - hybrid thinking, supports the system role
 - **Gemma 3** (1B, 4B, 12B, 27B, generic) - no thinking, no system role
 - **GPT-OSS** (20B, 120B, generic) - reasoning always on (harmony format)
 - **Ministral 3** (3B/8B/14B Reasoning + Instruct) - Reasoning variants always on; Instruct has no thinking

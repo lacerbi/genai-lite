@@ -20,7 +20,7 @@ Constraint: GPU busy until ~evening 2026-07-03 — all llama-server-dependent ch
   - [x] 2d LlamaCpp adapter: enable_thinking emission (detected toggleKwarg only), prefill×thinking guard (clear invalid_request_error), nothink strip, two-tier extraction via new `extractMarkerDelimitedContent` parser util (exported), "reasoning active" gate covers always-on models, 127.0.0.1 default
   - [x] 2e OpenRouter: reasoning request mapping (max_tokens > effort > enabled, + exclude), response extraction (message.reasoning + reasoning_details), optimistic reasoning caps for unknown OpenRouter models in ModelResolver
   - [x] 2f presets: simplified to two generic presets (`llamacpp-local-default`/`llamacpp-local-thinking`) — family-specific ones would duplicate settings since vendor defaults flow from detection automatically
-  - [x] 2g cloud Gemma 4 on gemini provider (gemma-4-4b-it / 26b-a4b-it / 31b-it, free, system-role, no cloud reasoning)
+  - [x] 2g cloud Gemma 4 on gemini provider (gemma-4-4b-it / 26b-a4b-it / 31b-it, free, system-role, no cloud reasoning) — ⚠ see CORRECTION below: 4b-it doesn't exist, since removed
   - [x] 2t tests: 14 detectGgufCapabilities cases (gmbench verbatim filenames + pattern-ordering invariant), getDefaultSettingsForModel-with-modelInfo, reasoning-overlay merges, 6 ModelResolver overlay cases, 9 LlamaCpp toggle/extraction cases, 7 OpenRouter reasoning cases, 6 parser util cases. (LLMService-level hybrid integration covered by the unit chain instead of a service test — mock provider can't exercise llamacpp detection.)
   - [!] 2v (GPU, deferred) live smoke with real GGUF
 - [x] **Phase 3: grammar + logprobs** — done 2026-07-03 (759 tests green). `LlamaCppSettings` namespace (grammar + chatTemplateKwargs escape hatch, user kwargs win over derived enable_thinking, prefill guard covers user-forced thinking); flat `logprobs`/`topLogprobs` + `TokenLogprob` on LLMChoice; grammar×structuredOutput mutual exclusion in validateLLMSettings; shared `mapOpenAIChatLogprobs` util wired into llama.cpp/OpenAI/OpenRouter; logprobs marked unsupported for Anthropic/Gemini/Mistral; all enumeration points + 8 literals re-walked; 12 new tests.
@@ -34,6 +34,11 @@ Constraint: GPU busy until ~evening 2026-07-03 — all llama-server-dependent ch
   - [x] 3v grammar + logprobs: GBNF `root ::= "yes" | "no"` constrained output to exactly "no"; logprobs returned with topLogprobs (top alternative candidates include the suppressed `<think>` token — nice direct evidence of the toggle steering). Bonus: prefill×thinking guard fails fast client-side with invalid_request_error, mockCreate-free.
 
 **COMPLETION SUMMARY (2026-07-03)**: All five phases implemented, tested (789 unit tests, 33 suites), documented, committed as v0.9.0 (commits d52235a..c2dc5a6), doublechecked (2 independent verifiers; all findings fixed), and live-verified on a real GPU llama-server. PLAN COMPLETE — nothing outstanding.
+
+**CORRECTION (2026-07-03, post-release)**: The Gemma 4 facts in 2g and line "Cloud Gemma 4 exists on the Gemini API" below were partly wrong and have been fixed in a follow-up:
+- `gemma-4-4b-it` does not exist — Gemma 4's small models are E2B/E4B (local weights only). The Gemini API serves exactly two Gemma 4 IDs: `gemma-4-26b-a4b-it` and `gemma-4-31b-it`. The bogus 4B cloud entry was removed from SUPPORTED_MODELS.
+- Context windows corrected per Google's model card: E2B/E4B 32K → 128K, 26B-A4B 128K → 256K (GGUF pattern + cloud entry), generic `gemma-4` fallback 32K → 128K (family minimum).
+- Gemma 4 12B (dense, 256K context, released 2026-06-03, weights-only — not on the Gemini API) was missing entirely; added as a 38th KNOWN_GGUF_MODELS pattern.
 
 ## Summary
 

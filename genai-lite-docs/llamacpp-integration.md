@@ -159,7 +159,7 @@ service.registerAdapter('llamacpp', adapter);
 
 genai-lite automatically detects capabilities (reasoning support, context windows, token limits, and vendor-recommended sampling defaults) for known models by matching the GGUF filename (case-insensitive substring match) reported by the server. No configuration needed — detection applies even when you use the generic `modelId: 'llamacpp'` or the built-in llamacpp presets, since the server decides which model is actually loaded.
 
-**Currently recognized families (37 patterns):**
+**Currently recognized families (38 patterns):**
 
 | Family | Variants | Reasoning | Notes |
 |--------|----------|-----------|-------|
@@ -167,7 +167,7 @@ genai-lite automatically detects capabilities (reasoning support, context window
 | **Qwen 3.6** | 27B, 35B-A3B, generic | Hybrid (toggle) | `enable_thinking` flag |
 | **Qwen 3 (2507)** | 4B / 30B-A3B Instruct + Thinking | Instruct: none · Thinking: always-on | Separate checkpoints |
 | **Qwen 3 (original)** | 30B, 14B, 8B, 4B, 1.7B, 0.6B | Hybrid (toggle) | `enable_thinking` flag |
-| **Gemma 4** | E2B, E4B, 26B-A4B, 31B, generic | Hybrid (toggle) | Also supports the system role |
+| **Gemma 4** | E2B, E4B, 12B, 26B-A4B, 31B, generic | Hybrid (toggle) | Also supports the system role |
 | **Gemma 3** | 1B, 4B, 12B, 27B, generic | None | No thinking, no system role |
 | **GPT-OSS** | 20B, 120B, generic | Always-on | Harmony format, cannot be disabled |
 | **Ministral 3** | 3B/8B/14B Reasoning, Instruct | Reasoning: always-on · Instruct: none | Reasoning is a separate checkpoint |
