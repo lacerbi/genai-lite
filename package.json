@@ -18,6 +18,9 @@
   },
   "author": "Luigi Acerbi <luigi.acerbi@gmail.com>",
   "license": "MIT",
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "funding": {
     "type": "github",
     "url": "https://github.com/sponsors/lacerbi"

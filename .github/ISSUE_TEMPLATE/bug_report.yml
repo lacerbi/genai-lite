@@ -17,7 +17,7 @@ body:
           required: true
         - label: I have read the `README.md` documentation.
           required: true
-        - label: I am using a supported version of Node.js (18, 20, 22).
+        - label: I am using a supported version of Node.js (20, 22, 24).
           required: true
 
   - type: textarea

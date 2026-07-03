@@ -17,7 +17,7 @@ An interactive web application demonstrating the image generation capabilities o
 ## Prerequisites
 
 ### Required
-- Node.js 18+ and npm
+- Node.js 20+ and npm
 - At least one of the following:
   - **OpenAI API key** for cloud-based image generation
   - **genai-electron** running locally for diffusion models
