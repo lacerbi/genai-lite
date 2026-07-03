@@ -13,6 +13,9 @@ issue files are archived under `docs/` (`ISSUE-gemini-timeout-classification.md`
 `ISSUE-cancelled-generation-status.md`); this file tracks what was deliberately
 deferred.
 
+Note: all "latest" package versions below were checked via `npm view` on
+2026-07-03 — re-check before starting any upgrade item.
+
 ## TODO (rough priority order)
 
 1. **Release the pending main delta (v0.9.3 or fold into the next fix).**
@@ -52,6 +55,10 @@ deferred.
    `docs/ISSUE-cancelled-generation-status.md`). Add `AbortSignal` support to
    the ImageService API and have `GenaiElectronImageAdapter` send genai-electron's
    `DELETE /v1/images/generations/:id` (available since genai-electron 0.6.0).
+   External dependency: the full endpoint spec lives in the genai-electron
+   repository (its `image-generation.md` doc); this repo only records the
+   essentials above plus the async-API baseline in
+   `docs/devlog/2025-10-22-genai-electron-changes.md` (pre-0.6.0, no cancel API).
 
 7. **Minor cleanup in `GenaiElectronImageAdapter.handleError`**: the
    `SERVER_BUSY` / `SERVER_NOT_RUNNING` / `BACKEND_ERROR` / `IO_ERROR` branches
