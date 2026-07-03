@@ -38,6 +38,13 @@ describe('OpenRouterClientAdapter', () => {
         topP: 1,
         frequencyPenalty: 0,
         presencePenalty: 0,
+        topK: undefined as any,
+        minP: undefined as any,
+        repeatPenalty: undefined as any,
+        seed: undefined as any,
+        logprobs: undefined as any,
+        topLogprobs: undefined as any,
+        llamacpp: undefined as any,
         stopSequences: [],
         user: undefined as any,
         geminiSafetySettings: [],
@@ -60,6 +67,153 @@ describe('OpenRouterClientAdapter', () => {
   });
 
   describe('sendMessage', () => {
+    it('should pass through top_k, min_p, repetition_penalty and seed', async () => {
+      mockCreate.mockResolvedValueOnce({
+        id: 'gen-sampling',
+        object: 'chat.completion',
+        created: 1234567890,
+        model: 'google/gemma-3-27b-it:free',
+        choices: [{
+          index: 0,
+          message: { role: 'assistant', content: 'Hi' },
+          finish_reason: 'stop'
+        }],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 }
+      });
+
+      basicRequest.settings.topK = 64;
+      basicRequest.settings.minP = 0;
+      basicRequest.settings.repeatPenalty = 1.0;
+      basicRequest.settings.seed = 42;
+
+      await adapter.sendMessage(basicRequest, 'sk-or-test-api-key-1234567890123456789012345678901234567890');
+
+      const params = mockCreate.mock.calls[0][0];
+      expect(params.top_k).toBe(64);
+      expect(params.min_p).toBe(0);
+      expect(params.repetition_penalty).toBe(1.0);
+      expect(params.seed).toBe(42);
+    });
+
+    it('should pass through logprobs request params and map the response', async () => {
+      mockCreate.mockResolvedValueOnce({
+        id: 'gen-lp',
+        object: 'chat.completion',
+        created: 1234567890,
+        model: 'google/gemma-3-27b-it:free',
+        choices: [{
+          index: 0,
+          message: { role: 'assistant', content: 'Hi' },
+          finish_reason: 'stop',
+          logprobs: { content: [{ token: 'Hi', logprob: -0.2 }] }
+        }],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 }
+      });
+
+      basicRequest.settings.logprobs = true;
+
+      const response = await adapter.sendMessage(
+        basicRequest,
+        'sk-or-test-api-key-1234567890123456789012345678901234567890'
+      );
+
+      expect(mockCreate.mock.calls[0][0].logprobs).toBe(true);
+      if (response.object === 'chat.completion') {
+        expect(response.choices[0].logprobs).toEqual([{ token: 'Hi', logprob: -0.2 }]);
+      }
+    });
+
+    describe('reasoning forwarding', () => {
+      const okResponse = (extra?: Record<string, any>) => ({
+        id: 'gen-reasoning',
+        object: 'chat.completion',
+        created: 1234567890,
+        model: 'some-vendor/some-model',
+        choices: [{
+          index: 0,
+          message: { role: 'assistant', content: 'Hi', ...extra },
+          finish_reason: 'stop'
+        }],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 }
+      });
+      const KEY = 'sk-or-test-api-key-1234567890123456789012345678901234567890';
+
+      it('sends reasoning.enabled when reasoning is requested without effort/maxTokens', async () => {
+        mockCreate.mockResolvedValueOnce(okResponse());
+        basicRequest.settings.reasoning = { enabled: true, exclude: false } as any;
+
+        await adapter.sendMessage(basicRequest, KEY);
+
+        expect(mockCreate.mock.calls[0][0].reasoning).toEqual({ enabled: true });
+      });
+
+      it('sends reasoning.effort when effort is set', async () => {
+        mockCreate.mockResolvedValueOnce(okResponse());
+        basicRequest.settings.reasoning = { enabled: true, effort: 'high', exclude: false } as any;
+
+        await adapter.sendMessage(basicRequest, KEY);
+
+        expect(mockCreate.mock.calls[0][0].reasoning).toEqual({ effort: 'high' });
+      });
+
+      it('prefers max_tokens over effort when both are set (effort and max_tokens are mutually exclusive)', async () => {
+        mockCreate.mockResolvedValueOnce(okResponse());
+        basicRequest.settings.reasoning = {
+          enabled: true, effort: 'high', maxTokens: 2048, exclude: false
+        } as any;
+
+        await adapter.sendMessage(basicRequest, KEY);
+
+        expect(mockCreate.mock.calls[0][0].reasoning).toEqual({ max_tokens: 2048 });
+      });
+
+      it('adds exclude:true when reasoning.exclude is set', async () => {
+        mockCreate.mockResolvedValueOnce(okResponse());
+        basicRequest.settings.reasoning = { enabled: true, exclude: true } as any;
+
+        await adapter.sendMessage(basicRequest, KEY);
+
+        expect(mockCreate.mock.calls[0][0].reasoning).toEqual({ enabled: true, exclude: true });
+      });
+
+      it('sends no reasoning param when reasoning is not requested', async () => {
+        mockCreate.mockResolvedValueOnce(okResponse());
+
+        await adapter.sendMessage(basicRequest, KEY);
+
+        expect(mockCreate.mock.calls[0][0]).not.toHaveProperty('reasoning');
+      });
+
+      it('extracts message.reasoning and reasoning_details from the response', async () => {
+        mockCreate.mockResolvedValueOnce(okResponse({
+          reasoning: 'Thinking about it...',
+          reasoning_details: [{ type: 'reasoning.text', text: 'Thinking about it...' }],
+        }));
+        basicRequest.settings.reasoning = { enabled: true, exclude: false } as any;
+
+        const response = await adapter.sendMessage(basicRequest, KEY);
+
+        expect(response.object).toBe('chat.completion');
+        if (response.object === 'chat.completion') {
+          expect(response.choices[0].reasoning).toBe('Thinking about it...');
+          expect(response.choices[0].reasoning_details).toEqual([
+            { type: 'reasoning.text', text: 'Thinking about it...' },
+          ]);
+        }
+      });
+
+      it('drops response reasoning when exclude is set', async () => {
+        mockCreate.mockResolvedValueOnce(okResponse({ reasoning: 'hidden trace' }));
+        basicRequest.settings.reasoning = { enabled: true, exclude: true } as any;
+
+        const response = await adapter.sendMessage(basicRequest, KEY);
+
+        if (response.object === 'chat.completion') {
+          expect(response.choices[0].reasoning).toBeUndefined();
+        }
+      });
+    });
+
     it('should format the request correctly and call the OpenRouter API', async () => {
       // Setup mock response
       mockCreate.mockResolvedValueOnce({
@@ -87,6 +241,7 @@ describe('OpenRouterClientAdapter', () => {
       // Verify OpenAI was instantiated with the API key and OpenRouter base URL
       expect(MockOpenAI).toHaveBeenCalledWith({
         apiKey: 'sk-or-v1-test-api-key',
+        maxRetries: 0,
         baseURL: 'https://openrouter.ai/api/v1',
         defaultHeaders: {}
       });

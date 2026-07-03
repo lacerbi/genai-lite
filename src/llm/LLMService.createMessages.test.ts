@@ -288,6 +288,73 @@ describe('LLMService.createMessages', () => {
       });
     });
 
+    it('should pass new sampling settings through META block validation', async () => {
+      const result = await service.createMessages({
+        template: `<META>
+{
+  "settings": {
+    "topK": 20,
+    "minP": 0,
+    "repeatPenalty": 1.0,
+    "seed": 42
+  }
+}
+</META>
+<USER>Test</USER>`
+      });
+
+      expect(result.settings).toEqual({
+        topK: 20,
+        minP: 0,
+        repeatPenalty: 1.0,
+        seed: 42
+      });
+    });
+
+    it('should pass logprobs and llamacpp settings through META block validation', async () => {
+      const result = await service.createMessages({
+        template: `<META>
+{
+  "settings": {
+    "logprobs": true,
+    "topLogprobs": 5,
+    "llamacpp": { "grammar": "root ::= \\"yes\\" | \\"no\\"" }
+  }
+}
+</META>
+<USER>Test</USER>`
+      });
+
+      expect(result.settings).toEqual({
+        logprobs: true,
+        topLogprobs: 5,
+        llamacpp: { grammar: 'root ::= "yes" | "no"' }
+      });
+    });
+
+    it('should reject invalid sampling settings in META block', async () => {
+      const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation();
+
+      const result = await service.createMessages({
+        template: `<META>
+{
+  "settings": {
+    "topK": -5,
+    "minP": 2,
+    "repeatPenalty": 0,
+    "seed": 1.5,
+    "temperature": 0.7
+  }
+}
+</META>
+<USER>Test</USER>`
+      });
+
+      expect(result.settings).toEqual({ temperature: 0.7 });
+
+      consoleWarnSpy.mockRestore();
+    });
+
     it('should return empty settings when no META block exists', async () => {
       const result = await service.createMessages({
         template: '<USER>Simple message</USER>'

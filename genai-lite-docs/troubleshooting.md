@@ -9,6 +9,8 @@ Common issues and solutions for genai-lite.
 - [Error Types Reference](#error-types-reference)
 - [Thinking Tag Issues](#thinking-tag-issues)
 - [Network Issues](#network-issues)
+- [Timeouts, Retries and Cancellation](#timeouts-retries-and-cancellation)
+- [Debugging with Logs](#debugging-with-logs)
 - [Related Documentation](#related-documentation)
 
 ## API Key Problems
@@ -74,18 +76,15 @@ const response = await llmService.sendMessage({
 
 ### Mistral
 
-**Problem**: Getting mock/simulated responses instead of real API calls
+Mistral is a **real** provider backed by the official `@mistralai/mistralai` SDK (since v0.8) — it makes live API calls and requires a valid `MISTRAL_API_KEY`. (Earlier documentation incorrectly described it as a mock/under-development adapter; that is no longer true.)
 
-**Cause**: Mistral adapter is under development, using mock adapter for compatibility testing
+**Problem**: Structured output isn't strictly validated
 
-**Current behavior**:
-- Requests to Mistral models (`codestral-2501`, `devstral-small-2505`) return simulated responses
-- No real API calls are made to Mistral's API
-- Useful for testing application flow, but not for production use
+**Cause**: Mistral supports JSON mode (`json_object`) only — there's no server-side schema enforcement. genai-lite logs a warning and applies the schema client-side.
 
-**Status**: Official Mistral adapter implementation is planned for a future release
+**Problem**: `frequencyPenalty` / `presencePenalty` seem to have no effect
 
-See `src/llm/config.ts:35` (commented out MistralClientAdapter).
+**Cause**: Mistral does not support these parameters; they are not sent. Sampling params `topK`, `minP`, `repeatPenalty`, and `logprobs`/`topLogprobs` are also stripped. `seed` is supported (mapped to the SDK's `randomSeed`).
 
 ### llama.cpp
 
@@ -119,6 +118,30 @@ llama-server -m model.gguf --jinja --reasoning-format deepseek --port 8080
 See [llama.cpp Integration](llamacpp-integration.md#troubleshooting) for detailed setup.
 
 For reasoning extraction details, see `docs/devlog/2025-10-17_llamacpp-reasoning-extraction.md`.
+
+**Problem**: Thinking mode (`enable_thinking`) has no effect
+
+**Cause**: The reasoning toggle is applied via the model's Jinja chat template.
+
+**Solution**: Start llama-server with `--jinja`. Without it, the `chat_template_kwargs.enable_thinking` flag that genai-lite derives from `settings.reasoning.enabled` is ignored. Note that Gemma 4's `enable_thinking: true` is best-effort and may not activate reliably (its `enable_thinking: false` path is reliable).
+
+**Problem**: `PROVIDER_ERROR` — "llama.cpp does not support assistant prefill … while thinking is enabled"
+
+**Cause**: A trailing `assistant` message (prefill) was sent together with `reasoning.enabled: true`. llama-server rejects this combination; genai-lite fails fast with this message.
+
+**Solution**: Remove the trailing assistant message, or disable reasoning for that request.
+
+**Problem**: Reasoning markers (e.g. `<think>…</think>`) leak into `message.content`
+
+**Cause**: The server didn't populate the separated `reasoning_content` field, so extraction fell back to markers — behavior that varies across llama.cpp builds.
+
+**Solution**: Update to a recent llama.cpp build (e.g. `b9028` or newer) and ensure `--jinja` (optionally `--reasoning-format deepseek`) is set.
+
+**Problem**: Every first request to a fresh connection is slow (~2s stall) on Windows
+
+**Cause**: `localhost` resolves to IPv6 (`::1`) first; when llama-server listens on IPv4 only, each connection waits for the IPv6 attempt to time out.
+
+**Solution**: genai-lite already defaults to `http://127.0.0.1:8080` for exactly this reason. If you set `LLAMACPP_API_BASE_URL`, prefer `127.0.0.1` over `localhost`.
 
 **Problem**: Model loading fails / Out of memory
 
@@ -191,6 +214,8 @@ See [Core Concepts - Error Handling](core-concepts.md#error-handling) for comple
 | `connection_error` | Server unreachable | Verify local server is running (llama.cpp, genai-electron) |
 | `server_error` | Provider-side issue | Check provider status page, retry |
 | `invalid_request_error` | Bad parameters | Verify request against model capabilities |
+| `timeout_error` | Request exceeded its timeout (code `REQUEST_TIMEOUT`) | Increase `timeoutMs`; retried automatically unless `retryOnTimeout: false` |
+| `abort_error` | Cancelled via `AbortSignal` (code `REQUEST_ABORTED`) | Expected when you abort; never retried |
 
 ### Validation Errors with Partial Response
 
@@ -254,10 +279,41 @@ curl $GENAI_ELECTRON_IMAGE_BASE_URL/health
 
 ### Network Error Codes
 
-From `errorUtils.ts:92-102`:
+Recognized network error codes (mapped in `src/shared/adapters/errorUtils.ts`):
 - `ENOTFOUND`: DNS resolution failed (check hostname)
 - `ECONNREFUSED`: Server not listening (check if server is running)
 - `ETIMEDOUT`: Connection timed out (check network/firewall)
+
+## Timeouts, Retries and Cancellation
+
+`LLMService` retries transient failures automatically and supports per-request timeouts and cancellation. See [LLM Service - Retries, Timeouts and Cancellation](llm-service.md#retries-timeouts-and-cancellation) for the full API.
+
+**Which failures are retried?** Only transient ones: `RATE_LIMIT_EXCEEDED`, `NETWORK_ERROR`, `REQUEST_TIMEOUT` (unless `retryOnTimeout: false`), and `PROVIDER_ERROR` responses with HTTP status 408, 409, or 5xx. A provider `Retry-After` header is honored. Authentication errors, validation errors, and aborts are never retried.
+
+**Problem**: Too many retries / want a single attempt
+
+**Solution**: Disable retries at the service level or per call:
+```typescript
+// Service-wide
+const llmService = new LLMService(fromEnvironment, { retry: { maxRetries: 0 } });
+
+// Per call (overrides the service default)
+await llmService.sendMessage(request, { maxRetries: 0 });
+```
+
+**Problem**: Requests hang too long
+
+**Solution**: Set a timeout (service-level or per call). Timeouts surface as `REQUEST_TIMEOUT` / `timeout_error`:
+```typescript
+const llmService = new LLMService(fromEnvironment, { timeoutMs: 30000 });
+await llmService.sendMessage(request, { timeoutMs: 8000 }); // per-call override
+```
+
+**Problem**: Cancelling a request doesn't stop provider billing
+
+**Cause**: Aborting is client-side only — the provider may still process (and bill) a request that was already dispatched. Aborts return `REQUEST_ABORTED` / `abort_error` and are never retried.
+
+**Tip**: Each retry attempt is logged at `warn` level. Enable `warn` (the default) or lower to see retry activity — look for `Retrying <provider>/<model> after failure (attempt N/M, waiting Xms)`.
 
 ## Debugging with Logs
 

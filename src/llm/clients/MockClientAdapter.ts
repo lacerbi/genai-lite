@@ -11,6 +11,7 @@ import type {
   ILLMClientAdapter,
   InternalLLMChatRequest,
   AdapterErrorCode,
+  AdapterRequestOptions,
 } from "./types";
 import { ADAPTER_ERROR_CODES } from "./types";
 
@@ -40,8 +41,23 @@ export class MockClientAdapter implements ILLMClientAdapter {
    */
   async sendMessage(
     request: InternalLLMChatRequest,
-    apiKey: string
+    apiKey: string,
+    options?: AdapterRequestOptions
   ): Promise<LLMResponse | LLMFailureResponse> {
+    // Honor abort signals like a real adapter would
+    if (options?.signal?.aborted) {
+      return {
+        provider: request.providerId,
+        model: request.modelId,
+        error: {
+          message: "Request was aborted",
+          code: ADAPTER_ERROR_CODES.REQUEST_ABORTED,
+          type: "abort_error",
+        },
+        object: "error",
+      };
+    }
+
     // Simulate network delay
     await this.simulateDelay(100, 500);
 
@@ -321,6 +337,10 @@ export class MockClientAdapter implements ILLMClientAdapter {
     }
 - Frequency Penalty: ${settings.frequencyPenalty}
 - Presence Penalty: ${settings.presencePenalty}
+- Top K: ${settings.topK ?? "not set"}
+- Min P: ${settings.minP ?? "not set"}
+- Repeat Penalty: ${settings.repeatPenalty ?? "not set"}
+- Seed: ${settings.seed ?? "not set"}
 - User: ${settings.user || "not set"}`;
   }
 

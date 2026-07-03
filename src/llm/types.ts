@@ -329,6 +329,32 @@ export interface LLMSettings {
   frequencyPenalty?: number;
   /** Number between -2.0 and 2.0. Positive values penalize new tokens based on whether they appear in the text so far */
   presencePenalty?: number;
+  /**
+   * Limits sampling to the K most likely tokens (integer >= 0; 0 disables top-k filtering).
+   * Supported by: Anthropic (top_k), Gemini (topK), llama.cpp (top_k), OpenRouter (top_k).
+   * Not supported by OpenAI or Mistral (stripped automatically).
+   */
+  topK?: number;
+  /**
+   * Minimum probability threshold relative to the most likely token (0.0 to 1.0; 0 disables).
+   * Note: llama.cpp's server default is 0.05, which matches no vendor recommendation —
+   * detected GGUF models get an explicit 0 by default.
+   * Supported by: llama.cpp (min_p), OpenRouter (min_p). Stripped for other providers.
+   */
+  minP?: number;
+  /**
+   * Multiplicative repetition penalty over prompt + output tokens (1.0 = disabled).
+   * Distinct from presencePenalty (additive, output-only). For Qwen models prefer
+   * presencePenalty and keep repeatPenalty at 1.0 (vendor guidance).
+   * Supported by: llama.cpp (repeat_penalty), OpenRouter (repetition_penalty). Stripped elsewhere.
+   */
+  repeatPenalty?: number;
+  /**
+   * Seed for (best-effort) deterministic sampling. Integer; llama.cpp treats -1 as random.
+   * Supported by: OpenAI (beta; ignored by reasoning models), Gemini, Mistral (randomSeed),
+   * llama.cpp, OpenRouter. Not supported by Anthropic (stripped automatically).
+   */
+  seed?: number;
   /** A unique identifier representing your end-user, which can help monitor and detect abuse */
   user?: string;
   /** Whether the LLM supports system message (almost all LLMs do nowadays) */
@@ -374,6 +400,57 @@ export interface LLMSettings {
    * @see StructuredOutputSettings
    */
   structuredOutput?: StructuredOutputSettings;
+
+  /**
+   * Request per-token log probabilities on the response.
+   * Supported by: llama.cpp, OpenAI, OpenRouter (pass-through; model-dependent).
+   * Stripped for Anthropic/Gemini/Mistral. Results land on `choice.logprobs`.
+   */
+  logprobs?: boolean;
+  /**
+   * Number of most-likely alternatives to return per token (0-20).
+   * Requires `logprobs: true`.
+   */
+  topLogprobs?: number;
+  /**
+   * llama.cpp-specific settings.
+   * Only used when providerId is 'llamacpp'; ignored by other adapters.
+   * @see LlamaCppSettings
+   */
+  llamacpp?: LlamaCppSettings;
+}
+
+/**
+ * llama.cpp-specific request settings
+ */
+export interface LlamaCppSettings {
+  /**
+   * Raw GBNF grammar string for constrained decoding.
+   * Mutually exclusive with `structuredOutput` (llama-server rejects both:
+   * "Either 'json_schema' or 'grammar' can be specified, but not both").
+   * Caveat: current llama.cpp builds may not apply the grammar while thinking
+   * is active — prefer grammar with reasoning disabled.
+   */
+  grammar?: string;
+  /**
+   * Extra chat-template kwargs forwarded verbatim to llama-server (requires --jinja).
+   * Merged over any library-derived kwargs (e.g. the reasoning toggle's
+   * enable_thinking), so explicit values here always win.
+   */
+  chatTemplateKwargs?: Record<string, string | number | boolean>;
+}
+
+/**
+ * Per-token log probability entry (OpenAI-compatible shape, also produced by
+ * llama.cpp's chat completions endpoint).
+ */
+export interface TokenLogprob {
+  /** The generated token text */
+  token: string;
+  /** Log probability of the token */
+  logprob: number;
+  /** Most-likely alternative tokens at this position (when topLogprobs requested) */
+  topLogprobs?: Array<{ token: string; logprob: number }>;
 }
 
 /**
@@ -410,6 +487,8 @@ export interface LLMChoice {
   reasoning?: string;
   /** Provider-specific reasoning details that need to be preserved */
   reasoning_details?: any;
+  /** Per-token log probabilities (when settings.logprobs was requested and supported) */
+  logprobs?: TokenLogprob[];
   /**
    * Parsed JSON content when structuredOutput is enabled and autoParse is true.
    * Contains the parsed object/array from the JSON response.
@@ -452,6 +531,10 @@ export interface LLMError {
   code?: string | number;
   type?: string;
   param?: string;
+  /** HTTP status code from the provider, when available */
+  status?: number;
+  /** Provider-suggested wait before retrying in ms (from a Retry-After header) */
+  retryAfterMs?: number;
   providerError?: any;
 }
 
@@ -538,6 +621,51 @@ export interface ModelInfo {
   unsupportedParameters?: (keyof LLMSettings)[];
   /** Structured output capabilities */
   structuredOutput?: ModelStructuredOutputCapabilities;
+  /**
+   * Model-specific default settings (e.g. vendor-recommended sampling parameters).
+   * Merged below request settings: DEFAULT < provider < MODEL_DEFAULT_SETTINGS <
+   * defaultSettings < request. Used heavily by detected GGUF models, whose vendors
+   * publish sampling profiles that differ from llama.cpp's server defaults.
+   */
+  defaultSettings?: Partial<LLMSettings>;
+  /**
+   * Additional default-settings overlay applied only when reasoning/thinking is
+   * active for the request (e.g. Qwen recommends a different sampling profile in
+   * thinking mode). Per-key precedence: request > reasoningDefaultSettings > defaultSettings.
+   */
+  reasoningDefaultSettings?: Partial<LLMSettings>;
+  /**
+   * Local-model (llama.cpp) reasoning-toggle and output-cleanup metadata.
+   * Battle-tested constants sourced from real chat-template behavior.
+   */
+  localReasoning?: LocalReasoningMetadata;
+}
+
+/**
+ * Metadata describing how a local (GGUF/llama.cpp) model's chat template handles
+ * thinking mode, and how to clean its output.
+ */
+export interface LocalReasoningMetadata {
+  /**
+   * Name of the chat-template kwarg that toggles thinking (e.g. "enable_thinking").
+   * When set, the llama.cpp adapter sends `chat_template_kwargs: { [toggleKwarg]: <bool> }`
+   * derived from `settings.reasoning.enabled` (explicitly false when reasoning is not
+   * requested). Requires the server to run with `--jinja`. Omit for models whose
+   * thinking cannot be toggled (always-on reasoning models).
+   */
+  toggleKwarg?: string;
+  /**
+   * Exact prefix some chat templates inject into response content when thinking is
+   * disabled (e.g. Qwen's "<think>\n\n</think>\n\n"). Stripped verbatim (exact
+   * startsWith match) from message content before the response is returned.
+   */
+  nothinkPrefix?: string;
+  /**
+   * Open/close marker pair used to extract a reasoning trace from message content
+   * when the server does not populate `reasoning_content` (model/template dependent).
+   * Only fully-closed pairs are extracted.
+   */
+  markers?: [string, string];
 }
 
 /**

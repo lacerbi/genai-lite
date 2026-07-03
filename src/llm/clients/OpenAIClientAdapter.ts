@@ -7,9 +7,11 @@ import type {
   ILLMClientAdapter,
   InternalLLMChatRequest,
   AdapterErrorCode,
+  AdapterRequestOptions,
 } from "./types";
 import { ADAPTER_ERROR_CODES } from "./types";
 import { getCommonMappedErrorDetails } from "../../shared/adapters/errorUtils";
+import { mapOpenAIChatLogprobs } from "../../shared/adapters/logprobsUtils";
 import {
   collectSystemContent,
   prependSystemToFirstUserMessage,
@@ -51,13 +53,15 @@ export class OpenAIClientAdapter implements ILLMClientAdapter {
    */
   async sendMessage(
     request: InternalLLMChatRequest,
-    apiKey: string
+    apiKey: string,
+    options?: AdapterRequestOptions
   ): Promise<LLMResponse | LLMFailureResponse> {
     try {
       // Initialize OpenAI client
       const openai = new OpenAI({
         apiKey,
         ...(this.baseURL && { baseURL: this.baseURL }),
+        maxRetries: 0, // retries are owned by the unified LLMService retry layer
       });
 
       // Format messages for OpenAI API
@@ -79,6 +83,15 @@ export class OpenAIClientAdapter implements ILLMClientAdapter {
           }),
           ...(request.settings.presencePenalty !== 0 && {
             presence_penalty: request.settings.presencePenalty,
+          }),
+          ...(request.settings.seed !== undefined && {
+            seed: request.settings.seed,
+          }),
+          ...(request.settings.logprobs === true && {
+            logprobs: true,
+            ...(request.settings.topLogprobs !== undefined && {
+              top_logprobs: request.settings.topLogprobs,
+            }),
           }),
           ...(request.settings.user && {
             user: request.settings.user,
@@ -129,7 +142,14 @@ export class OpenAIClientAdapter implements ILLMClientAdapter {
       this.logger.info(`Making OpenAI API call for model: ${request.modelId}`);
 
       // Make the API call
-      const completion = await openai.chat.completions.create(completionParams);
+      const transportOptions = {
+        ...(options?.signal && { signal: options.signal }),
+        ...(options?.timeoutMs !== undefined && { timeout: options.timeoutMs }),
+      };
+      const completion =
+        Object.keys(transportOptions).length > 0
+          ? await openai.chat.completions.create(completionParams, transportOptions)
+          : await openai.chat.completions.create(completionParams);
 
       // Type guard to ensure we have a non-streaming response
       if ('id' in completion && 'choices' in completion) {
@@ -307,6 +327,12 @@ export class OpenAIClientAdapter implements ILLMClientAdapter {
       responseChoice.reasoning = (choice as any).reasoning;
     }
 
+    // Per-token log probabilities (when requested via settings.logprobs)
+    const logprobs = mapOpenAIChatLogprobs((choice as any).logprobs);
+    if (logprobs) {
+      responseChoice.logprobs = logprobs;
+    }
+
     return {
       id: completion.id,
       provider: request.providerId,
@@ -338,7 +364,7 @@ export class OpenAIClientAdapter implements ILLMClientAdapter {
     // Use shared error mapping utility for common error patterns
     const initialProviderMessage =
       error instanceof OpenAI.APIError ? error.message : undefined;
-    let { errorCode, errorMessage, errorType, status } =
+    let { errorCode, errorMessage, errorType, status, retryAfterMs } =
       getCommonMappedErrorDetails(error, initialProviderMessage);
 
     // Apply OpenAI-specific refinements for 400 errors based on message content
@@ -360,6 +386,7 @@ export class OpenAIClientAdapter implements ILLMClientAdapter {
         code: errorCode,
         type: errorType,
         ...(status && { status }),
+        ...(retryAfterMs !== undefined && { retryAfterMs }),
         providerError: error,
       },
       object: "error",

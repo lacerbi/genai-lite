@@ -79,7 +79,7 @@ export class ModelResolver {
         };
       }
 
-      const modelInfo = getModelById(preset.modelId, preset.providerId);
+      let modelInfo = getModelById(preset.modelId, preset.providerId);
       if (!modelInfo) {
         return {
           error: {
@@ -93,6 +93,15 @@ export class ModelResolver {
             object: 'error',
           }
         };
+      }
+
+      // Overlay detected GGUF capabilities for llama.cpp presets (the server decides
+      // which model is actually loaded, regardless of the preset's modelId)
+      if (preset.providerId === 'llamacpp') {
+        const detected = await this.detectLlamaCppCapabilities();
+        if (detected) {
+          modelInfo = { ...modelInfo, ...detected };
+        }
       }
 
       // Merge preset settings with user settings
@@ -142,24 +151,38 @@ export class ModelResolver {
     }
 
     let modelInfo = getModelById(options.modelId, options.providerId);
-    if (!modelInfo) {
+
+    // For llamacpp, try to detect the loaded GGUF model's capabilities from the
+    // adapter. This runs even when the registry lookup succeeded (the documented
+    // `modelId: 'llamacpp'` usage matches the generic registry entry): the server
+    // decides which model is actually loaded, so detected capabilities and vendor
+    // default settings must overlay whatever the registry says.
+    let detectedCapabilities: Partial<ModelInfo> | undefined;
+    if (options.providerId === 'llamacpp') {
+      detectedCapabilities = await this.detectLlamaCppCapabilities();
+    }
+
+    if (modelInfo) {
+      if (detectedCapabilities) {
+        // Overlay detected capabilities onto the registry entry (detection wins:
+        // it reflects the model actually loaded on the server)
+        modelInfo = { ...modelInfo, ...detectedCapabilities };
+      }
+    } else {
       // Check if provider allows unknown models
       const provider = getProviderById(options.providerId);
 
-      // For llamacpp, try to detect capabilities from the adapter's cache
-      let detectedCapabilities: Partial<ModelInfo> | undefined;
-      if (options.providerId === 'llamacpp') {
-        try {
-          const adapter = this.adapterRegistry.getAdapter('llamacpp') as any;
-          // Check if adapter has the getModelCapabilities method
-          if (adapter && typeof adapter.getModelCapabilities === 'function') {
-            const capabilities = await adapter.getModelCapabilities();
-            detectedCapabilities = capabilities || undefined;
-          }
-        } catch (error) {
-          this.logger.warn('Failed to detect GGUF model capabilities:', error);
-          // Continue with fallback
-        }
+      // Unknown OpenRouter models: assume reasoning-capable (optimistic). OpenRouter
+      // ignores the reasoning param for models that don't support it, and rejecting
+      // here would block reasoning on all unregistered OpenRouter models.
+      if (options.providerId === 'openrouter' && !detectedCapabilities) {
+        detectedCapabilities = {
+          reasoning: {
+            supported: true,
+            enabledByDefault: false,
+            canDisable: true,
+          },
+        };
       }
 
       if (provider?.allowUnknownModels) {
@@ -181,5 +204,25 @@ export class ModelResolver {
       modelInfo,
       settings: options.settings
     };
+  }
+
+  /**
+   * Asks the llama.cpp adapter which GGUF model the server has loaded and returns
+   * its detected capabilities (cached inside the adapter). Returns undefined when
+   * the server is unreachable or the model is not recognized.
+   */
+  private async detectLlamaCppCapabilities(): Promise<Partial<ModelInfo> | undefined> {
+    try {
+      const adapter = this.adapterRegistry.getAdapter('llamacpp') as any;
+      // Check if adapter has the getModelCapabilities method
+      if (adapter && typeof adapter.getModelCapabilities === 'function') {
+        const capabilities = await adapter.getModelCapabilities();
+        return capabilities || undefined;
+      }
+    } catch (error) {
+      this.logger.warn('Failed to detect GGUF model capabilities:', error);
+      // Continue with fallback
+    }
+    return undefined;
   }
 }

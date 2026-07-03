@@ -38,7 +38,7 @@ async function checkApiKeyAvailable(providerId: string): Promise<boolean> {
   // For llama.cpp, check if the server is running
   if (providerId === 'llamacpp') {
     try {
-      const baseURL = process.env.LLAMACPP_API_BASE_URL || 'http://localhost:8080';
+      const baseURL = process.env.LLAMACPP_API_BASE_URL || 'http://127.0.0.1:8080';
       const response = await fetch(`${baseURL}/health`, {
         signal: AbortSignal.timeout(2000) // 2 second timeout
       });

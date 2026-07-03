@@ -59,7 +59,7 @@ const imageService = new ImageService(fromEnvironment);
 
 **Optional: Override base URLs** via environment variables:
 - `OPENAI_API_BASE_URL` - Override OpenAI endpoint (default: `https://api.openai.com/v1`)
-- `LLAMACPP_API_BASE_URL` - Local llama.cpp server (default: `http://localhost:8080`)
+- `LLAMACPP_API_BASE_URL` - Local llama.cpp server (default: `http://127.0.0.1:8080`)
 - `GENAI_ELECTRON_IMAGE_BASE_URL` - Local diffusion server (default: `http://localhost:8081`)
 
 ### Custom API Key Providers
@@ -198,6 +198,7 @@ Model Defaults < Preset Settings < Template <META> Settings < Runtime Settings
 1. **Model Defaults** (lowest priority)
    - Each model has default settings defined in config
    - Example: Claude models require explicit `maxTokens`
+   - Within this layer, the order is: global defaults < provider defaults < model-level `defaultSettings` < request settings. Detected llama.cpp (GGUF) models contribute their vendor-recommended sampling profile here via `ModelInfo.defaultSettings` (e.g. Gemma's `temperature 1.0 / topP 0.95 / topK 64`), plus a `reasoningDefaultSettings` overlay that applies only when reasoning is active. See [llama.cpp Integration - Automatic Capability Detection](llamacpp-integration.md#automatic-capability-detection)
 
 2. **Preset Settings**
    - Settings from the selected preset
@@ -262,8 +263,12 @@ type ErrorType =
   | 'validation_error'       // Invalid request parameters
   | 'invalid_request_error'  // Bad request (4xx errors)
   | 'server_error'           // Server error (5xx errors)
-  | 'connection_error';      // Network/connection issues
+  | 'connection_error'       // Network/connection issues
+  | 'timeout_error'          // Request timed out (code REQUEST_TIMEOUT) — retryable
+  | 'abort_error';           // Request cancelled via AbortSignal (code REQUEST_ABORTED) — never retried
 ```
+
+**Timeout and abort errors** (added for the retry/cancellation layer) carry the machine-readable codes `REQUEST_TIMEOUT` and `REQUEST_ABORTED`. The error object may also include a typed `status` (HTTP status) and `retryAfterMs` (from a provider `Retry-After` header). See [LLM Service - Retries, Timeouts and Cancellation](llm-service.md#retries-timeouts-and-cancellation).
 
 ### Handling Errors
 

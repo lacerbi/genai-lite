@@ -6,6 +6,7 @@ import type { LLMResponse, LLMFailureResponse } from "../types";
 import type {
   ILLMClientAdapter,
   InternalLLMChatRequest,
+  AdapterRequestOptions,
 } from "./types";
 import { ADAPTER_ERROR_CODES } from "./types";
 import { getCommonMappedErrorDetails } from "../../shared/adapters/errorUtils";
@@ -75,10 +76,12 @@ export class MistralClientAdapter implements ILLMClientAdapter {
    */
   async sendMessage(
     request: InternalLLMChatRequest,
-    apiKey: string
+    apiKey: string,
+    options?: AdapterRequestOptions
   ): Promise<LLMResponse | LLMFailureResponse> {
     try {
-      // Initialize Mistral client
+      // Initialize Mistral client (Speakeasy SDK retry default is "none" — retries
+      // are owned by the unified LLMService retry layer)
       const mistral = new Mistral({
         apiKey,
         serverURL: this.baseURL !== 'https://api.mistral.ai' ? this.baseURL : undefined,
@@ -107,6 +110,9 @@ export class MistralClientAdapter implements ILLMClientAdapter {
         ...(request.settings.stopSequences.length > 0 && {
           stop: request.settings.stopSequences,
         }),
+        ...(request.settings.seed !== undefined && {
+          randomSeed: request.settings.seed,
+        }),
         // Note: Mistral does not support frequency_penalty or presence_penalty
       };
 
@@ -120,8 +126,15 @@ export class MistralClientAdapter implements ILLMClientAdapter {
         );
       }
 
-      // Make the API call
-      const completion = await mistral.chat.complete(requestOptions);
+      // Make the API call (per-request transport options: timeout + abort signal)
+      const transportOptions = {
+        ...(options?.timeoutMs !== undefined && { timeoutMs: options.timeoutMs }),
+        ...(options?.signal && { fetchOptions: { signal: options.signal } }),
+      };
+      const completion =
+        Object.keys(transportOptions).length > 0
+          ? await mistral.chat.complete(requestOptions, transportOptions as any)
+          : await mistral.chat.complete(requestOptions);
 
       if (completion && completion.choices && completion.choices.length > 0) {
         this.logger.info(`Mistral API call successful, response ID: ${completion.id}`);
@@ -300,6 +313,7 @@ export class MistralClientAdapter implements ILLMClientAdapter {
         code: mappedError.errorCode,
         type: mappedError.errorType,
         ...(mappedError.status && { status: mappedError.status }),
+        ...(mappedError.retryAfterMs !== undefined && { retryAfterMs: mappedError.retryAfterMs }),
         providerError: error,
       },
       object: "error",

@@ -39,6 +39,8 @@ import { AdapterRegistry } from "../shared/services/AdapterRegistry";
 import { RequestValidator } from "./services/RequestValidator";
 import { SettingsManager } from "./services/SettingsManager";
 import { ModelResolver } from "./services/ModelResolver";
+import { withRetry, type RetryPolicy } from "../shared/services/withRetry";
+import { ADAPTER_ERROR_CODES } from "./clients/types";
 
 // Re-export PresetMode for backward compatibility
 export type { PresetMode };
@@ -55,6 +57,33 @@ export interface LLMServiceOptions {
   logLevel?: LogLevel;
   /** Custom logger implementation. If provided, logLevel is ignored. */
   logger?: Logger;
+  /**
+   * Retry policy for transient failures (rate limits, 5xx, network errors, timeouts).
+   * Defaults: maxRetries 2, initialDelayMs 500, maxDelayMs 10000, backoffFactor 2,
+   * retryOnTimeout true. Provider SDK-internal retries are disabled — this layer
+   * is the single owner of retry behavior. Set `maxRetries: 0` to disable.
+   */
+  retry?: Partial<RetryPolicy> & {
+    /** Whether REQUEST_TIMEOUT failures are retryable (default true) */
+    retryOnTimeout?: boolean;
+  };
+  /** Default per-request timeout in ms (overridable per call). SDK defaults apply when unset. */
+  timeoutMs?: number;
+}
+
+/**
+ * Per-call options for LLMService.sendMessage
+ */
+export interface SendMessageOptions {
+  /**
+   * Abort signal to cancel the request (client-side — the provider may still
+   * process and bill an already-dispatched request). Aborts are never retried.
+   */
+  signal?: AbortSignal;
+  /** Per-request timeout in ms (overrides the service-level timeoutMs) */
+  timeoutMs?: number;
+  /** Per-request retry cap (overrides the service-level retry.maxRetries) */
+  maxRetries?: number;
 }
 
 /**
@@ -89,9 +118,13 @@ export class LLMService {
   private requestValidator: RequestValidator;
   private settingsManager: SettingsManager;
   private modelResolver: ModelResolver;
+  private retryOptions: LLMServiceOptions['retry'];
+  private defaultTimeoutMs?: number;
 
   constructor(getApiKey: ApiKeyProvider, options: LLMServiceOptions = {}) {
     this.getApiKey = getApiKey;
+    this.retryOptions = options.retry;
+    this.defaultTimeoutMs = options.timeoutMs;
 
     // Initialize logger - custom logger takes precedence over logLevel
     this.logger = options.logger ?? createDefaultLogger(options.logLevel);
@@ -150,7 +183,8 @@ export class LLMService {
    * @returns Promise resolving to either success or failure response
    */
   async sendMessage(
-    request: LLMChatRequest | LLMChatRequestWithPreset
+    request: LLMChatRequest | LLMChatRequestWithPreset,
+    callOptions?: SendMessageOptions
   ): Promise<LLMResponse | LLMFailureResponse> {
     this.logger.info(
       `LLMService.sendMessage called with presetId: ${(request as LLMChatRequestWithPreset).presetId}, provider: ${request.providerId}, model: ${request.modelId}`
@@ -195,7 +229,8 @@ export class LLMService {
       const finalSettings = this.settingsManager.mergeSettingsForModel(
         modelId!,
         providerId!,
-        combinedSettings
+        combinedSettings,
+        modelInfo
       );
 
       // Validate reasoning settings for model capabilities
@@ -291,7 +326,48 @@ export class LLMService {
         this.logger.info(
           `Making LLM request with ${clientAdapter.constructor.name} for provider: ${providerId}`
         );
-        const result = await clientAdapter.sendMessage(internalRequest, apiKey);
+
+        // Unified retry layer: adapters never throw, so retry decisions are made on
+        // RETURNED failure responses. SDK-internal retries are disabled (maxRetries: 0
+        // at client construction) — this loop is the single owner of retry behavior.
+        const adapterOptions = {
+          ...(callOptions?.signal && { signal: callOptions.signal }),
+          ...((callOptions?.timeoutMs ?? this.defaultTimeoutMs) !== undefined && {
+            timeoutMs: callOptions?.timeoutMs ?? this.defaultTimeoutMs,
+          }),
+        };
+        const retryOnTimeout = this.retryOptions?.retryOnTimeout ?? true;
+        const retryableCodes = new Set<string>([
+          ADAPTER_ERROR_CODES.RATE_LIMIT_EXCEEDED,
+          ADAPTER_ERROR_CODES.NETWORK_ERROR,
+          ...(retryOnTimeout ? [ADAPTER_ERROR_CODES.REQUEST_TIMEOUT] : []),
+        ]);
+
+        const result = await withRetry(
+          () => clientAdapter.sendMessage(internalRequest, apiKey, adapterOptions),
+          (res) => {
+            if (res.object !== 'error') {
+              return { retry: false };
+            }
+            const code = String(res.error.code);
+            const status = res.error.status;
+            const retryable =
+              retryableCodes.has(code) ||
+              (code === ADAPTER_ERROR_CODES.PROVIDER_ERROR &&
+                typeof status === 'number' &&
+                (status === 408 || status === 409 || status >= 500));
+            return { retry: retryable, retryAfterMs: res.error.retryAfterMs };
+          },
+          {
+            ...this.retryOptions,
+            ...(callOptions?.maxRetries !== undefined && {
+              maxRetries: callOptions.maxRetries,
+            }),
+            signal: callOptions?.signal,
+            logger: this.logger,
+            label: `${providerId}/${modelId}`,
+          }
+        );
 
         // Post-process for thinking tag fallback
         // This feature extracts reasoning from XML tags when native reasoning is not active.
@@ -517,7 +593,8 @@ export class LLMService {
         const mergedSettings = this.settingsManager.mergeSettingsForModel(
           modelId!,
           providerId!,
-          settings || {}
+          settings || {},
+          modelInfo
         );
         
         // Calculate native reasoning status

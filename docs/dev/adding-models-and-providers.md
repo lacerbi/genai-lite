@@ -103,39 +103,86 @@ For local models via llama.cpp, add pattern detection to auto-configure capabili
 
 ### 1. Add Pattern to KNOWN_GGUF_MODELS
 
-Edit `src/llm/config.ts`:
+Edit `src/llm/config.ts`. Each entry pairs a filename substring with a `capabilities: Partial<ModelInfo>` overlay that detection applies on top of the fallback model info:
 
 ```typescript
 export const KNOWN_GGUF_MODELS: GgufModelPattern[] = [
   // Add your pattern - order matters! More specific patterns first.
   {
-    pattern: "deepseek-r1-14b",    // Case-insensitive substring match
-    name: "DeepSeek R1 14B",
-    description: "Reasoning-focused model",
+    pattern: "deepseek-r1",        // Case-insensitive substring match
+    name: "DeepSeek R1",
+    description: "DeepSeek R1 reasoning model (always-on thinking)",
     capabilities: {
-      maxTokens: 8192,
-      contextWindow: 65536,
+      maxTokens: 16384,
+      contextWindow: 131072,
       supportsImages: false,
       supportsPromptCache: false,
-      reasoning: {
-        supported: true,
-        enabledByDefault: true,
-        canDisable: false,
-        maxBudget: 32768,
-      },
+      reasoning: { supported: true, enabledByDefault: true, canDisable: false },
+      localReasoning: { markers: ["<think>", "</think>"] },  // always-on: NO toggleKwarg
+      defaultSettings: { temperature: 0.6, topP: 0.95, minP: 0, repeatPenalty: 1.0 },
     },
   },
   // Existing patterns...
 ];
 ```
 
-### 2. Pattern Ordering Rules
+### 2. Capability Fields for Local Models
 
-- **Specific before generic**: `"qwen3-8b-instruct"` before `"qwen3-8b"`
-- **Larger before smaller**: `"qwen3-30b"` before `"qwen3-14b"` (prevents false matches)
-- **Quantization agnostic**: Don't include `Q4_K_M`, `Q8_0` etc. in patterns
+Beyond the basic `ModelInfo` fields, GGUF entries carry vendor sampling profiles and reasoning-toggle metadata. Sampling profiles are declared once as shared constants near the top of `KNOWN_GGUF_MODELS` (e.g. `QWEN_NONTHINKING_SAMPLING`, `GEMMA_SAMPLING`) so a whole family stays consistent.
 
-### 3. Test Detection
+**`defaultSettings: Partial<LLMSettings>`** — vendor-recommended sampling applied below request settings (precedence: `DEFAULT < provider < MODEL_DEFAULT_SETTINGS < defaultSettings < request`). llama.cpp's own server defaults (temperature 0.8, top_k 40, min_p 0.05) match no vendor's recommendation, so **set `minP: 0` and `repeatPenalty: 1.0` explicitly** whenever the vendor doesn't recommend a value — otherwise the server defaults leak in.
+
+**`reasoningDefaultSettings: Partial<LLMSettings>`** — an extra overlay applied *only when reasoning is active* for the request (many vendors, e.g. Qwen, publish a different sampling profile in thinking mode). Per-key precedence: `request > reasoningDefaultSettings > defaultSettings`. Omit it for models with a single profile.
+
+**`localReasoning: LocalReasoningMetadata`** — how the chat template toggles thinking and how to clean output:
+- `toggleKwarg?` — chat-template kwarg name (almost always `"enable_thinking"`). The adapter sends `chat_template_kwargs: { [toggleKwarg]: <bool> }` derived from `settings.reasoning.enabled` (explicit `false` when not requested), which requires `llama-server --jinja`.
+  - **Hybrid models** (thinking switches on/off) → set `toggleKwarg: "enable_thinking"`.
+  - **Always-on reasoning models** (GPT-OSS, DeepSeek R1, Qwen `-thinking-2507`, Ministral Reasoning) → **omit `toggleKwarg`** (there is nothing to toggle); just provide `markers`.
+- `nothinkPrefix?` — the exact prefix a template injects when thinking is disabled (e.g. Qwen's `"<think>\n\n</think>\n\n"`); stripped verbatim from content.
+- `markers?` — open/close pair used to extract a reasoning trace when the server does not populate `reasoning_content` (only fully-closed pairs are extracted).
+
+### 3. Pattern Ordering Rules
+
+Detection returns the **first** substring match, so ordering is load-bearing:
+
+- **Specific before generic**: `"qwen3.5-4b"` before the catch-all `"qwen3.5"`.
+- **Variant checkpoints before the base size**: `"qwen3-4b-instruct-2507"` and `"qwen3-4b-thinking-2507"` before `"qwen3-4b"` (the 2507 refreshes have different reasoning behavior from the original hybrid checkpoint).
+- **Newer family names before older substrings they contain**: list `"qwen3.5"` / `"qwen3.6"` before the `"qwen3-…"` patterns.
+- **Reasoning variant before Instruct**: `"ministral-3-8b-reasoning"` before `"ministral-3"`.
+- **Quantization agnostic**: never embed `Q4_K_M`, `Q8_0`, etc. in patterns.
+
+### 4. Complete Example (hybrid model with shared constants)
+
+A real hybrid entry from `src/llm/config.ts`. `GEMMA_SAMPLING` and `GEMMA4_LOCAL_REASONING` are shared constants defined once above the array:
+
+```typescript
+const GEMMA_SAMPLING: Partial<LLMSettings> = {
+  temperature: 1.0, topP: 0.95, topK: 64, minP: 0, repeatPenalty: 1.0,
+};
+const GEMMA4_LOCAL_REASONING: LocalReasoningMetadata = {
+  toggleKwarg: "enable_thinking",                    // hybrid → toggleable
+  nothinkPrefix: "<|channel>thought\n<channel|>",
+  markers: ["<|channel>thought", "<channel|>"],
+};
+
+{
+  pattern: "gemma-4-e4b",
+  name: "Gemma 4 E4B",
+  description: "Gemma 4 E4B (4.5B effective) hybrid-thinking model",
+  capabilities: {
+    maxTokens: 8192,
+    contextWindow: 32768,
+    supportsImages: false,
+    supportsPromptCache: false,
+    supportsSystemMessage: true,
+    reasoning: { supported: true, enabledByDefault: false, canDisable: true },
+    localReasoning: GEMMA4_LOCAL_REASONING,
+    defaultSettings: GEMMA_SAMPLING,                 // single profile → no reasoningDefaultSettings
+  },
+},
+```
+
+### 5. Test Detection
 
 ```bash
 npm run build

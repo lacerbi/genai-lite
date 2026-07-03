@@ -11,6 +11,7 @@ import type {
   GeminiHarmBlockThreshold,
   StructuredOutputSettings,
   StructuredOutputSchema,
+  LocalReasoningMetadata,
 } from "./types";
 import type { ILLMClientAdapter } from "./clients/types";
 import { OpenAIClientAdapter } from "./clients/OpenAIClientAdapter";
@@ -55,7 +56,8 @@ export const ADAPTER_CONFIGS: Partial<
     baseURL: process.env.ANTHROPIC_API_BASE_URL || undefined,
   },
   llamacpp: {
-    baseURL: process.env.LLAMACPP_API_BASE_URL || 'http://localhost:8080',
+    // 127.0.0.1 (not localhost) avoids a ~2s/request IPv6-fallback stall on Windows
+    baseURL: process.env.LLAMACPP_API_BASE_URL || 'http://127.0.0.1:8080',
   },
   openrouter: {
     baseURL: process.env.OPENROUTER_API_BASE_URL || 'https://openrouter.ai/api/v1',
@@ -75,6 +77,10 @@ export const DEFAULT_LLM_SETTINGS: Required<LLMSettings> = {
   stopSequences: [],
   frequencyPenalty: 0.0,
   presencePenalty: 0.0,
+  topK: undefined as any, // No universal default; provider support varies, filtered when undefined
+  minP: undefined as any, // No universal default; explicit per-model defaults for detected GGUF models
+  repeatPenalty: undefined as any, // No universal default; explicit per-model defaults for detected GGUF models
+  seed: undefined as any, // No universal default; deterministic sampling is opt-in
   supportsSystemMessage: true,
   systemMessageFallback: {
     format: 'xml',
@@ -101,6 +107,9 @@ export const DEFAULT_LLM_SETTINGS: Required<LLMSettings> = {
   },
   openRouterProvider: undefined as any, // Optional, only used with OpenRouter provider
   structuredOutput: undefined as any, // Optional, enables JSON schema-constrained output
+  logprobs: undefined as any, // Optional, per-token log probabilities (llama.cpp/OpenAI/OpenRouter)
+  topLogprobs: undefined as any, // Optional, number of alternatives per token
+  llamacpp: undefined as any, // Optional, llama.cpp-specific settings (grammar, chatTemplateKwargs)
 };
 
 /**
@@ -140,19 +149,23 @@ export const SUPPORTED_PROVIDERS: ProviderInfo[] = [
   {
     id: "openai",
     name: "OpenAI",
-    unsupportedParameters: ["frequencyPenalty"],
+    unsupportedParameters: ["frequencyPenalty", "topK", "minP", "repeatPenalty"],
   },
   {
     id: "anthropic",
     name: "Anthropic",
+    unsupportedParameters: ["seed", "minP", "repeatPenalty", "logprobs", "topLogprobs"],
   },
   {
     id: "gemini",
     name: "Google Gemini",
+    // Gemini has its own logprobs mechanism with a different shape; not mapped yet
+    unsupportedParameters: ["minP", "repeatPenalty", "logprobs", "topLogprobs"],
   },
   {
     id: "mistral",
     name: "Mistral AI",
+    unsupportedParameters: ["topK", "minP", "repeatPenalty", "logprobs", "topLogprobs"],
   },
   {
     id: "llamacpp",
@@ -185,16 +198,248 @@ export interface GgufModelPattern {
   capabilities: Partial<ModelInfo>;
 }
 
+// ---------------------------------------------------------------------------
+// Shared vendor sampling profiles and reasoning-toggle metadata for GGUF models.
+// Sampling values follow vendor model cards; llama.cpp's own server defaults
+// (temperature 0.8, top_k 40, min_p 0.05) match no vendor's recommendation, so
+// detected models set them explicitly. See docs/dev/adding-models-and-providers.md.
+// ---------------------------------------------------------------------------
+
+const HYBRID_REASONING = {
+  supported: true,
+  enabledByDefault: false,
+  canDisable: true,
+} as const;
+
+const ALWAYS_ON_REASONING = {
+  supported: true,
+  enabledByDefault: true,
+  canDisable: false,
+} as const;
+
+const THINK_MARKERS: [string, string] = ["<think>", "</think>"];
+
+/** Qwen chat templates: enable_thinking flag; template injects an empty think block when disabled */
+const QWEN_LOCAL_REASONING: LocalReasoningMetadata = {
+  toggleKwarg: "enable_thinking",
+  nothinkPrefix: "<think>\n\n</think>\n\n",
+  markers: THINK_MARKERS,
+};
+
+/** Gemma 4 chat template: enable_thinking flag; harmony-style thought-channel markers */
+const GEMMA4_LOCAL_REASONING: LocalReasoningMetadata = {
+  toggleKwarg: "enable_thinking",
+  nothinkPrefix: "<|channel>thought\n<channel|>",
+  markers: ["<|channel>thought", "<channel|>"],
+};
+
+// Vendor sampling profiles (temperature / topP / topK / minP / repeatPenalty)
+const QWEN_NONTHINKING_SAMPLING: Partial<LLMSettings> = {
+  temperature: 0.7, topP: 0.8, topK: 20, minP: 0, repeatPenalty: 1.0,
+};
+const QWEN3_THINKING_SAMPLING: Partial<LLMSettings> = {
+  temperature: 0.6, topP: 0.95, topK: 20, minP: 0, repeatPenalty: 1.0,
+};
+const QWEN35_THINKING_SAMPLING: Partial<LLMSettings> = {
+  temperature: 1.0, topP: 0.95, topK: 20, minP: 0, repeatPenalty: 1.0,
+};
+const GEMMA_SAMPLING: Partial<LLMSettings> = {
+  temperature: 1.0, topP: 0.95, topK: 64, minP: 0, repeatPenalty: 1.0,
+};
+const GPT_OSS_SAMPLING: Partial<LLMSettings> = {
+  temperature: 1.0, topP: 1.0, topK: 0, minP: 0, repeatPenalty: 1.0,
+};
+const MINISTRAL_INSTRUCT_SAMPLING: Partial<LLMSettings> = {
+  temperature: 0.15, minP: 0, repeatPenalty: 1.0,
+};
+const MINISTRAL_REASONING_SAMPLING: Partial<LLMSettings> = {
+  temperature: 0.7, topP: 0.95, minP: 0, repeatPenalty: 1.0,
+};
+const GRANITE_SAMPLING: Partial<LLMSettings> = {
+  temperature: 0.7, topP: 0.95, topK: 0, minP: 0, repeatPenalty: 1.0,
+};
+const LLAMA32_SAMPLING: Partial<LLMSettings> = {
+  temperature: 0.6, topP: 0.9, topK: 0, minP: 0, repeatPenalty: 1.0,
+};
+
 /**
  * Known GGUF model patterns for capability detection
  *
  * Order matters: more specific patterns should come before generic ones.
  * First matching pattern wins.
  *
- * Example: "Qwen3-0.6B-0522" should be before "Qwen3-0.6B"
+ * Ordering rules (see docs/dev/adding-models-and-providers.md):
+ * - Specific before generic: "qwen3-4b-instruct-2507" before "qwen3-4b"
+ * - Newer family names before older substrings they contain: "qwen3.5" contains no
+ *   "qwen3-" (the dot breaks the match) but is listed first anyway for clarity
+ * - Quantization agnostic: never embed Q4_K_M/Q8_0 in patterns
  */
 export const KNOWN_GGUF_MODELS: GgufModelPattern[] = [
-  // Qwen 3 Series - All support thinking/reasoning
+  // --- Qwen 3.5 (hybrid thinking; enable_thinking toggle) ---
+  {
+    pattern: "qwen3.5-2b",
+    name: "Qwen 3.5 2B",
+    description: "Qwen 3.5 2B hybrid-thinking model",
+    capabilities: {
+      maxTokens: 8192,
+      contextWindow: 131072,
+      supportsImages: false,
+      supportsPromptCache: false,
+      reasoning: { ...HYBRID_REASONING },
+      localReasoning: QWEN_LOCAL_REASONING,
+      defaultSettings: QWEN_NONTHINKING_SAMPLING,
+      reasoningDefaultSettings: QWEN35_THINKING_SAMPLING,
+    },
+  },
+  {
+    pattern: "qwen3.5-4b",
+    name: "Qwen 3.5 4B",
+    description: "Qwen 3.5 4B hybrid-thinking model",
+    capabilities: {
+      maxTokens: 8192,
+      contextWindow: 131072,
+      supportsImages: false,
+      supportsPromptCache: false,
+      reasoning: { ...HYBRID_REASONING },
+      localReasoning: QWEN_LOCAL_REASONING,
+      defaultSettings: QWEN_NONTHINKING_SAMPLING,
+      reasoningDefaultSettings: QWEN35_THINKING_SAMPLING,
+    },
+  },
+  {
+    pattern: "qwen3.5-9b",
+    name: "Qwen 3.5 9B",
+    description: "Qwen 3.5 9B hybrid-thinking model",
+    capabilities: {
+      maxTokens: 16384,
+      contextWindow: 131072,
+      supportsImages: false,
+      supportsPromptCache: false,
+      reasoning: { ...HYBRID_REASONING },
+      localReasoning: QWEN_LOCAL_REASONING,
+      defaultSettings: QWEN_NONTHINKING_SAMPLING,
+      reasoningDefaultSettings: QWEN35_THINKING_SAMPLING,
+    },
+  },
+  {
+    pattern: "qwen3.5",
+    name: "Qwen 3.5",
+    description: "Qwen 3.5 hybrid-thinking model (size not recognized)",
+    capabilities: {
+      maxTokens: 8192,
+      contextWindow: 131072,
+      supportsImages: false,
+      supportsPromptCache: false,
+      reasoning: { ...HYBRID_REASONING },
+      localReasoning: QWEN_LOCAL_REASONING,
+      defaultSettings: QWEN_NONTHINKING_SAMPLING,
+      reasoningDefaultSettings: QWEN35_THINKING_SAMPLING,
+    },
+  },
+  // --- Qwen 3.6 (hybrid thinking; same profiles as 3.5 per family reuse) ---
+  {
+    pattern: "qwen3.6-27b",
+    name: "Qwen 3.6 27B",
+    description: "Qwen 3.6 27B hybrid-thinking model",
+    capabilities: {
+      maxTokens: 16384,
+      contextWindow: 131072,
+      supportsImages: false,
+      supportsPromptCache: false,
+      reasoning: { ...HYBRID_REASONING },
+      localReasoning: QWEN_LOCAL_REASONING,
+      defaultSettings: QWEN_NONTHINKING_SAMPLING,
+      reasoningDefaultSettings: QWEN35_THINKING_SAMPLING,
+    },
+  },
+  {
+    pattern: "qwen3.6-35b",
+    name: "Qwen 3.6 35B-A3B",
+    description: "Qwen 3.6 35B MoE (3B active) hybrid-thinking model",
+    capabilities: {
+      maxTokens: 16384,
+      contextWindow: 131072,
+      supportsImages: false,
+      supportsPromptCache: false,
+      reasoning: { ...HYBRID_REASONING },
+      localReasoning: QWEN_LOCAL_REASONING,
+      defaultSettings: QWEN_NONTHINKING_SAMPLING,
+      reasoningDefaultSettings: QWEN35_THINKING_SAMPLING,
+    },
+  },
+  {
+    pattern: "qwen3.6",
+    name: "Qwen 3.6",
+    description: "Qwen 3.6 hybrid-thinking model (size not recognized)",
+    capabilities: {
+      maxTokens: 8192,
+      contextWindow: 131072,
+      supportsImages: false,
+      supportsPromptCache: false,
+      reasoning: { ...HYBRID_REASONING },
+      localReasoning: QWEN_LOCAL_REASONING,
+      defaultSettings: QWEN_NONTHINKING_SAMPLING,
+      reasoningDefaultSettings: QWEN35_THINKING_SAMPLING,
+    },
+  },
+  // --- Qwen 3 2507 refreshes (must precede the base qwen3-* size patterns) ---
+  // Instruct-2507 checkpoints are non-thinking; the enable_thinking:false kwarg and
+  // nothink stripping are safe no-ops there (template has no think injection).
+  {
+    pattern: "qwen3-4b-instruct-2507",
+    name: "Qwen 3 4B Instruct 2507",
+    description: "Qwen 3 4B Instruct-2507 (non-thinking checkpoint)",
+    capabilities: {
+      maxTokens: 8192,
+      contextWindow: 131072,
+      supportsImages: false,
+      supportsPromptCache: false,
+      localReasoning: QWEN_LOCAL_REASONING,
+      defaultSettings: QWEN_NONTHINKING_SAMPLING,
+    },
+  },
+  {
+    pattern: "qwen3-4b-thinking-2507",
+    name: "Qwen 3 4B Thinking 2507",
+    description: "Qwen 3 4B Thinking-2507 (thinking-only checkpoint)",
+    capabilities: {
+      maxTokens: 16384,
+      contextWindow: 131072,
+      supportsImages: false,
+      supportsPromptCache: false,
+      reasoning: { ...ALWAYS_ON_REASONING },
+      localReasoning: { markers: THINK_MARKERS },
+      defaultSettings: QWEN3_THINKING_SAMPLING,
+    },
+  },
+  {
+    pattern: "qwen3-30b-a3b-instruct-2507",
+    name: "Qwen 3 30B-A3B Instruct 2507",
+    description: "Qwen 3 30B-A3B Instruct-2507 (non-thinking checkpoint)",
+    capabilities: {
+      maxTokens: 16384,
+      contextWindow: 131072,
+      supportsImages: false,
+      supportsPromptCache: false,
+      localReasoning: QWEN_LOCAL_REASONING,
+      defaultSettings: QWEN_NONTHINKING_SAMPLING,
+    },
+  },
+  {
+    pattern: "qwen3-30b-a3b-thinking-2507",
+    name: "Qwen 3 30B-A3B Thinking 2507",
+    description: "Qwen 3 30B-A3B Thinking-2507 (thinking-only checkpoint)",
+    capabilities: {
+      maxTokens: 16384,
+      contextWindow: 131072,
+      supportsImages: false,
+      supportsPromptCache: false,
+      reasoning: { ...ALWAYS_ON_REASONING },
+      localReasoning: { markers: THINK_MARKERS },
+      defaultSettings: QWEN3_THINKING_SAMPLING,
+    },
+  },
+  // --- Qwen 3 Series (original hybrid checkpoints; enable_thinking toggle) ---
   {
     pattern: "qwen3-30b",
     name: "Qwen 3 30B",
@@ -205,11 +450,12 @@ export const KNOWN_GGUF_MODELS: GgufModelPattern[] = [
       supportsImages: false,
       supportsPromptCache: false,
       reasoning: {
-        supported: true,
-        enabledByDefault: false,
-        canDisable: true,
+        ...HYBRID_REASONING,
         maxBudget: 38912,
       },
+      localReasoning: QWEN_LOCAL_REASONING,
+      defaultSettings: QWEN_NONTHINKING_SAMPLING,
+      reasoningDefaultSettings: QWEN3_THINKING_SAMPLING,
     },
   },
   {
@@ -222,11 +468,12 @@ export const KNOWN_GGUF_MODELS: GgufModelPattern[] = [
       supportsImages: false,
       supportsPromptCache: false,
       reasoning: {
-        supported: true,
-        enabledByDefault: false,
-        canDisable: true,
+        ...HYBRID_REASONING,
         maxBudget: 38912,
       },
+      localReasoning: QWEN_LOCAL_REASONING,
+      defaultSettings: QWEN_NONTHINKING_SAMPLING,
+      reasoningDefaultSettings: QWEN3_THINKING_SAMPLING,
     },
   },
   {
@@ -239,11 +486,12 @@ export const KNOWN_GGUF_MODELS: GgufModelPattern[] = [
       supportsImages: false,
       supportsPromptCache: false,
       reasoning: {
-        supported: true,
-        enabledByDefault: false,
-        canDisable: true,
+        ...HYBRID_REASONING,
         maxBudget: 38912,
       },
+      localReasoning: QWEN_LOCAL_REASONING,
+      defaultSettings: QWEN_NONTHINKING_SAMPLING,
+      reasoningDefaultSettings: QWEN3_THINKING_SAMPLING,
     },
   },
   {
@@ -256,11 +504,12 @@ export const KNOWN_GGUF_MODELS: GgufModelPattern[] = [
       supportsImages: false,
       supportsPromptCache: false,
       reasoning: {
-        supported: true,
-        enabledByDefault: false,
-        canDisable: true,
+        ...HYBRID_REASONING,
         maxBudget: 38912,
       },
+      localReasoning: QWEN_LOCAL_REASONING,
+      defaultSettings: QWEN_NONTHINKING_SAMPLING,
+      reasoningDefaultSettings: QWEN3_THINKING_SAMPLING,
     },
   },
   {
@@ -273,11 +522,12 @@ export const KNOWN_GGUF_MODELS: GgufModelPattern[] = [
       supportsImages: false,
       supportsPromptCache: false,
       reasoning: {
-        supported: true,
-        enabledByDefault: false,
-        canDisable: true,
+        ...HYBRID_REASONING,
         maxBudget: 30720,
       },
+      localReasoning: QWEN_LOCAL_REASONING,
+      defaultSettings: QWEN_NONTHINKING_SAMPLING,
+      reasoningDefaultSettings: QWEN3_THINKING_SAMPLING,
     },
   },
   {
@@ -290,15 +540,304 @@ export const KNOWN_GGUF_MODELS: GgufModelPattern[] = [
       supportsImages: false,
       supportsPromptCache: false,
       reasoning: {
-        supported: true,
-        enabledByDefault: false,
-        canDisable: true,
+        ...HYBRID_REASONING,
         maxBudget: 30720,
+      },
+      localReasoning: QWEN_LOCAL_REASONING,
+      defaultSettings: QWEN_NONTHINKING_SAMPLING,
+      reasoningDefaultSettings: QWEN3_THINKING_SAMPLING,
+    },
+  },
+  // --- Gemma 4 (hybrid thinking, supports system messages) ---
+  // Note: enable_thinking:true is best-effort on Gemma 4 — the chat-template flag
+  // activates the thought channel unreliably. enable_thinking:false works reliably.
+  {
+    pattern: "gemma-4-e2b",
+    name: "Gemma 4 E2B",
+    description: "Gemma 4 E2B (2.3B effective) hybrid-thinking model",
+    capabilities: {
+      maxTokens: 8192,
+      contextWindow: 32768,
+      supportsImages: false,
+      supportsPromptCache: false,
+      supportsSystemMessage: true,
+      reasoning: { ...HYBRID_REASONING },
+      localReasoning: GEMMA4_LOCAL_REASONING,
+      defaultSettings: GEMMA_SAMPLING,
+    },
+  },
+  {
+    pattern: "gemma-4-e4b",
+    name: "Gemma 4 E4B",
+    description: "Gemma 4 E4B (4.5B effective) hybrid-thinking model",
+    capabilities: {
+      maxTokens: 8192,
+      contextWindow: 32768,
+      supportsImages: false,
+      supportsPromptCache: false,
+      supportsSystemMessage: true,
+      reasoning: { ...HYBRID_REASONING },
+      localReasoning: GEMMA4_LOCAL_REASONING,
+      defaultSettings: GEMMA_SAMPLING,
+    },
+  },
+  {
+    pattern: "gemma-4-26b-a4b",
+    name: "Gemma 4 26B-A4B",
+    description: "Gemma 4 26B MoE (~4B active) hybrid-thinking model",
+    capabilities: {
+      maxTokens: 16384,
+      contextWindow: 131072,
+      supportsImages: false,
+      supportsPromptCache: false,
+      supportsSystemMessage: true,
+      reasoning: { ...HYBRID_REASONING },
+      localReasoning: GEMMA4_LOCAL_REASONING,
+      defaultSettings: GEMMA_SAMPLING,
+    },
+  },
+  {
+    pattern: "gemma-4-31b",
+    name: "Gemma 4 31B",
+    description: "Gemma 4 31B dense hybrid-thinking model (256K context)",
+    capabilities: {
+      maxTokens: 16384,
+      contextWindow: 262144,
+      supportsImages: false,
+      supportsPromptCache: false,
+      supportsSystemMessage: true,
+      reasoning: { ...HYBRID_REASONING },
+      localReasoning: GEMMA4_LOCAL_REASONING,
+      defaultSettings: GEMMA_SAMPLING,
+    },
+  },
+  {
+    pattern: "gemma-4",
+    name: "Gemma 4",
+    description: "Gemma 4 hybrid-thinking model (size not recognized)",
+    capabilities: {
+      maxTokens: 8192,
+      contextWindow: 32768,
+      supportsImages: false,
+      supportsPromptCache: false,
+      supportsSystemMessage: true,
+      reasoning: { ...HYBRID_REASONING },
+      localReasoning: GEMMA4_LOCAL_REASONING,
+      defaultSettings: GEMMA_SAMPLING,
+    },
+  },
+  // --- Gemma 3 (no thinking, no system-message role) ---
+  {
+    pattern: "gemma-3-1b",
+    name: "Gemma 3 1B",
+    description: "Gemma 3 1B instruction-tuned model",
+    capabilities: {
+      maxTokens: 8192,
+      contextWindow: 32768,
+      supportsImages: false,
+      supportsPromptCache: false,
+      supportsSystemMessage: false,
+      defaultSettings: GEMMA_SAMPLING,
+    },
+  },
+  {
+    pattern: "gemma-3-4b",
+    name: "Gemma 3 4B",
+    description: "Gemma 3 4B instruction-tuned model",
+    capabilities: {
+      maxTokens: 8192,
+      contextWindow: 131072,
+      supportsImages: false,
+      supportsPromptCache: false,
+      supportsSystemMessage: false,
+      defaultSettings: GEMMA_SAMPLING,
+    },
+  },
+  {
+    pattern: "gemma-3-12b",
+    name: "Gemma 3 12B",
+    description: "Gemma 3 12B instruction-tuned model",
+    capabilities: {
+      maxTokens: 8192,
+      contextWindow: 131072,
+      supportsImages: false,
+      supportsPromptCache: false,
+      supportsSystemMessage: false,
+      defaultSettings: GEMMA_SAMPLING,
+    },
+  },
+  {
+    pattern: "gemma-3-27b",
+    name: "Gemma 3 27B",
+    description: "Gemma 3 27B instruction-tuned model",
+    capabilities: {
+      maxTokens: 8192,
+      contextWindow: 131072,
+      supportsImages: false,
+      supportsPromptCache: false,
+      supportsSystemMessage: false,
+      defaultSettings: GEMMA_SAMPLING,
+    },
+  },
+  {
+    pattern: "gemma-3",
+    name: "Gemma 3",
+    description: "Gemma 3 instruction-tuned model (size not recognized)",
+    capabilities: {
+      maxTokens: 8192,
+      contextWindow: 32768,
+      supportsImages: false,
+      supportsPromptCache: false,
+      supportsSystemMessage: false,
+      defaultSettings: GEMMA_SAMPLING,
+    },
+  },
+  // --- GPT-OSS (harmony format; reasoning always on, cannot be disabled) ---
+  {
+    pattern: "gpt-oss-120b",
+    name: "GPT-OSS 120B",
+    description: "OpenAI GPT-OSS 120B reasoning-native model (harmony format)",
+    capabilities: {
+      maxTokens: 16384,
+      contextWindow: 131072,
+      supportsImages: false,
+      supportsPromptCache: false,
+      reasoning: { ...ALWAYS_ON_REASONING },
+      defaultSettings: GPT_OSS_SAMPLING,
+    },
+  },
+  {
+    pattern: "gpt-oss-20b",
+    name: "GPT-OSS 20B",
+    description: "OpenAI GPT-OSS 20B reasoning-native model (harmony format)",
+    capabilities: {
+      maxTokens: 16384,
+      contextWindow: 131072,
+      supportsImages: false,
+      supportsPromptCache: false,
+      reasoning: { ...ALWAYS_ON_REASONING },
+      defaultSettings: GPT_OSS_SAMPLING,
+    },
+  },
+  {
+    pattern: "gpt-oss",
+    name: "GPT-OSS",
+    description: "OpenAI GPT-OSS reasoning-native model (size not recognized)",
+    capabilities: {
+      maxTokens: 16384,
+      contextWindow: 131072,
+      supportsImages: false,
+      supportsPromptCache: false,
+      reasoning: { ...ALWAYS_ON_REASONING },
+      defaultSettings: GPT_OSS_SAMPLING,
+    },
+  },
+  // --- Ministral 3 (Reasoning variants before Instruct; Reasoning is a separate
+  //     checkpoint, not a toggle) ---
+  {
+    pattern: "ministral-3-3b-reasoning",
+    name: "Ministral 3 3B Reasoning",
+    description: "Ministral 3 3B Reasoning variant (always-on thinking)",
+    capabilities: {
+      maxTokens: 16384,
+      contextWindow: 131072,
+      supportsImages: false,
+      supportsPromptCache: false,
+      reasoning: { ...ALWAYS_ON_REASONING },
+      localReasoning: { markers: THINK_MARKERS },
+      defaultSettings: MINISTRAL_REASONING_SAMPLING,
+    },
+  },
+  {
+    pattern: "ministral-3-8b-reasoning",
+    name: "Ministral 3 8B Reasoning",
+    description: "Ministral 3 8B Reasoning variant (always-on thinking)",
+    capabilities: {
+      maxTokens: 16384,
+      contextWindow: 131072,
+      supportsImages: false,
+      supportsPromptCache: false,
+      reasoning: { ...ALWAYS_ON_REASONING },
+      localReasoning: { markers: THINK_MARKERS },
+      defaultSettings: MINISTRAL_REASONING_SAMPLING,
+    },
+  },
+  {
+    pattern: "ministral-3-14b-reasoning",
+    name: "Ministral 3 14B Reasoning",
+    description: "Ministral 3 14B Reasoning variant (always-on thinking)",
+    capabilities: {
+      maxTokens: 16384,
+      contextWindow: 131072,
+      supportsImages: false,
+      supportsPromptCache: false,
+      reasoning: { ...ALWAYS_ON_REASONING },
+      localReasoning: { markers: THINK_MARKERS },
+      defaultSettings: MINISTRAL_REASONING_SAMPLING,
+    },
+  },
+  {
+    pattern: "ministral-3",
+    name: "Ministral 3",
+    description: "Ministral 3 Instruct model (thinking disabled via template flag)",
+    capabilities: {
+      maxTokens: 8192,
+      contextWindow: 131072,
+      supportsImages: false,
+      supportsPromptCache: false,
+      // Template supports a thinking flag but the Instruct variant is not a
+      // reasoning model; the adapter keeps enable_thinking:false.
+      localReasoning: {
+        toggleKwarg: "enable_thinking",
+        markers: THINK_MARKERS,
+      },
+      defaultSettings: MINISTRAL_INSTRUCT_SAMPLING,
+    },
+  },
+  // --- Granite 4.1 (no thinking) ---
+  {
+    pattern: "granite-4.1",
+    name: "Granite 4.1",
+    description: "IBM Granite 4.1 instruction-tuned model",
+    capabilities: {
+      maxTokens: 8192,
+      contextWindow: 131072,
+      supportsImages: false,
+      supportsPromptCache: false,
+      defaultSettings: GRANITE_SAMPLING,
+    },
+  },
+  // --- DeepSeek R1 (reasoning always on) ---
+  {
+    pattern: "deepseek-r1",
+    name: "DeepSeek R1",
+    description: "DeepSeek R1 reasoning model (always-on thinking)",
+    capabilities: {
+      maxTokens: 16384,
+      contextWindow: 131072,
+      supportsImages: false,
+      supportsPromptCache: false,
+      reasoning: { ...ALWAYS_ON_REASONING },
+      localReasoning: { markers: THINK_MARKERS },
+      defaultSettings: {
+        temperature: 0.6, topP: 0.95, minP: 0, repeatPenalty: 1.0,
       },
     },
   },
+  // --- Llama 3.2 (no thinking) ---
+  {
+    pattern: "llama-3.2",
+    name: "Llama 3.2",
+    description: "Meta Llama 3.2 instruction-tuned model",
+    capabilities: {
+      maxTokens: 8192,
+      contextWindow: 131072,
+      supportsImages: false,
+      supportsPromptCache: false,
+      defaultSettings: LLAMA32_SAMPLING,
+    },
+  },
   // Add more model patterns here as needed
-  // DeepSeek, Llama, etc.
 ];
 
 /**
@@ -680,6 +1219,64 @@ export const SUPPORTED_MODELS: ModelInfo[] = [
       notes: "Gemma models do not support JSON mode via Google's API",
     },
   },
+  // Google Gemma 4 Models (Open weights, free via Gemini API)
+  // Note: Unlike Gemma 3, Gemma 4 supports a native system role
+  // Note: Reasoning left unsupported on the cloud entries — the Gemini API exposes
+  // no thinking toggle for Gemma (the <|think|> system-token mechanism is not modeled)
+  {
+    id: "gemma-4-4b-it",
+    name: "Gemma 4 4B",
+    providerId: "gemini",
+    contextWindow: 32768,
+    inputPrice: 0.0,
+    outputPrice: 0.0,
+    description:
+      "Google's Gemma 4 4B open model with system-message support (free via Gemini API)",
+    maxTokens: 8192,
+    supportsImages: false,
+    supportsPromptCache: false,
+    supportsSystemMessage: true,
+    structuredOutput: {
+      supported: false,
+      notes: "Gemma models do not support JSON mode via Google's API",
+    },
+  },
+  {
+    id: "gemma-4-26b-a4b-it",
+    name: "Gemma 4 26B-A4B",
+    providerId: "gemini",
+    contextWindow: 131072,
+    inputPrice: 0.0,
+    outputPrice: 0.0,
+    description:
+      "Google's Gemma 4 26B MoE (~4B active) open model (free via Gemini API)",
+    maxTokens: 8192,
+    supportsImages: false,
+    supportsPromptCache: false,
+    supportsSystemMessage: true,
+    structuredOutput: {
+      supported: false,
+      notes: "Gemma models do not support JSON mode via Google's API",
+    },
+  },
+  {
+    id: "gemma-4-31b-it",
+    name: "Gemma 4 31B",
+    providerId: "gemini",
+    contextWindow: 262144,
+    inputPrice: 0.0,
+    outputPrice: 0.0,
+    description:
+      "Google's Gemma 4 31B dense open model with 256K context (free via Gemini API)",
+    maxTokens: 8192,
+    supportsImages: false,
+    supportsPromptCache: false,
+    supportsSystemMessage: true,
+    structuredOutput: {
+      supported: false,
+      notes: "Gemma models do not support JSON mode via Google's API",
+    },
+  },
 
   // OpenAI Models - GPT-5 Series
   // Note: GPT-5 models do not support temperature or topP parameters
@@ -695,7 +1292,7 @@ export const SUPPORTED_MODELS: ModelInfo[] = [
     supportsImages: true,
     supportsPromptCache: true,
     cacheReadsPrice: 0.4375,
-    unsupportedParameters: ["temperature", "topP"],
+    unsupportedParameters: ["temperature", "topP", "seed"],
     reasoning: {
       supported: true,
       enabledByDefault: false,
@@ -719,7 +1316,7 @@ export const SUPPORTED_MODELS: ModelInfo[] = [
     supportsImages: true,
     supportsPromptCache: true,
     cacheReadsPrice: 0.3125,
-    unsupportedParameters: ["temperature", "topP"],
+    unsupportedParameters: ["temperature", "topP", "seed"],
     reasoning: {
       supported: true,
       enabledByDefault: false,
@@ -743,7 +1340,7 @@ export const SUPPORTED_MODELS: ModelInfo[] = [
     supportsImages: true,
     supportsPromptCache: true,
     cacheReadsPrice: 0.0625,
-    unsupportedParameters: ["temperature", "topP"],
+    unsupportedParameters: ["temperature", "topP", "seed"],
     reasoning: {
       supported: true,
       enabledByDefault: false,
@@ -767,7 +1364,7 @@ export const SUPPORTED_MODELS: ModelInfo[] = [
     supportsImages: true,
     supportsPromptCache: true,
     cacheReadsPrice: 0.0125,
-    unsupportedParameters: ["temperature", "topP"],
+    unsupportedParameters: ["temperature", "topP", "seed"],
     reasoning: {
       supported: true,
       enabledByDefault: false,
@@ -792,7 +1389,7 @@ export const SUPPORTED_MODELS: ModelInfo[] = [
     supportsImages: true,
     supportsPromptCache: true,
     cacheReadsPrice: 0.275,
-    unsupportedParameters: ["topP"],
+    unsupportedParameters: ["topP", "seed"],
     reasoning: {
       supported: true,
       enabledByDefault: true,
@@ -930,6 +1527,14 @@ export const SUPPORTED_MODELS: ModelInfo[] = [
     maxTokens: 4096,
     supportsImages: false,
     supportsPromptCache: false,
+    // Optimistic: the server decides which model is loaded, so reasoning requests on
+    // the generic id are not rejected. When the loaded GGUF is recognized, detection
+    // overlays the real capabilities; otherwise extraction degrades gracefully.
+    reasoning: {
+      supported: true,
+      enabledByDefault: false,
+      canDisable: true,
+    },
     structuredOutput: {
       supported: true,
       strictMode: true,
@@ -1088,27 +1693,41 @@ export function createFallbackModelInfo(
  *
  * @param modelId - The model ID
  * @param providerId - The provider ID
+ * @param resolvedModelInfo - Optional already-resolved ModelInfo (e.g. a detected GGUF
+ *   model's fallback info). When provided it is used instead of a registry lookup, so
+ *   capabilities and defaultSettings of dynamically-detected models flow into settings.
  * @returns Merged default settings with model-specific overrides applied
  */
 export function getDefaultSettingsForModel(
   modelId: string,
-  providerId: ApiProviderId
+  providerId: ApiProviderId,
+  resolvedModelInfo?: ModelInfo
 ): Required<LLMSettings> {
   // Base settings: global defaults, then provider-specific, then model-specific overrides
   const baseDefaults = { ...DEFAULT_LLM_SETTINGS };
   const providerDefaults = PROVIDER_DEFAULT_SETTINGS[providerId] || {};
   const modelDefaults = MODEL_DEFAULT_SETTINGS[modelId] || {};
 
-  // Merge settings in order of precedence
+  // Prefer the caller's resolved ModelInfo (covers detected GGUF/unknown models);
+  // fall back to the static registry.
+  const modelInfo = resolvedModelInfo ?? getModelById(modelId, providerId);
+
+  // Merge settings in order of precedence (model-declared defaults sit above the
+  // static per-model-ID table, below request settings)
   const mergedSettings = {
     ...baseDefaults,
     ...providerDefaults,
     ...modelDefaults,
+    ...(modelInfo?.defaultSettings || {}),
   };
 
-  // Override maxTokens from ModelInfo if available
-  const modelInfo = getModelById(modelId, providerId);
-  if (modelInfo && modelInfo.maxTokens !== undefined) {
+  // Override maxTokens from ModelInfo if available (unless the model's own
+  // defaultSettings already chose one)
+  if (
+    modelInfo &&
+    modelInfo.maxTokens !== undefined &&
+    modelInfo.defaultSettings?.maxTokens === undefined
+  ) {
     mergedSettings.maxTokens = modelInfo.maxTokens;
   }
 
@@ -1227,6 +1846,89 @@ export function validateLLMSettings(settings: Partial<LLMSettings>): string[] {
       )
     ) {
       errors.push("stopSequences must contain only non-empty strings");
+    }
+  }
+
+  if (settings.topK !== undefined) {
+    if (!Number.isInteger(settings.topK) || settings.topK < 0) {
+      errors.push("topK must be a non-negative integer");
+    }
+  }
+
+  if (settings.minP !== undefined) {
+    if (
+      typeof settings.minP !== "number" ||
+      settings.minP < 0 ||
+      settings.minP > 1
+    ) {
+      errors.push("minP must be a number between 0 and 1");
+    }
+  }
+
+  if (settings.repeatPenalty !== undefined) {
+    if (
+      typeof settings.repeatPenalty !== "number" ||
+      settings.repeatPenalty <= 0
+    ) {
+      errors.push("repeatPenalty must be a positive number");
+    }
+  }
+
+  if (settings.seed !== undefined) {
+    if (!Number.isInteger(settings.seed)) {
+      errors.push("seed must be an integer");
+    }
+  }
+
+  if (settings.logprobs !== undefined && typeof settings.logprobs !== "boolean") {
+    errors.push("logprobs must be a boolean");
+  }
+
+  if (settings.topLogprobs !== undefined) {
+    if (
+      !Number.isInteger(settings.topLogprobs) ||
+      settings.topLogprobs < 0 ||
+      settings.topLogprobs > 20
+    ) {
+      errors.push("topLogprobs must be an integer between 0 and 20");
+    }
+  }
+
+  if (settings.llamacpp !== undefined) {
+    if (typeof settings.llamacpp !== "object" || settings.llamacpp === null) {
+      errors.push("llamacpp must be an object");
+    } else {
+      if (
+        settings.llamacpp.grammar !== undefined &&
+        typeof settings.llamacpp.grammar !== "string"
+      ) {
+        errors.push("llamacpp.grammar must be a string (GBNF grammar)");
+      }
+      if (settings.llamacpp.chatTemplateKwargs !== undefined) {
+        const kwargs = settings.llamacpp.chatTemplateKwargs;
+        if (typeof kwargs !== "object" || kwargs === null || Array.isArray(kwargs)) {
+          errors.push("llamacpp.chatTemplateKwargs must be an object");
+        } else if (
+          Object.values(kwargs).some(
+            (v) => !["string", "number", "boolean"].includes(typeof v)
+          )
+        ) {
+          errors.push(
+            "llamacpp.chatTemplateKwargs values must be strings, numbers, or booleans"
+          );
+        }
+      }
+      // llama-server rejects requests carrying both a raw grammar and a JSON schema:
+      // "Either 'json_schema' or 'grammar' can be specified, but not both"
+      if (
+        settings.llamacpp.grammar &&
+        settings.structuredOutput?.schema &&
+        settings.structuredOutput.enabled !== false
+      ) {
+        errors.push(
+          "llamacpp.grammar and structuredOutput are mutually exclusive (llama-server rejects both together)"
+        );
+      }
     }
   }
 

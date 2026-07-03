@@ -1,11 +1,14 @@
-import { 
-  isProviderSupported, 
+import {
+  isProviderSupported,
   getProviderById,
   getModelById,
   getModelsByProvider,
   isModelSupported,
   getDefaultSettingsForModel,
-  validateLLMSettings
+  validateLLMSettings,
+  detectGgufCapabilities,
+  createFallbackModelInfo,
+  KNOWN_GGUF_MODELS
 } from './config';
 import type { LLMSettings } from './types';
 
@@ -175,6 +178,77 @@ describe('LLM Config', () => {
     it('should validate presencePenalty bounds', () => {
       expect(validateLLMSettings({ presencePenalty: -2.1 })).toContain('presencePenalty must be a number between -2 and 2');
       expect(validateLLMSettings({ presencePenalty: 2.1 })).toContain('presencePenalty must be a number between -2 and 2');
+    });
+
+    it('should validate topK', () => {
+      expect(validateLLMSettings({ topK: -1 })).toContain('topK must be a non-negative integer');
+      expect(validateLLMSettings({ topK: 1.5 })).toContain('topK must be a non-negative integer');
+      expect(validateLLMSettings({ topK: 'invalid' as any })).toContain('topK must be a non-negative integer');
+      expect(validateLLMSettings({ topK: 0 })).toEqual([]);
+      expect(validateLLMSettings({ topK: 64 })).toEqual([]);
+    });
+
+    it('should validate minP bounds', () => {
+      expect(validateLLMSettings({ minP: -0.1 })).toContain('minP must be a number between 0 and 1');
+      expect(validateLLMSettings({ minP: 1.1 })).toContain('minP must be a number between 0 and 1');
+      expect(validateLLMSettings({ minP: 0 })).toEqual([]);
+      expect(validateLLMSettings({ minP: 0.05 })).toEqual([]);
+    });
+
+    it('should validate repeatPenalty', () => {
+      expect(validateLLMSettings({ repeatPenalty: 0 })).toContain('repeatPenalty must be a positive number');
+      expect(validateLLMSettings({ repeatPenalty: -1 })).toContain('repeatPenalty must be a positive number');
+      expect(validateLLMSettings({ repeatPenalty: 'invalid' as any })).toContain('repeatPenalty must be a positive number');
+      expect(validateLLMSettings({ repeatPenalty: 1.0 })).toEqual([]);
+      expect(validateLLMSettings({ repeatPenalty: 1.3 })).toEqual([]);
+    });
+
+    it('should validate seed', () => {
+      expect(validateLLMSettings({ seed: 1.5 })).toContain('seed must be an integer');
+      expect(validateLLMSettings({ seed: 'invalid' as any })).toContain('seed must be an integer');
+      expect(validateLLMSettings({ seed: -1 })).toEqual([]); // llama.cpp uses -1 for random
+      expect(validateLLMSettings({ seed: 42 })).toEqual([]);
+    });
+
+    it('should validate logprobs and topLogprobs', () => {
+      expect(validateLLMSettings({ logprobs: 'yes' as any })).toContain('logprobs must be a boolean');
+      expect(validateLLMSettings({ logprobs: true })).toEqual([]);
+      expect(validateLLMSettings({ topLogprobs: -1 })).toContain('topLogprobs must be an integer between 0 and 20');
+      expect(validateLLMSettings({ topLogprobs: 21 })).toContain('topLogprobs must be an integer between 0 and 20');
+      expect(validateLLMSettings({ topLogprobs: 2.5 })).toContain('topLogprobs must be an integer between 0 and 20');
+      expect(validateLLMSettings({ topLogprobs: 20 })).toEqual([]);
+    });
+
+    it('should validate the llamacpp namespace', () => {
+      expect(validateLLMSettings({ llamacpp: 'invalid' as any })).toContain('llamacpp must be an object');
+      expect(validateLLMSettings({ llamacpp: { grammar: 123 as any } })).toContain('llamacpp.grammar must be a string (GBNF grammar)');
+      expect(validateLLMSettings({ llamacpp: { chatTemplateKwargs: 'nope' as any } })).toContain('llamacpp.chatTemplateKwargs must be an object');
+      expect(validateLLMSettings({ llamacpp: { chatTemplateKwargs: { bad: { nested: true } } as any } })).toContain('llamacpp.chatTemplateKwargs values must be strings, numbers, or booleans');
+      expect(validateLLMSettings({
+        llamacpp: { grammar: 'root ::= "yes"', chatTemplateKwargs: { enable_thinking: false } }
+      })).toEqual([]);
+    });
+
+    it('should reject grammar together with structuredOutput', () => {
+      const errors = validateLLMSettings({
+        llamacpp: { grammar: 'root ::= "yes"' },
+        structuredOutput: {
+          name: 'answer',
+          schema: { type: 'object', properties: {} },
+        },
+      });
+      expect(errors.some((e) => e.includes('mutually exclusive'))).toBe(true);
+
+      // Disabled structured output does not conflict
+      const noConflict = validateLLMSettings({
+        llamacpp: { grammar: 'root ::= "yes"' },
+        structuredOutput: {
+          enabled: false,
+          name: 'answer',
+          schema: { type: 'object', properties: {} },
+        },
+      });
+      expect(noConflict.some((e) => e.includes('mutually exclusive'))).toBe(false);
     });
 
     it('should validate stopSequences', () => {
@@ -450,6 +524,173 @@ describe('LLM Config', () => {
       expect(model?.structuredOutput?.supported).toBe(true);
       expect(model?.structuredOutput?.strictMode).toBe(false);
       expect(model?.structuredOutput?.notes).toContain('JSON mode only');
+    });
+  });
+
+  describe('detectGgufCapabilities', () => {
+    // Real GGUF filenames (unsloth/vendor releases) exercised end-to-end
+    it('detects Qwen 3.5 models (hybrid thinking + vendor sampling)', () => {
+      const caps = detectGgufCapabilities('Qwen3.5-4B-Q4_K_M.gguf');
+      expect(caps).not.toBeNull();
+      expect(caps?.reasoning?.supported).toBe(true);
+      expect(caps?.reasoning?.canDisable).toBe(true);
+      expect(caps?.localReasoning?.toggleKwarg).toBe('enable_thinking');
+      expect(caps?.localReasoning?.nothinkPrefix).toBe('<think>\n\n</think>\n\n');
+      expect(caps?.defaultSettings).toMatchObject({
+        temperature: 0.7, topP: 0.8, topK: 20, minP: 0, repeatPenalty: 1.0,
+      });
+      expect(caps?.reasoningDefaultSettings).toMatchObject({
+        temperature: 1.0, topP: 0.95,
+      });
+    });
+
+    it('detects Qwen 3.5 9B and Qwen 3.6 models', () => {
+      expect(detectGgufCapabilities('Qwen3.5-9B-Q4_K_M.gguf')?.maxTokens).toBe(16384);
+      expect(detectGgufCapabilities('Qwen3.6-27B-UD-Q6_K_XL.gguf')?.reasoning?.supported).toBe(true);
+      expect(detectGgufCapabilities('Qwen3.6-35B-A3B-UD-IQ4_NL.gguf')?.reasoning?.canDisable).toBe(true);
+    });
+
+    it('does not mis-detect Qwen 3.5 as Qwen 3', () => {
+      const caps = detectGgufCapabilities('Qwen3.5-4B-Q4_K_M.gguf');
+      // The qwen3-4b pattern must not shadow qwen3.5-4b
+      expect(caps?.reasoningDefaultSettings?.temperature).toBe(1.0); // 3.5 thinking profile, not 0.6
+    });
+
+    it('detects Instruct-2507 as non-thinking (not shadowed by the hybrid qwen3-4b pattern)', () => {
+      const caps = detectGgufCapabilities('Qwen3-4B-Instruct-2507-Q4_K_M.gguf');
+      expect(caps).not.toBeNull();
+      expect(caps?.reasoning).toBeUndefined();
+      // Safe no-op toggle metadata is still present
+      expect(caps?.localReasoning?.toggleKwarg).toBe('enable_thinking');
+    });
+
+    it('detects Thinking-2507 as always-on reasoning without a toggle', () => {
+      const caps = detectGgufCapabilities('Qwen3-4B-Thinking-2507-Q4_K_M.gguf');
+      expect(caps?.reasoning?.enabledByDefault).toBe(true);
+      expect(caps?.reasoning?.canDisable).toBe(false);
+      expect(caps?.localReasoning?.toggleKwarg).toBeUndefined();
+      expect(caps?.localReasoning?.markers).toEqual(['<think>', '</think>']);
+    });
+
+    it('still detects original hybrid Qwen 3 checkpoints', () => {
+      const caps = detectGgufCapabilities('Qwen3-14B-UD-IQ3_XXS.gguf');
+      expect(caps?.reasoning?.supported).toBe(true);
+      expect(caps?.reasoning?.canDisable).toBe(true);
+      expect(caps?.reasoningDefaultSettings?.temperature).toBe(0.6); // Qwen 3 thinking profile
+    });
+
+    it('detects Gemma 4 models (hybrid thinking, system messages, channel markers)', () => {
+      const caps = detectGgufCapabilities('gemma-4-E4B-it-Q4_K_M.gguf');
+      expect(caps).not.toBeNull();
+      expect(caps?.supportsSystemMessage).toBe(true);
+      expect(caps?.reasoning?.supported).toBe(true);
+      expect(caps?.localReasoning?.toggleKwarg).toBe('enable_thinking');
+      expect(caps?.localReasoning?.nothinkPrefix).toBe('<|channel>thought\n<channel|>');
+      expect(caps?.localReasoning?.markers).toEqual(['<|channel>thought', '<channel|>']);
+      expect(caps?.defaultSettings).toMatchObject({ temperature: 1.0, topK: 64 });
+    });
+
+    it('detects Gemma 4 MoE and 31B variants', () => {
+      expect(detectGgufCapabilities('gemma-4-26B-A4B-it-UD-IQ4_NL.gguf')?.contextWindow).toBe(131072);
+      expect(detectGgufCapabilities('gemma-4-31B-it-UD-Q6_K_XL.gguf')?.contextWindow).toBe(262144);
+    });
+
+    it('detects Gemma 3 models (no thinking, no system role)', () => {
+      const caps = detectGgufCapabilities('gemma-3-12b-it-IQ4_NL.gguf');
+      expect(caps).not.toBeNull();
+      expect(caps?.supportsSystemMessage).toBe(false);
+      expect(caps?.reasoning).toBeUndefined();
+      expect(caps?.defaultSettings).toMatchObject({ temperature: 1.0, topK: 64 });
+    });
+
+    it('detects GPT-OSS as always-on reasoning without a toggle', () => {
+      const caps = detectGgufCapabilities('gpt-oss-20b-mxfp4.gguf');
+      expect(caps?.reasoning?.enabledByDefault).toBe(true);
+      expect(caps?.reasoning?.canDisable).toBe(false);
+      expect(caps?.localReasoning).toBeUndefined();
+      expect(caps?.defaultSettings).toMatchObject({ temperature: 1.0, topP: 1.0, topK: 0 });
+
+      const large = detectGgufCapabilities('gpt-oss-120b-mxfp4-00001-of-00003.gguf');
+      expect(large?.reasoning?.enabledByDefault).toBe(true);
+    });
+
+    it('detects Ministral 3 Instruct vs Reasoning variants', () => {
+      const instruct = detectGgufCapabilities('Ministral-3-8B-Instruct-2512-Q4_K_M.gguf');
+      expect(instruct?.reasoning).toBeUndefined();
+      expect(instruct?.defaultSettings?.temperature).toBe(0.15);
+      expect(instruct?.localReasoning?.toggleKwarg).toBe('enable_thinking');
+
+      const reasoning = detectGgufCapabilities('Ministral-3-8B-Reasoning-2512-Q4_K_M.gguf');
+      expect(reasoning?.reasoning?.enabledByDefault).toBe(true);
+      expect(reasoning?.reasoning?.canDisable).toBe(false);
+      expect(reasoning?.defaultSettings?.temperature).toBe(0.7);
+    });
+
+    it('detects Granite 4.1, DeepSeek R1 and Llama 3.2', () => {
+      const granite = detectGgufCapabilities('granite-4.1-8b-Q4_K_M.gguf');
+      expect(granite?.reasoning).toBeUndefined();
+      expect(granite?.defaultSettings?.temperature).toBe(0.7);
+
+      const r1 = detectGgufCapabilities('DeepSeek-R1-Distill-Qwen-7B-Q4_K_M.gguf');
+      expect(r1?.reasoning?.enabledByDefault).toBe(true);
+      expect(r1?.localReasoning?.markers).toEqual(['<think>', '</think>']);
+
+      const llama = detectGgufCapabilities('Llama-3.2-3B-Instruct-Q8_0.gguf');
+      expect(llama?.reasoning).toBeUndefined();
+      expect(llama?.defaultSettings?.temperature).toBe(0.6);
+    });
+
+    it('is case-insensitive and quantization-agnostic', () => {
+      expect(detectGgufCapabilities('QWEN3.5-4B-Q8_0.GGUF')).not.toBeNull();
+      expect(detectGgufCapabilities('gemma-4-e2b-it-Q8_0.gguf')).not.toBeNull();
+    });
+
+    it('returns null for unknown models', () => {
+      expect(detectGgufCapabilities('mistral-7b-instruct-v0.2.Q4_K_M.gguf')).toBeNull();
+      expect(detectGgufCapabilities('some-custom-model.gguf')).toBeNull();
+    });
+
+    it('keeps specific patterns before generic ones in KNOWN_GGUF_MODELS', () => {
+      const patterns = KNOWN_GGUF_MODELS.map((m) => m.pattern);
+      // For every pair (a, b) where b is a substring of a, a must come first
+      for (let i = 0; i < patterns.length; i++) {
+        for (let j = 0; j < i; j++) {
+          expect(patterns[i].includes(patterns[j])).toBe(false);
+        }
+      }
+    });
+  });
+
+  describe('getDefaultSettingsForModel with resolved ModelInfo', () => {
+    it('applies detected vendor defaultSettings for GGUF models', () => {
+      const caps = detectGgufCapabilities('gemma-4-E4B-it-Q4_K_M.gguf');
+      const modelInfo = createFallbackModelInfo('llamacpp', 'llamacpp', caps ?? undefined);
+
+      const settings = getDefaultSettingsForModel('llamacpp', 'llamacpp', modelInfo);
+
+      expect(settings.temperature).toBe(1.0);
+      expect(settings.topP).toBe(0.95);
+      expect(settings.topK).toBe(64);
+      expect(settings.minP).toBe(0);
+      expect(settings.repeatPenalty).toBe(1.0);
+      // maxTokens flows from the detected ModelInfo
+      expect(settings.maxTokens).toBe(8192);
+      // Gemma 4 supports system messages
+      expect(settings.supportsSystemMessage).toBe(true);
+    });
+
+    it('auto-enables reasoning for always-on detected models', () => {
+      const caps = detectGgufCapabilities('gpt-oss-20b-mxfp4.gguf');
+      const modelInfo = createFallbackModelInfo('llamacpp', 'llamacpp', caps ?? undefined);
+
+      const settings = getDefaultSettingsForModel('llamacpp', 'llamacpp', modelInfo);
+
+      expect(settings.reasoning?.enabled).toBe(true);
+    });
+
+    it('does not change behavior when no ModelInfo is passed', () => {
+      const withInfo = getDefaultSettingsForModel('gpt-4.1', 'openai');
+      expect(withInfo.temperature).toBe(0.5); // global default, no vendor override
     });
   });
 });

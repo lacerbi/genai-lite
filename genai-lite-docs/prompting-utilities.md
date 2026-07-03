@@ -17,7 +17,7 @@ Helper functions for working with prompts, templates, and LLM responses.
 genai-lite provides utilities for prompt engineering and content manipulation via the `genai-lite/prompting` subpath.
 
 **Template & Content**: `renderTemplate`, `countTokens`, `getSmartPreview`
-**Prompt Engineering**: `parseRoleTags`, `parseStructuredContent`, `extractRandomVariables`, `parseTemplateWithMetadata`, `extractInitialTaggedContent`
+**Prompt Engineering**: `parseRoleTags`, `parseStructuredContent`, `extractRandomVariables`, `parseTemplateWithMetadata`, `extractInitialTaggedContent`, `extractMarkerDelimitedContent`
 
 **Note**: For model-aware message creation, use `LLMService.createMessages()` which combines these utilities with model context. See [LLM Service - Creating Messages from Templates](llm-service.md#creating-messages-from-templates).
 
@@ -358,6 +358,25 @@ const content = '<thinking>Step 1: ...</thinking>The answer is 42.';
 const { extracted, remaining } = extractInitialTaggedContent(content, 'thinking');
 // extracted: "Step 1: ...", remaining: "The answer is 42."
 ```
+
+### Extract Marker-Delimited Content (extractMarkerDelimitedContent)
+
+Extract content delimited by an arbitrary open/close **marker pair** that may appear **anywhere** in a string. Unlike `extractInitialTaggedContent`, the markers are free-form strings (not derived from an XML tag name) and don't have to be at the start — useful for local-model thinking traces whose markers aren't XML-shaped (e.g. Gemma 4's `<|channel>thought` … `<channel|>`). Used internally by the llama.cpp adapter for marker-based reasoning extraction.
+
+```typescript
+import { extractMarkerDelimitedContent } from 'genai-lite/prompting';
+
+const raw = 'Intro. <think>weigh the options</think> Final answer.';
+const { content, extracted } = extractMarkerDelimitedContent(raw, '<think>', '</think>');
+// extracted: "weigh the options"
+// content:   "Final answer."   (the block is removed; leading whitespace trimmed)
+```
+
+**Semantics:**
+- The markers may appear **anywhere** in the input (the close marker is searched after the open marker).
+- Only a **fully-closed pair** is extracted. If either marker is missing, the input is returned **untouched** and `extracted` is `null`.
+- If the delimited text is empty after trimming, `extracted` is `null`.
+- Return shape is `{ content, extracted }` (note: `content` is the cleaned string, unlike `extractInitialTaggedContent`'s `{ extracted, remaining }`).
 
 ---
 

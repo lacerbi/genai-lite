@@ -1,4 +1,8 @@
-import { getCommonMappedErrorDetails } from './errorUtils';
+import {
+  getCommonMappedErrorDetails,
+  parseRetryAfterMs,
+  extractRetryAfterMs,
+} from './errorUtils';
 import { ADAPTER_ERROR_CODES } from '../../llm/clients/types';
 
 describe('adapterErrorUtils', () => {
@@ -143,8 +147,95 @@ describe('adapterErrorUtils', () => {
     it('should handle errors with empty message', () => {
       const error = { status: 400, message: '' };
       const result = getCommonMappedErrorDetails(error);
-      
+
       expect(result.errorMessage).toBe('HTTP 400 error');
+    });
+
+    it('should map user aborts to REQUEST_ABORTED', () => {
+      const abortError = new Error('Request was aborted.');
+      abortError.name = 'APIUserAbortError';
+
+      const details = getCommonMappedErrorDetails(abortError);
+
+      expect(details.errorCode).toBe(ADAPTER_ERROR_CODES.REQUEST_ABORTED);
+      expect(details.errorType).toBe('abort_error');
+    });
+
+    it('should map DOMException-style AbortError to REQUEST_ABORTED', () => {
+      const abortError = new Error('The operation was aborted');
+      abortError.name = 'AbortError';
+
+      const details = getCommonMappedErrorDetails(abortError);
+
+      expect(details.errorCode).toBe(ADAPTER_ERROR_CODES.REQUEST_ABORTED);
+    });
+
+    it('should map connection timeouts to REQUEST_TIMEOUT', () => {
+      const timeoutError = new Error('Request timed out.');
+      timeoutError.name = 'APIConnectionTimeoutError';
+
+      const details = getCommonMappedErrorDetails(timeoutError);
+
+      expect(details.errorCode).toBe(ADAPTER_ERROR_CODES.REQUEST_TIMEOUT);
+      expect(details.errorType).toBe('timeout_error');
+    });
+
+    it('should include retryAfterMs on errors carrying a Retry-After header', () => {
+      const rateLimitError: any = new Error('Rate limited');
+      rateLimitError.status = 429;
+      rateLimitError.headers = { 'retry-after': '12' };
+
+      const details = getCommonMappedErrorDetails(rateLimitError);
+
+      expect(details.errorCode).toBe(ADAPTER_ERROR_CODES.RATE_LIMIT_EXCEEDED);
+      expect(details.retryAfterMs).toBe(12000);
+    });
+  });
+
+  describe('parseRetryAfterMs', () => {
+    it('parses delta-seconds values', () => {
+      expect(parseRetryAfterMs('30')).toBe(30000);
+      expect(parseRetryAfterMs('0')).toBe(0);
+      expect(parseRetryAfterMs('1.5')).toBe(1500);
+    });
+
+    it('parses HTTP-date values relative to now', () => {
+      const future = new Date(Date.now() + 42000).toUTCString();
+      const parsed = parseRetryAfterMs(future);
+      expect(parsed).toBeGreaterThan(40000);
+      expect(parsed).toBeLessThanOrEqual(42000);
+    });
+
+    it('returns undefined for missing, negative, or garbage values', () => {
+      expect(parseRetryAfterMs(undefined)).toBeUndefined();
+      expect(parseRetryAfterMs(null)).toBeUndefined();
+      expect(parseRetryAfterMs('-5')).toBeUndefined();
+      expect(parseRetryAfterMs('soon')).toBeUndefined();
+      // Past dates yield no wait
+      expect(parseRetryAfterMs(new Date(Date.now() - 60000).toUTCString())).toBeUndefined();
+    });
+  });
+
+  describe('extractRetryAfterMs', () => {
+    it('reads Headers-style objects (openai/anthropic SDK errors)', () => {
+      const error = { headers: new Map([['retry-after', '7']]) };
+      // Map has .get, mimicking the Headers interface
+      expect(extractRetryAfterMs(error)).toBe(7000);
+    });
+
+    it('reads plain-object headers', () => {
+      expect(extractRetryAfterMs({ headers: { 'retry-after': '2' } })).toBe(2000);
+      expect(extractRetryAfterMs({ headers: { 'Retry-After': '3' } })).toBe(3000);
+    });
+
+    it('reads rawResponse headers (Speakeasy-style errors)', () => {
+      const error = { rawResponse: { headers: { 'retry-after': '4' } } };
+      expect(extractRetryAfterMs(error)).toBe(4000);
+    });
+
+    it('returns undefined when no header is present', () => {
+      expect(extractRetryAfterMs({})).toBeUndefined();
+      expect(extractRetryAfterMs(new Error('boom'))).toBeUndefined();
     });
   });
 });

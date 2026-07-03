@@ -6,6 +6,7 @@ import type { LLMResponse, LLMFailureResponse, ModelInfo } from "../types";
 import type {
   ILLMClientAdapter,
   InternalLLMChatRequest,
+  AdapterRequestOptions,
 } from "./types";
 import { ADAPTER_ERROR_CODES } from "./types";
 import { getCommonMappedErrorDetails } from "../../shared/adapters/errorUtils";
@@ -15,6 +16,8 @@ import {
 } from "../../shared/adapters/systemMessageUtils";
 import { LlamaCppServerClient } from "./LlamaCppServerClient";
 import { detectGgufCapabilities } from "../config";
+import { extractMarkerDelimitedContent } from "../../prompting/parser";
+import { mapOpenAIChatLogprobs } from "../../shared/adapters/logprobsUtils";
 import type { Logger } from "../../logging/types";
 import { createDefaultLogger } from "../../logging/defaultLogger";
 
@@ -22,7 +25,7 @@ import { createDefaultLogger } from "../../logging/defaultLogger";
  * Configuration options for LlamaCppClientAdapter
  */
 export interface LlamaCppClientConfig {
-  /** Base URL of the llama.cpp server (default: http://localhost:8080) */
+  /** Base URL of the llama.cpp server (default: http://127.0.0.1:8080) */
   baseURL?: string;
   /** Whether to check server health before sending requests (default: false) */
   checkHealth?: boolean;
@@ -50,7 +53,7 @@ export interface LlamaCppClientConfig {
  * ```typescript
  * // Create adapter for local server
  * const adapter = new LlamaCppClientAdapter({
- *   baseURL: 'http://localhost:8080',
+ *   baseURL: 'http://127.0.0.1:8080',
  *   checkHealth: true
  * });
  *
@@ -79,7 +82,10 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
    * @param config Optional configuration for the adapter
    */
   constructor(config?: LlamaCppClientConfig) {
-    this.baseURL = config?.baseURL || 'http://localhost:8080';
+    // 127.0.0.1 rather than localhost: on Windows, localhost resolves to IPv6 (::1)
+    // first, and when llama-server listens on IPv4 only, every fresh connection waits
+    // ~2s for the IPv6 attempt to time out (~9x per-request slowdown measured).
+    this.baseURL = config?.baseURL || 'http://127.0.0.1:8080';
     this.checkHealth = config?.checkHealth || false;
     this.serverClient = new LlamaCppServerClient(this.baseURL);
     this.logger = config?.logger ?? createDefaultLogger();
@@ -157,7 +163,8 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
    */
   async sendMessage(
     request: InternalLLMChatRequest,
-    apiKey: string
+    apiKey: string,
+    options?: AdapterRequestOptions
   ): Promise<LLMResponse | LLMFailureResponse> {
     try {
       // Optional health check before making request
@@ -186,6 +193,7 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
       const openai = new OpenAI({
         apiKey: apiKey || 'not-needed',
         baseURL: `${this.baseURL}/v1`,
+        maxRetries: 0, // retries are owned by the unified LLMService retry layer
       });
 
       // Format messages for OpenAI-compatible API
@@ -207,7 +215,21 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
         ...(request.settings.presencePenalty !== 0 && {
           presence_penalty: request.settings.presencePenalty,
         }),
-      };
+        ...(request.settings.seed !== undefined && {
+          seed: request.settings.seed,
+        }),
+        // llama.cpp-native sampling params (not in the OpenAI SDK types, but the
+        // SDK sends extra body fields as-is and llama-server reads them top-level)
+        ...(request.settings.topK !== undefined && {
+          top_k: request.settings.topK,
+        }),
+        ...(request.settings.minP !== undefined && {
+          min_p: request.settings.minP,
+        }),
+        ...(request.settings.repeatPenalty !== undefined && {
+          repeat_penalty: request.settings.repeatPenalty,
+        }),
+      } as OpenAI.Chat.Completions.ChatCompletionCreateParams;
 
       // Handle structured output configuration for llama.cpp
       // llama.cpp uses response_format with type: 'json_object' and optional schema
@@ -217,6 +239,61 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
           type: 'json_object',
           schema: so.schema,
         };
+      }
+
+      // Reasoning toggle for detected hybrid GGUF models (Qwen 3.x, Gemma 4, ...).
+      // The chat template's thinking flag is sent explicitly — false unless reasoning
+      // was requested — so hybrid models don't silently burn thinking tokens.
+      // Requires llama-server running with --jinja; servers without it ignore the kwarg.
+      const detectedCaps = await this.getModelCapabilities();
+      const localReasoning = detectedCaps?.localReasoning;
+      const derivedKwargs: Record<string, string | number | boolean> = {};
+      if (localReasoning?.toggleKwarg) {
+        derivedKwargs[localReasoning.toggleKwarg] =
+          request.settings.reasoning?.enabled === true;
+      }
+      // User-supplied chat-template kwargs (escape hatch) win over derived ones
+      const chatTemplateKwargs = {
+        ...derivedKwargs,
+        ...(request.settings.llamacpp?.chatTemplateKwargs || {}),
+      };
+      if (Object.keys(chatTemplateKwargs).length > 0) {
+        // llama-server rejects assistant prefill together with enable_thinking=true
+        // (HTTP 400: "Assistant response prefill is incompatible with enable_thinking.")
+        // Fail fast with a clear message instead of surfacing the raw server error.
+        const thinkingKwarg = localReasoning?.toggleKwarg ?? 'enable_thinking';
+        const effectiveThinking = chatTemplateKwargs[thinkingKwarg] === true;
+        const lastMessage = messages[messages.length - 1];
+        if (effectiveThinking && lastMessage?.role === 'assistant') {
+          return {
+            provider: request.providerId,
+            model: request.modelId,
+            error: {
+              message:
+                'llama.cpp does not support assistant prefill (a trailing assistant message) ' +
+                'while thinking is enabled. Remove the trailing assistant message or disable reasoning.',
+              code: ADAPTER_ERROR_CODES.PROVIDER_ERROR,
+              type: 'invalid_request_error',
+            },
+            object: 'error',
+          };
+        }
+
+        (completionParams as any).chat_template_kwargs = chatTemplateKwargs;
+      }
+
+      // GBNF grammar for constrained decoding (validated as mutually exclusive
+      // with structuredOutput upstream)
+      if (request.settings.llamacpp?.grammar) {
+        (completionParams as any).grammar = request.settings.llamacpp.grammar;
+      }
+
+      // Per-token log probabilities (OpenAI-compatible request/response shape)
+      if (request.settings.logprobs === true) {
+        (completionParams as any).logprobs = true;
+        if (request.settings.topLogprobs !== undefined) {
+          (completionParams as any).top_logprobs = request.settings.topLogprobs;
+        }
       }
 
       this.logger.debug(`llama.cpp API parameters:`, {
@@ -230,12 +307,23 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
       this.logger.info(`Making llama.cpp API call for model: ${request.modelId}`);
 
       // Make the API call
-      const completion = await openai.chat.completions.create(completionParams);
+      const transportOptions = {
+        ...(options?.signal && { signal: options.signal }),
+        ...(options?.timeoutMs !== undefined && { timeout: options.timeoutMs }),
+      };
+      const completion =
+        Object.keys(transportOptions).length > 0
+          ? await openai.chat.completions.create(completionParams, transportOptions)
+          : await openai.chat.completions.create(completionParams);
 
       // Type guard to ensure we have a non-streaming response
       if ('id' in completion && 'choices' in completion) {
         this.logger.info(`llama.cpp API call successful, response ID: ${completion.id}`);
-        return this.createSuccessResponse(completion as OpenAI.Chat.Completions.ChatCompletion, request);
+        return this.createSuccessResponse(
+          completion as OpenAI.Chat.Completions.ChatCompletion,
+          request,
+          detectedCaps
+        );
       } else {
         throw new Error('Unexpected streaming response from llama.cpp server');
       }
@@ -372,7 +460,8 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
    */
   private createSuccessResponse(
     completion: OpenAI.Chat.Completions.ChatCompletion,
-    request: InternalLLMChatRequest
+    request: InternalLLMChatRequest,
+    detectedCaps?: Partial<ModelInfo> | null
   ): LLMResponse {
     const choice = completion.choices[0];
 
@@ -380,12 +469,16 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
       throw new Error("No valid choices in llama.cpp completion response");
     }
 
-    // Extract reasoning content if available
-    // llama.cpp returns reasoning in reasoning_content field when using --reasoning-format
-    let reasoning: string | undefined;
-    if ((choice.message as any).reasoning_content) {
-      reasoning = (choice.message as any).reasoning_content;
-    }
+    const local = detectedCaps?.localReasoning;
+
+    // Whether thinking is active for this request: explicitly requested, or the
+    // detected model reasons unconditionally (always-on models like GPT-OSS,
+    // Thinking-2507 checkpoints, DeepSeek R1).
+    const reasoningActive =
+      request.settings.reasoning?.enabled === true ||
+      detectedCaps?.reasoning?.enabledByDefault === true ||
+      detectedCaps?.reasoning?.canDisable === false;
+    const excludeReasoning = request.settings.reasoning?.exclude === true;
 
     return {
       id: completion.id,
@@ -393,19 +486,49 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
       model: completion.model || request.modelId,
       created: completion.created,
       choices: completion.choices.map((c) => {
+        let content = c.message.content || "";
+
+        // Strip the template-injected "nothink" prefix (some chat templates leak an
+        // empty think block into content when thinking is disabled). Exact match.
+        if (local?.nothinkPrefix && content.startsWith(local.nothinkPrefix)) {
+          content = content.slice(local.nothinkPrefix.length);
+        }
+
         const mappedChoice: any = {
           message: {
             role: "assistant",
-            content: c.message.content || "",
+            content,
           },
           finish_reason: c.finish_reason,
           index: c.index,
         };
 
-        // Include reasoning if available and not excluded
+        // Two-tier reasoning extraction:
+        // 1. Prefer the server-separated reasoning_content field (populated when
+        //    llama-server's --reasoning-format handling recognizes the template).
+        // 2. Fall back to marker extraction from content — reasoning_content
+        //    population is model/template-dependent, not guaranteed.
         const messageReasoning = (c.message as any).reasoning_content;
-        if (messageReasoning && request.settings.reasoning && !request.settings.reasoning.exclude) {
+        if (messageReasoning && request.settings.reasoning && !excludeReasoning) {
           mappedChoice.reasoning = messageReasoning;
+        } else if (!messageReasoning && reasoningActive && local?.markers) {
+          const { content: cleaned, extracted } = extractMarkerDelimitedContent(
+            content,
+            local.markers[0],
+            local.markers[1]
+          );
+          if (extracted) {
+            mappedChoice.message.content = cleaned;
+            if (!excludeReasoning) {
+              mappedChoice.reasoning = extracted;
+            }
+          }
+        }
+
+        // Per-token log probabilities (OpenAI-compatible shape)
+        const logprobs = mapOpenAIChatLogprobs((c as any).logprobs);
+        if (logprobs) {
+          mappedChoice.logprobs = logprobs;
         }
 
         return mappedChoice;
@@ -464,6 +587,7 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
         code: mappedError.errorCode,
         type: mappedError.errorType,
         ...(mappedError.status && { status: mappedError.status }),
+        ...(mappedError.retryAfterMs !== undefined && { retryAfterMs: mappedError.retryAfterMs }),
         providerError: error,
       },
       object: "error",

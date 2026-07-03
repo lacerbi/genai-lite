@@ -35,7 +35,9 @@ import {
   getSmartPreview,
   parseRoleTags,
   parseStructuredContent,
-  extractRandomVariables
+  extractRandomVariables,
+  extractInitialTaggedContent,
+  extractMarkerDelimitedContent
 } from 'genai-lite/prompting';
 
 // llama.cpp
@@ -67,19 +69,28 @@ import type {
   LLMChatRequestWithPreset,
   LLMResponse,
   LLMFailureResponse,
+  LLMError,
   LLMSettings,
+  LlamaCppSettings,
   LLMReasoningSettings,
   LLMThinkingTagFallbackSettings,
+  TokenLogprob,
+  LocalReasoningMetadata,
   StructuredOutputSettings,
   StructuredOutputSchema,
   StructuredOutputSchemaProperty,
   ModelStructuredOutputCapabilities,
   ModelPreset,
   LLMServiceOptions,
+  SendMessageOptions,
   ModelContext,
   CreateMessagesResult,
   TemplateMetadata
 } from 'genai-lite';
+
+// Retry utilities (runtime + types)
+import { withRetry, DEFAULT_RETRY_POLICY } from 'genai-lite';
+import type { RetryPolicy, RetryVerdict, WithRetryOptions } from 'genai-lite';
 
 // Image types
 import type {
@@ -165,6 +176,8 @@ interface LLMResponse {
     index: number;
     message: LLMMessage;
     reasoning?: string;
+    reasoning_details?: any;    // Provider-specific reasoning details (e.g. OpenRouter)
+    logprobs?: TokenLogprob[];  // Per-token log probs (when settings.logprobs requested)
     parsedContent?: unknown;    // Auto-parsed JSON from structured output
     parseError?: string;        // Error message if JSON parsing failed
     finish_reason: string;
@@ -176,16 +189,31 @@ interface LLMResponse {
   };
 }
 
+// Per-token log probability entry (OpenAI-compatible shape; also from llama.cpp)
+interface TokenLogprob {
+  token: string;
+  logprob: number;
+  topLogprobs?: Array<{ token: string; logprob: number }>;
+}
+
+interface LLMError {
+  message: string;
+  code?: string | number;
+  type?: string;
+  param?: string;
+  status?: number;         // HTTP status from the provider, when available
+  retryAfterMs?: number;   // Provider-suggested wait (from a Retry-After header)
+  providerError?: any;
+}
+
 interface LLMFailureResponse {
   object: 'error';
-  error: {
-    type: 'authentication_error' | 'rate_limit_error' | 'validation_error' |
-          'network_error' | 'provider_error';
-    message: string;
-    code?: string;
-    provider?: string;
-  };
-  partialResponse?: LLMResponse;
+  error: LLMError;  // type includes: 'authentication_error' | 'rate_limit_error' |
+                    // 'validation_error' | 'network_error' | 'server_error' |
+                    // 'timeout_error' (REQUEST_TIMEOUT) | 'abort_error' (REQUEST_ABORTED)
+  provider: string;
+  model?: string;
+  partialResponse?: Omit<LLMResponse, 'object'>;
 }
 
 type LLMServiceResponse = LLMResponse | LLMFailureResponse;
@@ -199,20 +227,46 @@ interface LLMSettings {
   maxTokens?: number;
   topP?: number;
   stopSequences?: string[];
+  frequencyPenalty?: number;
+  presencePenalty?: number;
+  topK?: number;           // Integer ≥ 0; 0 disables. Anthropic/Gemini/llama.cpp/OpenRouter
+  minP?: number;           // 0.0-1.0; 0 disables. llama.cpp/OpenRouter
+  repeatPenalty?: number;  // > 0; 1.0 = disabled. llama.cpp/OpenRouter
+  seed?: number;           // Integer; llama.cpp treats -1 as random
+  logprobs?: boolean;      // Per-token log probs. llama.cpp/OpenAI/OpenRouter
+  topLogprobs?: number;    // 0-20; requires logprobs: true
+  user?: string;
+  supportsSystemMessage?: boolean;
   reasoning?: LLMReasoningSettings;
   thinkingTagFallback?: LLMThinkingTagFallbackSettings;
   structuredOutput?: StructuredOutputSettings;
+  llamacpp?: LlamaCppSettings;  // llama.cpp-only; ignored by other adapters
 }
 
 interface LLMReasoningSettings {
-  enabled: boolean;
+  enabled?: boolean;
   effort?: 'low' | 'medium' | 'high';
   maxTokens?: number;
   exclude?: boolean;
 }
 
+// llama.cpp-only request settings (settings.llamacpp)
+interface LlamaCppSettings {
+  grammar?: string;  // Raw GBNF grammar; mutually exclusive with structuredOutput
+  chatTemplateKwargs?: Record<string, string | number | boolean>;
+                     // Raw chat-template kwargs (requires --jinja); merged over
+                     // library-derived kwargs such as the reasoning toggle
+}
+
+// Local-model reasoning metadata carried on ModelInfo.localReasoning
+interface LocalReasoningMetadata {
+  toggleKwarg?: string;          // Chat-template kwarg toggling thinking (e.g. "enable_thinking")
+  nothinkPrefix?: string;        // Exact prefix stripped from content when thinking is off
+  markers?: [string, string];    // Open/close pair for marker-based reasoning extraction
+}
+
 interface LLMThinkingTagFallbackSettings {
-  enabled: boolean;
+  enabled?: boolean;
   tagName?: string;
   enforce?: boolean;
 }
@@ -283,13 +337,50 @@ interface ModelContext {
 
 interface CreateMessagesResult {
   messages: LLMMessage[];
-  modelContext: ModelContext;
-  settings?: Partial<LLMSettings>;
+  modelContext: ModelContext | null;
+  settings: Partial<LLMSettings>;
 }
 
 interface TemplateMetadata {
   settings?: Partial<LLMSettings>;
 }
+```
+
+### Service and Retry Types
+
+```typescript
+interface LLMServiceOptions {
+  presets?: ModelPreset[];
+  presetMode?: PresetMode;        // 'extend' (default) | 'replace'
+  logLevel?: LogLevel;
+  logger?: Logger;
+  timeoutMs?: number;             // Default per-request timeout (overridable per call)
+  retry?: Partial<RetryPolicy> & {
+    retryOnTimeout?: boolean;     // Whether REQUEST_TIMEOUT is retryable (default true)
+  };
+}
+
+// Second argument to LLMService.sendMessage(request, options)
+interface SendMessageOptions {
+  signal?: AbortSignal;   // Client-side cancel (provider may still process/bill)
+  timeoutMs?: number;     // Overrides the service-level timeoutMs
+  maxRetries?: number;    // Overrides the service-level retry.maxRetries
+}
+
+interface RetryPolicy {
+  maxRetries: number;      // Retries after the initial attempt (default 2)
+  initialDelayMs: number;  // Base delay before the first retry (default 500)
+  maxDelayMs: number;      // Upper bound for any single delay (default 10000)
+  backoffFactor: number;   // Exponential growth factor per attempt (default 2)
+}
+
+// Verdict returned by a withRetry shouldRetry callback
+interface RetryVerdict {
+  retry: boolean;
+  retryAfterMs?: number;
+}
+
+// DEFAULT_RETRY_POLICY: RetryPolicy = { maxRetries: 2, initialDelayMs: 500, maxDelayMs: 10000, backoffFactor: 2 }
 ```
 
 ## Image Types
@@ -398,11 +489,13 @@ interface ImagePreset {
 
 ```typescript
 interface LlamaCppClientConfig {
-  baseURL?: string;
-  timeout?: number;
+  baseURL?: string;      // default: http://127.0.0.1:8080
   checkHealth?: boolean;
+  logger?: Logger;
 }
 ```
+
+Request timeouts are configured at the service level (`LLMServiceOptions.timeoutMs`) or per call (`SendMessageOptions.timeoutMs`), not on the adapter.
 
 ### Server Response Types
 
@@ -458,18 +551,24 @@ interface LlamaCppModelsResponse {
 
 ```typescript
 interface GgufModelPattern {
-  pattern: RegExp;
-  modelId: string;
-  displayName: string;
-  supportsReasoning?: boolean;
-  contextWindow?: number;
-  maxTokens?: number;
+  pattern: string;                 // Case-insensitive substring matched against the GGUF filename
+  name: string;                    // Human-readable model name
+  description?: string;
+  capabilities: Partial<ModelInfo>; // Detected capabilities (reasoning, contextWindow,
+                                    // maxTokens, defaultSettings, localReasoning, ...)
 }
 
 const KNOWN_GGUF_MODELS: GgufModelPattern[];
 
-function detectGgufCapabilities(filename: string): ModelInfo | null;
-function createFallbackModelInfo(): ModelInfo;
+// Returns the matched pattern's capabilities (first match wins), or null if unrecognized
+function detectGgufCapabilities(ggufFilename: string): Partial<ModelInfo> | null;
+
+// Builds a ModelInfo for an unknown/detected model, merging optional detected capabilities
+function createFallbackModelInfo(
+  modelId: string,
+  providerId: string,
+  capabilities?: Partial<ModelInfo>
+): ModelInfo;
 ```
 
 ## Utility Types
@@ -504,7 +603,7 @@ function extractRandomVariables(
 
 function parseTemplateWithMetadata(
   template: string
-): { template: string; metadata: TemplateMetadata };
+): { metadata: TemplateMetadata; content: string };
 ```
 
 ## Logging Types

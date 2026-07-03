@@ -6,9 +6,11 @@ import type { LLMResponse, LLMFailureResponse } from "../types";
 import type {
   ILLMClientAdapter,
   InternalLLMChatRequest,
+  AdapterRequestOptions,
 } from "./types";
 import { ADAPTER_ERROR_CODES } from "./types";
 import { getCommonMappedErrorDetails } from "../../shared/adapters/errorUtils";
+import { mapOpenAIChatLogprobs } from "../../shared/adapters/logprobsUtils";
 import {
   collectSystemContent,
   prependSystemToFirstUserMessage,
@@ -87,12 +89,14 @@ export class OpenRouterClientAdapter implements ILLMClientAdapter {
    */
   async sendMessage(
     request: InternalLLMChatRequest,
-    apiKey: string
+    apiKey: string,
+    options?: AdapterRequestOptions
   ): Promise<LLMResponse | LLMFailureResponse> {
     try {
       // Initialize OpenAI client with OpenRouter base URL and custom headers
       const openai = new OpenAI({
         apiKey,
+        maxRetries: 0, // retries are owned by the unified LLMService retry layer
         baseURL: this.baseURL,
         defaultHeaders: {
           ...(this.httpReferer && { 'HTTP-Referer': this.httpReferer }),
@@ -119,7 +123,27 @@ export class OpenRouterClientAdapter implements ILLMClientAdapter {
         ...(request.settings.presencePenalty !== 0 && {
           presence_penalty: request.settings.presencePenalty,
         }),
-      };
+        ...(request.settings.seed !== undefined && {
+          seed: request.settings.seed,
+        }),
+        // OpenRouter pass-through sampling params (not in the OpenAI SDK types;
+        // sent as-is — OpenRouter ignores them for models that don't support them)
+        ...(request.settings.topK !== undefined && {
+          top_k: request.settings.topK,
+        }),
+        ...(request.settings.minP !== undefined && {
+          min_p: request.settings.minP,
+        }),
+        ...(request.settings.repeatPenalty !== undefined && {
+          repetition_penalty: request.settings.repeatPenalty,
+        }),
+        ...(request.settings.logprobs === true && {
+          logprobs: true,
+          ...(request.settings.topLogprobs !== undefined && {
+            top_logprobs: request.settings.topLogprobs,
+          }),
+        }),
+      } as OpenAI.Chat.Completions.ChatCompletionCreateParams;
 
       // Add OpenRouter-specific provider routing if configured
       const providerSettings = request.settings.openRouterProvider;
@@ -161,6 +185,31 @@ export class OpenRouterClientAdapter implements ILLMClientAdapter {
         };
       }
 
+      // Map unified reasoning settings to OpenRouter's reasoning body param.
+      // effort and max_tokens are mutually exclusive on OpenRouter; max_tokens wins
+      // when both are set (matching the Anthropic adapter's precedence). OpenRouter
+      // silently ignores the param for models without reasoning support.
+      const reasoningSettings = request.settings.reasoning;
+      if (
+        reasoningSettings &&
+        (reasoningSettings.enabled === true ||
+          reasoningSettings.effort !== undefined ||
+          reasoningSettings.maxTokens !== undefined)
+      ) {
+        const reasoning: Record<string, any> = {};
+        if (reasoningSettings.maxTokens !== undefined) {
+          reasoning.max_tokens = reasoningSettings.maxTokens;
+        } else if (reasoningSettings.effort) {
+          reasoning.effort = reasoningSettings.effort;
+        } else {
+          reasoning.enabled = true;
+        }
+        if (reasoningSettings.exclude === true) {
+          reasoning.exclude = true;
+        }
+        (completionParams as any).reasoning = reasoning;
+      }
+
       this.logger.debug(`OpenRouter API parameters:`, {
         baseURL: this.baseURL,
         model: completionParams.model,
@@ -173,7 +222,14 @@ export class OpenRouterClientAdapter implements ILLMClientAdapter {
       this.logger.info(`Making OpenRouter API call for model: ${request.modelId}`);
 
       // Make the API call
-      const completion = await openai.chat.completions.create(completionParams);
+      const transportOptions = {
+        ...(options?.signal && { signal: options.signal }),
+        ...(options?.timeoutMs !== undefined && { timeout: options.timeoutMs }),
+      };
+      const completion =
+        Object.keys(transportOptions).length > 0
+          ? await openai.chat.completions.create(completionParams, transportOptions)
+          : await openai.chat.completions.create(completionParams);
 
       // Type guard to ensure we have a non-streaming response
       if ('id' in completion && 'choices' in completion) {
@@ -305,14 +361,35 @@ export class OpenRouterClientAdapter implements ILLMClientAdapter {
       provider: request.providerId,
       model: completion.model || request.modelId,
       created: completion.created,
-      choices: completion.choices.map((c) => ({
-        message: {
-          role: "assistant",
-          content: c.message.content || "",
-        },
-        finish_reason: c.finish_reason,
-        index: c.index,
-      })),
+      choices: completion.choices.map((c) => {
+        const mappedChoice: any = {
+          message: {
+            role: "assistant",
+            content: c.message.content || "",
+          },
+          finish_reason: c.finish_reason,
+          index: c.index,
+        };
+
+        // OpenRouter returns the reasoning trace on message.reasoning (plus
+        // structured reasoning_details) for models that expose it
+        const messageReasoning = (c.message as any).reasoning;
+        if (messageReasoning && request.settings.reasoning?.exclude !== true) {
+          mappedChoice.reasoning = messageReasoning;
+        }
+        const reasoningDetails = (c.message as any).reasoning_details;
+        if (reasoningDetails && request.settings.reasoning?.exclude !== true) {
+          mappedChoice.reasoning_details = reasoningDetails;
+        }
+
+        // Per-token log probabilities (OpenAI-compatible shape)
+        const logprobs = mapOpenAIChatLogprobs((c as any).logprobs);
+        if (logprobs) {
+          mappedChoice.logprobs = logprobs;
+        }
+
+        return mappedChoice;
+      }),
       usage: completion.usage
         ? {
             prompt_tokens: completion.usage.prompt_tokens,
@@ -354,6 +431,7 @@ export class OpenRouterClientAdapter implements ILLMClientAdapter {
         code: mappedError.errorCode,
         type: mappedError.errorType,
         ...(mappedError.status && { status: mappedError.status }),
+        ...(mappedError.retryAfterMs !== undefined && { retryAfterMs: mappedError.retryAfterMs }),
         providerError: error,
       },
       object: "error",

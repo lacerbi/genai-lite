@@ -40,6 +40,13 @@ describe('GeminiClientAdapter', () => {
         topP: 1,
         frequencyPenalty: 0,
         presencePenalty: 0,
+        topK: undefined as any,
+        minP: undefined as any,
+        repeatPenalty: undefined as any,
+        seed: undefined as any,
+        logprobs: undefined as any,
+        topLogprobs: undefined as any,
+        llamacpp: undefined as any,
         stopSequences: [],
         user: 'test-user',
         geminiSafetySettings: [],
@@ -99,6 +106,49 @@ describe('GeminiClientAdapter', () => {
       expect(successResponse.model).toBe('gemini-2.5-pro');
       expect(successResponse.choices[0].message.content).toBe('Hello! How can I help you today?');
       expect(successResponse.usage?.total_tokens).toBe(30);
+    });
+
+    it('should map topK and seed into the generation config', async () => {
+      mockGenerateContent.mockResolvedValueOnce({
+        text: () => 'Hi',
+        candidates: [{
+          finishReason: 'STOP',
+          content: { parts: [{ text: 'Hi' }], role: 'model' }
+        }],
+        usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 1, totalTokenCount: 2 }
+      });
+
+      basicRequest.settings.topK = 64;
+      basicRequest.settings.seed = 1234;
+
+      await adapter.sendMessage(basicRequest, 'test-api-key');
+
+      const callArgs = mockGenerateContent.mock.calls[0][0];
+      expect(callArgs.config.topK).toBe(64);
+      expect(callArgs.config.seed).toBe(1234);
+      expect(callArgs.config).not.toHaveProperty('min_p');
+      expect(callArgs.config).not.toHaveProperty('repeat_penalty');
+    });
+
+    it('should pass abort signal and timeout into the request config', async () => {
+      mockGenerateContent.mockResolvedValueOnce({
+        text: () => 'Hi',
+        candidates: [{
+          finishReason: 'STOP',
+          content: { parts: [{ text: 'Hi' }], role: 'model' }
+        }],
+        usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 1, totalTokenCount: 2 }
+      });
+
+      const controller = new AbortController();
+      await adapter.sendMessage(basicRequest, 'test-api-key', {
+        signal: controller.signal,
+        timeoutMs: 7000,
+      });
+
+      const callArgs = mockGenerateContent.mock.calls[0][0];
+      expect(callArgs.config.abortSignal).toBe(controller.signal);
+      expect(callArgs.config.httpOptions).toEqual({ timeout: 7000 });
     });
 
     it('should handle system messages correctly', async () => {

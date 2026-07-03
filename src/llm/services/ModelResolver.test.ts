@@ -207,6 +207,83 @@ describe('ModelResolver', () => {
 
       expect(result.settings).toBe(settings); // Should be the same reference
     });
+
+    it('should overlay detected GGUF capabilities on the generic llamacpp registry entry', async () => {
+      const detectedCaps = {
+        reasoning: { supported: true, enabledByDefault: false, canDisable: true },
+        localReasoning: { toggleKwarg: 'enable_thinking' },
+        defaultSettings: { temperature: 1.0, topK: 64 },
+        maxTokens: 8192,
+      };
+      mockAdapterRegistry.getAdapter.mockReturnValue({
+        getModelCapabilities: jest.fn().mockResolvedValue(detectedCaps),
+      } as any);
+
+      const result = await resolver.resolve({ providerId: 'llamacpp', modelId: 'llamacpp' });
+
+      expect(result.error).toBeUndefined();
+      expect(result.modelInfo?.id).toBe('llamacpp');
+      expect(result.modelInfo?.defaultSettings).toEqual({ temperature: 1.0, topK: 64 });
+      expect(result.modelInfo?.localReasoning?.toggleKwarg).toBe('enable_thinking');
+      expect(result.modelInfo?.maxTokens).toBe(8192);
+      // Registry-entry fields not overridden by detection survive
+      expect(result.modelInfo?.structuredOutput?.supported).toBe(true);
+    });
+
+    it('should keep the generic llamacpp entry unchanged when detection fails', async () => {
+      mockAdapterRegistry.getAdapter.mockReturnValue({
+        getModelCapabilities: jest.fn().mockResolvedValue(null),
+      } as any);
+
+      const result = await resolver.resolve({ providerId: 'llamacpp', modelId: 'llamacpp' });
+
+      expect(result.error).toBeUndefined();
+      expect(result.modelInfo?.defaultSettings).toBeUndefined();
+      expect(result.modelInfo?.maxTokens).toBe(4096); // registry value
+    });
+
+    it('should apply detected capabilities to llamacpp presets', async () => {
+      mockPresetManager.resolvePreset.mockReturnValue({
+        id: 'llamacpp-local-thinking',
+        displayName: 'Local (Thinking)',
+        providerId: 'llamacpp',
+        modelId: 'llamacpp',
+        settings: { reasoning: { enabled: true } },
+      });
+      mockAdapterRegistry.getAdapter.mockReturnValue({
+        getModelCapabilities: jest.fn().mockResolvedValue({
+          defaultSettings: { temperature: 1.0 },
+        }),
+      } as any);
+
+      const result = await resolver.resolve({ presetId: 'llamacpp-local-thinking' });
+
+      expect(result.error).toBeUndefined();
+      expect(result.modelInfo?.defaultSettings).toEqual({ temperature: 1.0 });
+      expect(result.settings).toEqual({ reasoning: { enabled: true } });
+    });
+
+    it('should assume reasoning support for unknown OpenRouter models', async () => {
+      const result = await resolver.resolve({
+        providerId: 'openrouter',
+        modelId: 'some-vendor/some-model',
+      });
+
+      expect(result.error).toBeUndefined();
+      expect(result.modelInfo?.reasoning?.supported).toBe(true);
+      expect(result.modelInfo?.reasoning?.enabledByDefault).toBe(false);
+      expect(result.modelInfo?.reasoning?.canDisable).toBe(true);
+    });
+
+    it('should not add optimistic reasoning to registered OpenRouter models', async () => {
+      const result = await resolver.resolve({
+        providerId: 'openrouter',
+        modelId: 'google/gemma-3-27b-it:free',
+      });
+
+      expect(result.error).toBeUndefined();
+      expect(result.modelInfo?.reasoning).toBeUndefined();
+    });
   });
 
   describe('priority handling', () => {

@@ -69,6 +69,10 @@ export interface LLMSettings {
   temperature?: number;
   maxTokens?: number;
   topP?: number;
+  topK?: number;
+  minP?: number;
+  repeatPenalty?: number;
+  seed?: number;
   reasoning?: {
     enabled: boolean;
     effort?: 'low' | 'medium' | 'high';

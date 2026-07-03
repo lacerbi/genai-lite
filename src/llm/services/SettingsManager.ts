@@ -23,10 +23,24 @@ export class SettingsManager {
   mergeSettingsForModel(
     modelId: string,
     providerId: ApiProviderId,
-    requestSettings?: Partial<LLMSettings>
+    requestSettings?: Partial<LLMSettings>,
+    modelInfo?: ModelInfo
   ): Required<LLMSettings> {
-    // Get model-specific defaults
-    const modelDefaults = getDefaultSettingsForModel(modelId, providerId);
+    // Get model-specific defaults (threading the resolved ModelInfo lets detected
+    // GGUF/unknown models contribute capabilities and vendor default settings)
+    let modelDefaults = getDefaultSettingsForModel(modelId, providerId, modelInfo);
+
+    // Apply the reasoning-mode default overlay when reasoning is effectively on for
+    // this request (either explicitly requested or enabled by model default).
+    // Per-key precedence: request > reasoningDefaultSettings > defaultSettings.
+    const reasoningOn =
+      requestSettings?.reasoning?.enabled ?? modelDefaults.reasoning?.enabled;
+    if (reasoningOn === true && modelInfo?.reasoningDefaultSettings) {
+      modelDefaults = {
+        ...modelDefaults,
+        ...modelInfo.reasoningDefaultSettings,
+      };
+    }
 
     // Merge with user-provided settings (user settings take precedence)
     const mergedSettings: Required<LLMSettings> = {
@@ -39,6 +53,11 @@ export class SettingsManager {
         requestSettings?.frequencyPenalty ?? modelDefaults.frequencyPenalty,
       presencePenalty:
         requestSettings?.presencePenalty ?? modelDefaults.presencePenalty,
+      topK: requestSettings?.topK ?? modelDefaults.topK,
+      minP: requestSettings?.minP ?? modelDefaults.minP,
+      repeatPenalty:
+        requestSettings?.repeatPenalty ?? modelDefaults.repeatPenalty,
+      seed: requestSettings?.seed ?? modelDefaults.seed,
       user: requestSettings?.user ?? modelDefaults.user,
       supportsSystemMessage:
         requestSettings?.supportsSystemMessage ??
@@ -60,6 +79,15 @@ export class SettingsManager {
       },
       openRouterProvider: requestSettings?.openRouterProvider ?? modelDefaults.openRouterProvider,
       structuredOutput: requestSettings?.structuredOutput ?? modelDefaults.structuredOutput,
+      logprobs: requestSettings?.logprobs ?? modelDefaults.logprobs,
+      topLogprobs: requestSettings?.topLogprobs ?? modelDefaults.topLogprobs,
+      llamacpp:
+        requestSettings?.llamacpp || modelDefaults.llamacpp
+          ? {
+              ...modelDefaults.llamacpp,
+              ...requestSettings?.llamacpp,
+            }
+          : (undefined as any),
     };
 
     // Log the final settings for debugging
@@ -169,12 +197,19 @@ export class SettingsManager {
       'stopSequences',
       'frequencyPenalty',
       'presencePenalty',
+      'topK',
+      'minP',
+      'repeatPenalty',
+      'seed',
       'user',
       'supportsSystemMessage',
       'geminiSafetySettings',
       'reasoning',
       'thinkingTagFallback',
-      'structuredOutput'
+      'structuredOutput',
+      'logprobs',
+      'topLogprobs',
+      'llamacpp'
     ];
 
     // Check each setting field
@@ -219,6 +254,74 @@ export class SettingsManager {
           this.logger.warn(`Invalid ${key} value in template: ${value}. Must be a number between -2 and 2.`);
           continue;
         }
+      }
+
+      if (key === 'topK') {
+        if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
+          this.logger.warn(`Invalid topK value in template: ${value}. Must be a non-negative integer.`);
+          continue;
+        }
+      }
+
+      if (key === 'minP') {
+        if (typeof value !== 'number' || value < 0 || value > 1) {
+          this.logger.warn(`Invalid minP value in template: ${value}. Must be a number between 0 and 1.`);
+          continue;
+        }
+      }
+
+      if (key === 'repeatPenalty') {
+        if (typeof value !== 'number' || value <= 0) {
+          this.logger.warn(`Invalid repeatPenalty value in template: ${value}. Must be a positive number.`);
+          continue;
+        }
+      }
+
+      if (key === 'seed') {
+        if (typeof value !== 'number' || !Number.isInteger(value)) {
+          this.logger.warn(`Invalid seed value in template: ${value}. Must be an integer.`);
+          continue;
+        }
+      }
+
+      if (key === 'logprobs' && typeof value !== 'boolean') {
+        this.logger.warn(`Invalid logprobs value in template. Must be a boolean.`);
+        continue;
+      }
+
+      if (key === 'topLogprobs') {
+        if (typeof value !== 'number' || !Number.isInteger(value) || value < 0 || value > 20) {
+          this.logger.warn(`Invalid topLogprobs value in template: ${value}. Must be an integer between 0 and 20.`);
+          continue;
+        }
+      }
+
+      if (key === 'llamacpp' && typeof value === 'object' && value !== null) {
+        const llamacppValidated: any = {};
+        const v = value as any;
+
+        if ('grammar' in v && typeof v.grammar !== 'string') {
+          this.logger.warn(`Invalid llamacpp.grammar value in template. Must be a string.`);
+        } else if ('grammar' in v) {
+          llamacppValidated.grammar = v.grammar;
+        }
+
+        if ('chatTemplateKwargs' in v) {
+          if (
+            typeof v.chatTemplateKwargs !== 'object' ||
+            v.chatTemplateKwargs === null ||
+            Array.isArray(v.chatTemplateKwargs)
+          ) {
+            this.logger.warn(`Invalid llamacpp.chatTemplateKwargs value in template. Must be an object.`);
+          } else {
+            llamacppValidated.chatTemplateKwargs = v.chatTemplateKwargs;
+          }
+        }
+
+        if (Object.keys(llamacppValidated).length > 0) {
+          validated.llamacpp = llamacppValidated;
+        }
+        continue;
       }
 
       if (key === 'user' && typeof value !== 'string') {

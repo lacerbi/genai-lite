@@ -66,6 +66,8 @@ const llmService = new LLMService(fromEnvironment, {
 
 Levels are ordered: `silent` < `error` < `warn` < `info` < `debug`
 
+> **Note:** the LLMService retry layer logs each retry attempt at `warn` level (e.g. `Retrying openai/gpt-4.1 after failure (attempt 2/3, waiting 500ms)`). Since `warn` is the default level, retry activity is visible out of the box; set the level to `error` or `silent` to suppress it. See [LLM Service - Retries, Timeouts and Cancellation](llm-service.md#retries-timeouts-and-cancellation).
+
 ## Environment Configuration
 
 Set `GENAI_LITE_LOG_LEVEL` to configure the default log level for all services:

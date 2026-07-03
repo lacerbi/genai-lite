@@ -259,6 +259,74 @@ export function SettingsPanel({
           </div>
 
           <div className="setting-group">
+            <label htmlFor="topK">
+              Top K: {settings.topK ?? 'default'}
+            </label>
+            <input
+              id="topK"
+              type="number"
+              min="0"
+              step="1"
+              value={settings.topK ?? ''}
+              onChange={(e) => updateSetting('topK', e.target.value ? parseInt(e.target.value) : undefined)}
+              disabled={disabled}
+              placeholder="Default"
+            />
+            <span className="setting-hint">Limit sampling to K most likely tokens (Anthropic, Gemini, llama.cpp, OpenRouter)</span>
+          </div>
+
+          <div className="setting-group">
+            <label htmlFor="minP">
+              Min P: {settings.minP ?? 'default'}
+            </label>
+            <input
+              id="minP"
+              type="number"
+              min="0"
+              max="1"
+              step="0.01"
+              value={settings.minP ?? ''}
+              onChange={(e) => updateSetting('minP', e.target.value ? parseFloat(e.target.value) : undefined)}
+              disabled={disabled}
+              placeholder="Default"
+            />
+            <span className="setting-hint">Min probability relative to the top token (llama.cpp, OpenRouter)</span>
+          </div>
+
+          <div className="setting-group">
+            <label htmlFor="repeatPenalty">
+              Repeat Penalty: {settings.repeatPenalty ?? 'default'}
+            </label>
+            <input
+              id="repeatPenalty"
+              type="number"
+              min="0"
+              step="0.05"
+              value={settings.repeatPenalty ?? ''}
+              onChange={(e) => updateSetting('repeatPenalty', e.target.value ? parseFloat(e.target.value) : undefined)}
+              disabled={disabled}
+              placeholder="Default"
+            />
+            <span className="setting-hint">Multiplicative repetition penalty, 1.0 = off (llama.cpp, OpenRouter)</span>
+          </div>
+
+          <div className="setting-group">
+            <label htmlFor="seed">
+              Seed: {settings.seed ?? 'random'}
+            </label>
+            <input
+              id="seed"
+              type="number"
+              step="1"
+              value={settings.seed ?? ''}
+              onChange={(e) => updateSetting('seed', e.target.value ? parseInt(e.target.value) : undefined)}
+              disabled={disabled}
+              placeholder="Random"
+            />
+            <span className="setting-hint">Deterministic sampling seed (OpenAI, Gemini, Mistral, llama.cpp, OpenRouter)</span>
+          </div>
+
+          <div className="setting-group">
             <label>
               <input
                 type="checkbox"

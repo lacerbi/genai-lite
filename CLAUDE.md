@@ -86,7 +86,7 @@ genai-lite is a lightweight, standalone Node.js/TypeScript library providing a u
 ### Core Architecture Principles
 
 **Adapter Pattern Implementation:**
-- **LLM Adapters:** Each provider (OpenAI, Anthropic, Gemini, Mistral, llama.cpp) has a dedicated adapter implementing `ILLMClientAdapter` interface
+- **LLM Adapters:** Each provider (OpenAI, Anthropic, Gemini, Mistral, OpenRouter, llama.cpp) has a dedicated adapter implementing `ILLMClientAdapter` interface
 - **Image Adapters:** Each image provider (OpenAI Images, genai-electron) implements `ImageProviderAdapter` interface
 - Adapters handle provider-specific API quirks and normalize responses
 - All adapters use shared error handling utilities (`src/shared/adapters/errorUtils.ts`)
@@ -320,7 +320,10 @@ The `examples/chat-demo` application provides a quick way to test library change
 - Accepts arbitrary model IDs (users load their own GGUF models)
 - Additional endpoints: tokenization, embeddings, health checks, server metrics
 - Hybrid architecture: `LlamaCppClientAdapter` for chat, `LlamaCppServerClient` for utilities
-- Configure via `LLAMACPP_API_BASE_URL` environment variable (default: http://localhost:8080)
+- Configure via `LLAMACPP_API_BASE_URL` environment variable (default: http://127.0.0.1:8080 — use `127.0.0.1`, not `localhost`, to avoid a ~2s/request IPv6-fallback stall on Windows)
+- Reasoning toggle: `settings.reasoning.enabled` maps to `chat_template_kwargs.enable_thinking` for detected hybrid GGUF models (explicit `false` unless requested; requires `llama-server --jinja`). Traces come from `reasoning_content`, with a marker-pair fallback (e.g. `<think>...</think>`) and nothink-prefix stripping; assistant-prefill + thinking is rejected with a clear error
+- Vendor sampling defaults: recognized GGUF models (via `KNOWN_GGUF_MODELS`) apply vendor-recommended sampling through `ModelInfo.defaultSettings` and thinking-mode `reasoningDefaultSettings`, overriding llama.cpp's own server defaults
+- Extra controls: raw GBNF `grammar` and `chatTemplateKwargs` via the `llamacpp` settings namespace; per-token `logprobs`/`topLogprobs` returned on `choice.logprobs`
 - Logging: Set `GENAI_LITE_LOG_LEVEL` environment variable (`silent`, `error`, `warn`, `info`, `debug`; default: `warn`)
 
 **Image Provider Considerations:**
@@ -350,6 +353,13 @@ All adapters should use `adapterErrorUtils.ts` patterns:
 - Wrap provider errors in consistent format
 - Include provider context in error messages
 - Maintain error stack traces for debugging
+
+### Reliability (Retries, Timeouts, Aborts)
+
+- `LLMService` owns a single unified retry layer (`withRetry`, exported from `src/shared/services/withRetry.ts`); provider SDK-internal retries are disabled (`maxRetries: 0` at client construction).
+- Configure with `LLMServiceOptions.retry` (defaults: `maxRetries` 2, `initialDelayMs` 500, `maxDelayMs` 10000, `backoffFactor` 2, `retryOnTimeout` true) and `LLMServiceOptions.timeoutMs`. Override per call: `sendMessage(request, { signal, timeoutMs, maxRetries })`.
+- Only transient failures retry (429/network/timeout/408/409/5xx); `Retry-After` hints are honored and aborts are never retried.
+- New adapter error codes `REQUEST_TIMEOUT` (retryable) and `REQUEST_ABORTED` (never retried); `LLMError` carries `status` and `retryAfterMs`. Per-request transport options reach adapters via `AdapterRequestOptions` on `ILLMClientAdapter.sendMessage`.
 
 ## Code Style
 
@@ -440,7 +450,7 @@ These summary files provide hierarchical context throughout the project:
 
 The summaries enable efficient navigation and understanding of the codebase without processing every file. They include cross-references, usage examples, and architectural decisions at each level.
 
-Last Context Build: 2025-10-12
+Last Context Build: 2026-07-03
 
 ## Commit Guidelines
 

@@ -4,7 +4,7 @@ import { LlamaCppServerClient } from 'genai-lite';
 export const llamacppRouter = express.Router();
 
 // Initialize llama.cpp server client
-const baseURL = process.env.LLAMACPP_API_BASE_URL || 'http://localhost:8080';
+const baseURL = process.env.LLAMACPP_API_BASE_URL || 'http://127.0.0.1:8080';
 const llamacppClient = new LlamaCppServerClient(baseURL);
 
 /**
