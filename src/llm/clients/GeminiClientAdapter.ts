@@ -60,6 +60,12 @@ export class GeminiClientAdapter implements ILLMClientAdapter {
     apiKey: string,
     options?: AdapterRequestOptions
   ): Promise<LLMResponse | LLMFailureResponse> {
+    // The SDK enforces httpOptions.timeout by aborting an internal controller and
+    // wraps any fetch rejection in a plain Error (no name/status/code), so timeouts
+    // and caller aborts cannot be classified from the error object. The adapter owns
+    // the timeout instead and classifies from its own state in the catch block.
+    let timedOut = false;
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
     try {
       // Initialize Gemini client (note: @google/genai performs no automatic retries)
       const genAI = new GoogleGenAI({ apiKey });
@@ -78,6 +84,26 @@ export class GeminiClientAdapter implements ILLMClientAdapter {
         safetySettingsCount: safetySettings?.length || 0,
       });
 
+      let abortSignal = options?.signal;
+      if (options?.timeoutMs !== undefined) {
+        const controller = new AbortController();
+        if (options.signal) {
+          if (options.signal.aborted) {
+            controller.abort();
+          } else {
+            options.signal.addEventListener("abort", () => controller.abort(), {
+              once: true,
+            });
+          }
+        }
+        timeoutHandle = setTimeout(() => {
+          timedOut = true;
+          controller.abort();
+        }, options.timeoutMs);
+        timeoutHandle.unref?.();
+        abortSignal = controller.signal;
+      }
+
       // Generate content using the modern API
       const result = await genAI.models.generateContent({
         model: request.modelId,
@@ -86,9 +112,11 @@ export class GeminiClientAdapter implements ILLMClientAdapter {
           ...generationConfig,
           safetySettings: safetySettings,
           ...(systemInstruction && { systemInstruction: systemInstruction }),
-          ...(options?.signal && { abortSignal: options.signal }),
+          ...(abortSignal && { abortSignal }),
+          // Keep the SDK's server-side timeout hint (X-Server-Timeout header),
+          // padded so the adapter's local timer always fires first
           ...(options?.timeoutMs !== undefined && {
-            httpOptions: { timeout: options.timeoutMs },
+            httpOptions: { timeout: options.timeoutMs + 1000 },
           }),
         },
       });
@@ -99,7 +127,14 @@ export class GeminiClientAdapter implements ILLMClientAdapter {
       return this.createSuccessResponse(result, request);
     } catch (error) {
       this.logger.error("Gemini API error:", error);
-      return this.createErrorResponse(error, request);
+      return this.createErrorResponse(error, request, {
+        timedOut,
+        aborted: options?.signal?.aborted === true,
+      });
+    } finally {
+      if (timeoutHandle !== undefined) {
+        clearTimeout(timeoutHandle);
+      }
     }
   }
 
@@ -385,12 +420,43 @@ export class GeminiClientAdapter implements ILLMClientAdapter {
    *
    * @param error - The error from Gemini API
    * @param request - Original request for context
+   * @param context - Adapter-side transport state captured at catch time
    * @returns Standardized LLM failure response
    */
   private createErrorResponse(
     error: any,
-    request: InternalLLMChatRequest
+    request: InternalLLMChatRequest,
+    context?: { timedOut?: boolean; aborted?: boolean }
   ): LLMFailureResponse {
+    // Classify adapter-owned aborts/timeouts first — the SDK surfaces both as
+    // plain Errors the common mapping cannot recognize (see sendMessage)
+    if (context?.aborted) {
+      return {
+        provider: request.providerId,
+        model: request.modelId,
+        error: {
+          message: "Request was aborted",
+          code: ADAPTER_ERROR_CODES.REQUEST_ABORTED,
+          type: "abort_error",
+          providerError: error,
+        },
+        object: "error",
+      };
+    }
+    if (context?.timedOut) {
+      return {
+        provider: request.providerId,
+        model: request.modelId,
+        error: {
+          message: "Request timed out",
+          code: ADAPTER_ERROR_CODES.REQUEST_TIMEOUT,
+          type: "timeout_error",
+          providerError: error,
+        },
+        object: "error",
+      };
+    }
+
     // Use shared error mapping utility for common error patterns
     const initialProviderMessage = error?.message;
     let { errorCode, errorMessage, errorType, status, retryAfterMs } =

@@ -147,8 +147,92 @@ describe('GeminiClientAdapter', () => {
       });
 
       const callArgs = mockGenerateContent.mock.calls[0][0];
+      // With timeoutMs set the adapter owns the timeout: it passes a composed
+      // signal (not the caller's) and pads the SDK's server-side hint by 1s
+      expect(callArgs.config.abortSignal).toBeInstanceOf(AbortSignal);
+      expect(callArgs.config.abortSignal).not.toBe(controller.signal);
+      expect(callArgs.config.httpOptions).toEqual({ timeout: 8000 });
+    });
+
+    it('should pass the caller signal through unchanged when no timeout is set', async () => {
+      mockGenerateContent.mockResolvedValueOnce({
+        text: () => 'Hi',
+        candidates: [{
+          finishReason: 'STOP',
+          content: { parts: [{ text: 'Hi' }], role: 'model' }
+        }],
+        usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 1, totalTokenCount: 2 }
+      });
+
+      const controller = new AbortController();
+      await adapter.sendMessage(basicRequest, 'test-api-key', {
+        signal: controller.signal,
+      });
+
+      const callArgs = mockGenerateContent.mock.calls[0][0];
       expect(callArgs.config.abortSignal).toBe(controller.signal);
-      expect(callArgs.config.httpOptions).toEqual({ timeout: 7000 });
+      expect(callArgs.config).not.toHaveProperty('httpOptions');
+    });
+
+    describe('timeout and abort classification', () => {
+      // The SDK wraps any fetch rejection (including aborts) in a plain Error
+      // with no name/status/code — reproduce that exact shape
+      const sdkAbortWrapperError = () =>
+        new Error('exception AbortError: This operation was aborted sending request');
+
+      const rejectOnAbort = () =>
+        mockGenerateContent.mockImplementation(
+          (args: any) =>
+            new Promise((_resolve, reject) => {
+              args.config.abortSignal.addEventListener('abort', () =>
+                reject(sdkAbortWrapperError())
+              );
+            })
+        );
+
+      it('classifies an adapter-owned timeout as REQUEST_TIMEOUT', async () => {
+        rejectOnAbort();
+
+        const response = await adapter.sendMessage(basicRequest, 'test-api-key', {
+          timeoutMs: 20,
+        });
+
+        expect(response.object).toBe('error');
+        const failure = response as LLMFailureResponse;
+        expect(failure.error.code).toBe(ADAPTER_ERROR_CODES.REQUEST_TIMEOUT);
+        expect(failure.error.type).toBe('timeout_error');
+      });
+
+      it('classifies a caller abort as REQUEST_ABORTED even when a timeout is set', async () => {
+        rejectOnAbort();
+
+        const controller = new AbortController();
+        const pending = adapter.sendMessage(basicRequest, 'test-api-key', {
+          signal: controller.signal,
+          timeoutMs: 5000,
+        });
+        controller.abort();
+
+        const response = await pending;
+        expect(response.object).toBe('error');
+        const failure = response as LLMFailureResponse;
+        expect(failure.error.code).toBe(ADAPTER_ERROR_CODES.REQUEST_ABORTED);
+        expect(failure.error.type).toBe('abort_error');
+      });
+
+      it('leaves unrelated SDK wrapper errors on the common mapping', async () => {
+        mockGenerateContent.mockRejectedValueOnce(
+          new Error('exception TypeError: fetch failed sending request')
+        );
+
+        const response = await adapter.sendMessage(basicRequest, 'test-api-key', {
+          timeoutMs: 5000,
+        });
+
+        expect(response.object).toBe('error');
+        const failure = response as LLMFailureResponse;
+        expect(failure.error.code).toBe(ADAPTER_ERROR_CODES.UNKNOWN_ERROR);
+      });
     });
 
     it('should handle system messages correctly', async () => {

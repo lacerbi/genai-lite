@@ -26,6 +26,7 @@ import type {
   ImageProgressCallback,
 } from '../../types/image';
 import { getCommonMappedErrorDetails } from '../../shared/adapters/errorUtils';
+import { ADAPTER_ERROR_CODES } from '../../llm/clients/types';
 import type { Logger } from '../../logging/types';
 import { createDefaultLogger } from '../../logging/defaultLogger';
 
@@ -34,7 +35,7 @@ import { createDefaultLogger } from '../../logging/defaultLogger';
  */
 interface GenerationStatusResponse {
   id: string;
-  status: 'pending' | 'in_progress' | 'complete' | 'error';
+  status: 'pending' | 'in_progress' | 'complete' | 'error' | 'cancelled';
   createdAt: number;
   updatedAt: number;
   progress?: {
@@ -257,6 +258,15 @@ export class GenaiElectronImageAdapter implements ImageProviderAdapter {
         throw this.createGenerationError(error.message, error.code);
       }
 
+      // Handle out-of-band cancellation (terminal status since genai-electron 0.6.0)
+      if (state.status === 'cancelled') {
+        const cancelError = new Error(
+          `Image generation was cancelled on the server (ID: ${generationId})`
+        );
+        (cancelError as any).code = 'GENERATION_CANCELLED';
+        throw cancelError;
+      }
+
       // Wait before next poll
       await this.sleep(this.pollInterval);
     }
@@ -344,9 +354,15 @@ export class GenaiElectronImageAdapter implements ImageProviderAdapter {
 
     // Enhance error message with context
     let errorMessage = mapped.errorMessage;
+    let errorCode: string = mapped.errorCode;
+    let errorType = mapped.errorType;
 
     // Special handling for genai-electron specific errors
-    if (error.code === 'SERVER_BUSY') {
+    if (error.code === 'GENERATION_CANCELLED') {
+      errorMessage = error.message;
+      errorCode = ADAPTER_ERROR_CODES.REQUEST_ABORTED;
+      errorType = 'abort_error';
+    } else if (error.code === 'SERVER_BUSY') {
       errorMessage = 'Image generation server is busy. Wait for current generation to complete.';
       (error as any).type = 'rate_limit_error';
     } else if (error.code === 'SERVER_NOT_RUNNING') {
@@ -372,8 +388,8 @@ export class GenaiElectronImageAdapter implements ImageProviderAdapter {
 
     // Create enhanced error with all details
     const enhancedError = new Error(errorMessage);
-    (enhancedError as any).code = mapped.errorCode;
-    (enhancedError as any).type = mapped.errorType;
+    (enhancedError as any).code = errorCode;
+    (enhancedError as any).type = errorType;
     (enhancedError as any).status = mapped.status;
     (enhancedError as any).providerId = this.id;
     (enhancedError as any).modelId = request.modelId;

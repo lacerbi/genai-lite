@@ -748,6 +748,38 @@ describe('GenaiElectronImageAdapter', () => {
       ).rejects.toThrow(/Failed to spawn/);
     });
 
+    it('should treat cancelled status as terminal with an abort-typed error', async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ id: 'gen_123', status: 'pending', createdAt: Date.now() }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            id: 'gen_123',
+            status: 'cancelled',
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+          }),
+        });
+
+      const pending = adapter.generate({
+        request: defaultRequest,
+        resolvedPrompt: 'Test prompt',
+        settings: defaultSettings,
+        apiKey: null,
+      });
+
+      await expect(pending).rejects.toThrow(/cancelled/);
+      await expect(pending).rejects.toMatchObject({
+        code: 'REQUEST_ABORTED',
+        type: 'abort_error',
+      });
+      // Terminal: no further polling after the cancelled status (1 POST + 1 GET)
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+
     it('should handle network errors (ECONNREFUSED)', async () => {
       const networkError: any = new Error('connect ECONNREFUSED');
       networkError.code = 'ECONNREFUSED';
