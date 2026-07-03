@@ -475,6 +475,16 @@ export class GenaiElectronImageAdapter implements ImageProviderAdapter {
       errorMessage = 'Image generation server is busy. Wait for current generation to complete.';
       errorCode = ADAPTER_ERROR_CODES.RATE_LIMIT_EXCEEDED;
       errorType = 'rate_limit_error';
+    } else if (error.code === 'NOT_FOUND') {
+      // Server JSON code from a poll GET/DELETE whose generation is gone —
+      // typically expired from the registry (default TTL 300s). Without this
+      // branch the 404 status maps to MODEL_NOT_FOUND ("model not found"),
+      // which is misleading for an expired generation.
+      errorMessage =
+        'Generation not found on the server — it likely expired from the ' +
+        `registry before polling completed. ${error.message}`;
+      errorCode = ADAPTER_ERROR_CODES.PROVIDER_ERROR;
+      errorType = 'server_error';
     } else if (error.code === 'SERVER_NOT_RUNNING') {
       errorMessage = `Image generation server is not running (connecting to ${this.baseURL})`;
       errorCode = ADAPTER_ERROR_CODES.NETWORK_ERROR;

@@ -674,7 +674,7 @@ describe('GenaiElectronImageAdapter', () => {
       ).rejects.toThrow(/Server error/);
     });
 
-    it('should handle GET request failure (polling)', async () => {
+    it('should map a 404 NOT_FOUND poll response (expired generation) to a provider error', async () => {
       mockFetch
         .mockResolvedValueOnce({
           ok: true,
@@ -687,14 +687,21 @@ describe('GenaiElectronImageAdapter', () => {
             JSON.stringify({ error: { message: 'Generation not found', code: 'NOT_FOUND' } }),
         });
 
-      await expect(
-        adapter.generate({
-          request: defaultRequest,
-          resolvedPrompt: 'Test prompt',
-          settings: defaultSettings,
-          apiKey: null,
-        })
-      ).rejects.toThrow(/Generation not found/);
+      const pending = adapter.generate({
+        request: defaultRequest,
+        resolvedPrompt: 'Test prompt',
+        settings: defaultSettings,
+        apiKey: null,
+      });
+
+      // Must NOT surface as MODEL_NOT_FOUND ("model not found" is misleading
+      // for a generation that expired from the server registry)
+      await expect(pending).rejects.toThrow(/expired from the registry/);
+      await expect(pending).rejects.toMatchObject({
+        code: 'PROVIDER_ERROR',
+        type: 'server_error',
+        status: 404,
+      });
     });
 
     it('should handle server busy error (503) as a typed rate-limit error', async () => {
