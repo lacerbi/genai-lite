@@ -133,6 +133,41 @@ describe('adapterErrorUtils', () => {
       expect(result.errorType).toBe('connection_error');
     });
 
+    it('should map statusCode-shaped errors (Speakeasy/mistral) like status', () => {
+      // MistralError exposes statusCode + a Headers instance, not status
+      const error = Object.assign(new Error('Requests rate limit exceeded'), {
+        statusCode: 429,
+        headers: new Headers({ 'retry-after': '5' }),
+      });
+
+      const result = getCommonMappedErrorDetails(error);
+
+      expect(result.errorCode).toBe(ADAPTER_ERROR_CODES.RATE_LIMIT_EXCEEDED);
+      expect(result.errorType).toBe('rate_limit_error');
+      expect(result.status).toBe(429);
+      expect(result.retryAfterMs).toBe(5000);
+    });
+
+    it('should map Speakeasy client error names to abort/timeout/network codes', () => {
+      const abort = getCommonMappedErrorDetails(
+        Object.assign(new Error('Request aborted by client'), { name: 'RequestAbortedError' })
+      );
+      expect(abort.errorCode).toBe(ADAPTER_ERROR_CODES.REQUEST_ABORTED);
+      expect(abort.errorType).toBe('abort_error');
+
+      const timeout = getCommonMappedErrorDetails(
+        Object.assign(new Error('Request timed out'), { name: 'RequestTimeoutError' })
+      );
+      expect(timeout.errorCode).toBe(ADAPTER_ERROR_CODES.REQUEST_TIMEOUT);
+      expect(timeout.errorType).toBe('timeout_error');
+
+      const connection = getCommonMappedErrorDetails(
+        Object.assign(new Error('Unable to make request'), { name: 'ConnectionError' })
+      );
+      expect(connection.errorCode).toBe(ADAPTER_ERROR_CODES.NETWORK_ERROR);
+      expect(connection.errorType).toBe('connection_error');
+    });
+
     it('should not treat non-network causes as network errors', () => {
       const error = Object.assign(new Error('wrapper'), {
         cause: new Error('some unrelated inner failure'),

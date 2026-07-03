@@ -72,6 +72,7 @@ function isConnectionFailure(e: any): boolean {
     e.code === 'ECONNREFUSED' ||
     e.code === 'ETIMEDOUT' ||
     e.name === 'ConnectTimeoutError' ||
+    e.name === 'ConnectionError' ||
     (typeof e.type === 'string' && e.type.includes('timeout'))
   );
 }
@@ -104,11 +105,13 @@ export function getCommonMappedErrorDetails(
 
   // Handle user-initiated aborts and client-side timeouts first — the SDKs raise
   // these as named errors (openai: APIUserAbortError/APIConnectionTimeoutError;
+  // Speakeasy/mistral: RequestAbortedError/RequestTimeoutError;
   // fetch/undici: AbortError/TimeoutError DOMExceptions)
   if (
     error &&
     (error.name === 'APIUserAbortError' ||
       error.name === 'AbortError' ||
+      error.name === 'RequestAbortedError' ||
       (error instanceof DOMException && error.name === 'AbortError'))
   ) {
     return {
@@ -119,7 +122,9 @@ export function getCommonMappedErrorDetails(
   }
   if (
     error &&
-    (error.name === 'APIConnectionTimeoutError' || error.name === 'TimeoutError')
+    (error.name === 'APIConnectionTimeoutError' ||
+      error.name === 'TimeoutError' ||
+      error.name === 'RequestTimeoutError')
   ) {
     return {
       errorCode: ADAPTER_ERROR_CODES.REQUEST_TIMEOUT,
@@ -128,9 +133,16 @@ export function getCommonMappedErrorDetails(
     };
   }
 
-  // Handle API errors with HTTP status codes
-  if (error && typeof error.status === 'number') {
-    const httpStatus = error.status;
+  // Handle API errors with HTTP status codes — SDKs expose the status as either
+  // `status` (openai/anthropic) or `statusCode` (Speakeasy/mistral MistralError)
+  const numericStatus =
+    error && typeof error.status === 'number'
+      ? error.status
+      : error && typeof error.statusCode === 'number'
+        ? error.statusCode
+        : undefined;
+  if (numericStatus !== undefined) {
+    const httpStatus = numericStatus;
     status = httpStatus;
     errorMessage = providerMessageOverride || error.message || `HTTP ${httpStatus} error`;
 
@@ -185,10 +197,9 @@ export function getCommonMappedErrorDetails(
     errorCode = ADAPTER_ERROR_CODES.NETWORK_ERROR;
     errorType = 'connection_error';
     errorMessage = providerMessageOverride || error.message || 'Network connection failed';
-    // Surface the underlying cause when the top-level message is just
-    // undici's generic "fetch failed"
+    // Surface the underlying cause when the top-level message is generic
+    // (undici's "fetch failed", Speakeasy's ConnectionError wrapper)
     if (
-      !isConnectionFailure(error) &&
       typeof error?.cause?.message === 'string' &&
       error.cause.message &&
       !errorMessage.includes(error.cause.message)

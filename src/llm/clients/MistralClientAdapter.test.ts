@@ -169,10 +169,40 @@ describe('MistralClientAdapter', () => {
         timeoutMs: 9000,
       });
 
-      expect(mockComplete).toHaveBeenCalledWith(expect.anything(), {
-        timeoutMs: 9000,
-        fetchOptions: { signal: controller.signal },
+      // The SDK ignores timeoutMs whenever a signal is present, so the adapter
+      // must merge both into a single composed signal
+      const transport = mockComplete.mock.calls[0][1];
+      expect(transport.signal).toBeInstanceOf(AbortSignal);
+      expect(transport.signal).not.toBe(controller.signal);
+      expect(transport).not.toHaveProperty('timeoutMs');
+      expect(transport).not.toHaveProperty('fetchOptions');
+    });
+
+    it('passes signal-only and timeout-only transport options through unchanged', async () => {
+      const completion = {
+        id: 'chat-transport-2',
+        object: 'chat.completion',
+        created: 1234567890,
+        model: 'mistral-small-latest',
+        choices: [{
+          index: 0,
+          message: { role: 'assistant', content: 'Hi' },
+          finishReason: 'stop'
+        }],
+        usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 }
+      };
+      mockComplete.mockResolvedValue(completion);
+
+      const controller = new AbortController();
+      await adapter.sendMessage(basicRequest, 'test-api-key-12345678901234567890', {
+        signal: controller.signal,
       });
+      expect(mockComplete.mock.calls[0][1]).toEqual({ signal: controller.signal });
+
+      await adapter.sendMessage(basicRequest, 'test-api-key-12345678901234567890', {
+        timeoutMs: 9000,
+      });
+      expect(mockComplete.mock.calls[1][1]).toEqual({ timeoutMs: 9000 });
     });
 
     it('should handle system messages correctly', async () => {
@@ -276,7 +306,7 @@ describe('MistralClientAdapter', () => {
     describe('error handling', () => {
       it('should handle authentication errors (401)', async () => {
         const apiError = new Error('Invalid API key');
-        (apiError as any).status = 401;
+        (apiError as any).statusCode = 401;
         mockComplete.mockRejectedValueOnce(apiError);
 
         const response = await adapter.sendMessage(basicRequest, 'invalid-key');
@@ -290,7 +320,7 @@ describe('MistralClientAdapter', () => {
 
       it('should handle rate limit errors (429)', async () => {
         const apiError = new Error('Rate limit exceeded');
-        (apiError as any).status = 429;
+        (apiError as any).statusCode = 429;
         mockComplete.mockRejectedValueOnce(apiError);
 
         const response = await adapter.sendMessage(basicRequest, 'test-api-key-12345678901234567890');
@@ -302,7 +332,7 @@ describe('MistralClientAdapter', () => {
 
       it('should handle insufficient credits errors (402)', async () => {
         const apiError = new Error('Insufficient credits');
-        (apiError as any).status = 402;
+        (apiError as any).statusCode = 402;
         mockComplete.mockRejectedValueOnce(apiError);
 
         const response = await adapter.sendMessage(basicRequest, 'test-api-key-12345678901234567890');
@@ -314,7 +344,7 @@ describe('MistralClientAdapter', () => {
 
       it('should handle model not found errors (404)', async () => {
         const apiError = new Error('The model does not exist');
-        (apiError as any).status = 404;
+        (apiError as any).statusCode = 404;
         mockComplete.mockRejectedValueOnce(apiError);
 
         const response = await adapter.sendMessage(basicRequest, 'test-api-key-12345678901234567890');
@@ -326,7 +356,7 @@ describe('MistralClientAdapter', () => {
 
       it('should handle model not available errors (400)', async () => {
         const apiError = new Error('Model not available for this request');
-        (apiError as any).status = 400;
+        (apiError as any).statusCode = 400;
         mockComplete.mockRejectedValueOnce(apiError);
 
         const response = await adapter.sendMessage(basicRequest, 'test-api-key-12345678901234567890');
@@ -337,7 +367,7 @@ describe('MistralClientAdapter', () => {
 
       it('should handle context length exceeded errors', async () => {
         const apiError = new Error('Context length exceeded: maximum token limit');
-        (apiError as any).status = 400;
+        (apiError as any).statusCode = 400;
         mockComplete.mockRejectedValueOnce(apiError);
 
         const response = await adapter.sendMessage(basicRequest, 'test-api-key-12345678901234567890');
@@ -348,7 +378,7 @@ describe('MistralClientAdapter', () => {
 
       it('should handle server errors (500)', async () => {
         const apiError = new Error('Internal server error');
-        (apiError as any).status = 500;
+        (apiError as any).statusCode = 500;
         mockComplete.mockRejectedValueOnce(apiError);
 
         const response = await adapter.sendMessage(basicRequest, 'test-api-key-12345678901234567890');
@@ -368,6 +398,65 @@ describe('MistralClientAdapter', () => {
         const errorResponse = response as LLMFailureResponse;
         expect(errorResponse.error.code).toBe(ADAPTER_ERROR_CODES.NETWORK_ERROR);
         expect(errorResponse.error.type).toBe('connection_error');
+      });
+
+      it('should surface Retry-After from MistralError-style Headers', async () => {
+        // Real shape raised by the Speakeasy SDK: statusCode + Headers instance
+        const apiError = Object.assign(new Error('Requests rate limit exceeded'), {
+          statusCode: 429,
+          headers: new Headers({ 'retry-after': '9' }),
+        });
+        mockComplete.mockRejectedValueOnce(apiError);
+
+        const response = await adapter.sendMessage(basicRequest, 'test-api-key-12345678901234567890');
+
+        const errorResponse = response as LLMFailureResponse;
+        expect(errorResponse.error.code).toBe(ADAPTER_ERROR_CODES.RATE_LIMIT_EXCEEDED);
+        expect(errorResponse.error.status).toBe(429);
+        expect(errorResponse.error.retryAfterMs).toBe(9000);
+      });
+
+      it('classifies SDK RequestAbortedError as REQUEST_ABORTED', async () => {
+        const abortError = Object.assign(new Error('Request aborted by client'), {
+          name: 'RequestAbortedError',
+        });
+        mockComplete.mockRejectedValueOnce(abortError);
+
+        const response = await adapter.sendMessage(basicRequest, 'test-api-key-12345678901234567890');
+
+        const errorResponse = response as LLMFailureResponse;
+        expect(errorResponse.error.code).toBe(ADAPTER_ERROR_CODES.REQUEST_ABORTED);
+        expect(errorResponse.error.type).toBe('abort_error');
+      });
+
+      it('classifies SDK RequestTimeoutError as REQUEST_TIMEOUT', async () => {
+        const timeoutError = Object.assign(new Error('Request timed out'), {
+          name: 'RequestTimeoutError',
+        });
+        mockComplete.mockRejectedValueOnce(timeoutError);
+
+        const response = await adapter.sendMessage(basicRequest, 'test-api-key-12345678901234567890');
+
+        const errorResponse = response as LLMFailureResponse;
+        expect(errorResponse.error.code).toBe(ADAPTER_ERROR_CODES.REQUEST_TIMEOUT);
+        expect(errorResponse.error.type).toBe('timeout_error');
+      });
+
+      it('classifies SDK ConnectionError as NETWORK_ERROR with its cause surfaced', async () => {
+        const connectionError = Object.assign(new Error('Unable to make request'), {
+          name: 'ConnectionError',
+          cause: Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:443'), {
+            code: 'ECONNREFUSED',
+          }),
+        });
+        mockComplete.mockRejectedValueOnce(connectionError);
+
+        const response = await adapter.sendMessage(basicRequest, 'test-api-key-12345678901234567890');
+
+        const errorResponse = response as LLMFailureResponse;
+        expect(errorResponse.error.code).toBe(ADAPTER_ERROR_CODES.NETWORK_ERROR);
+        expect(errorResponse.error.type).toBe('connection_error');
+        expect(errorResponse.error.message).toContain('ECONNREFUSED');
       });
 
       it('should handle unknown errors', async () => {
