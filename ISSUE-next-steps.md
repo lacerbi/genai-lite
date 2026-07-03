@@ -171,14 +171,24 @@ Open items: 12 (dual packaging — unblocks Mistral 2.x), 13–14 (Anthropic
 pre-existing issues; both need paid e2e verification before/with the fix).
 
 **v0.11.0 release state**: items 2, 3 (as deferred+fixes), 4, 5, 8, 9, 10, 11
-all shipped on branch `upgrade/google-genai-2x` / PR #92 (2026-07-03); unit
-suite green (837 tests), audit clean. Adapter transport behavior (network /
-timeout / abort classification) live-verified without API keys against real
-SDK wire behavior for Gemini, Mistral, and Anthropic (refused port, hanging
-server, mid-flight abort). **Paid e2e wire smoke not run** — no `E2E_*_API_KEY`
-in the dev environment; given the three SDK bumps, a full `npm run test:e2e`
-(all providers) is warranted before tagging/publishing this release. Not yet
-merged/tagged/published.
+shipped via PR #92, merged to main (`800a9c8`), CI green, tagged `v0.11.0`,
+**published to npm on 2026-07-03** (`npm view genai-lite version` → 0.11.0).
+Adapter transport behavior (network / timeout / abort classification) was
+live-verified without API keys against real SDK wire behavior for Gemini,
+Mistral, and Anthropic (refused port, hanging server, mid-flight abort).
+**Paid e2e wire smoke still pending** — owner will run a full
+`npm run test:e2e` (all providers) post-release; items 13–14 depend on that
+run too.
+
+Sister-repo follow-up: DONE (2026-07-03, genai-electron commit `36952da`) —
+pairing notes updated for 0.11 (per-request image timeouts; genai-electron is
+never auto-retried, apps own retry-on-`SERVER_BUSY`), and the control-panel
+example pin bumped `^0.9.0` → `^0.11.0` (typechecks clean against 0.11.0).
+
+Packaging nit for item 12: the `exports` map doesn't expose
+`./package.json`, so `require('genai-lite/package.json')` throws
+`ERR_PACKAGE_PATH_NOT_EXPORTED` — add `"./package.json": "./package.json"`
+when reworking packaging.
 
 Sister-repo follow-up: DONE (2026-07-03, genai-electron commit `064a3d2`) —
 genai-electron's docs (`image-generation.md`, `index.md`,
