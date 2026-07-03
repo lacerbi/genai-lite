@@ -109,6 +109,14 @@ Note: all "latest" package versions below were checked via `npm view` on
     v0.10.0 the envelopes carry retryable-vs-not classification, so a shared
     retry layer would slot in cleanly if wanted.
 
+11. **Node 18 support drift.** `@google/genai` ≥ 2.x declares
+    `engines: node >=20`, but the CI matrix still tests Node 18 (and passes —
+    npm engines are advisory and nothing 20-only is exercised yet). Decide
+    whether to drop 18.x from the CI matrix and declare `engines: >=20` in
+    genai-lite's package.json (a breaking change for Node-18 consumers, so
+    batch it with the next major-ish bump), or keep 18 until it actually
+    breaks. Noticed during the v0.11.0 upgrade (2026-07-03).
+
 ## Pickup point
 
 Item 3 (`@mistralai/mistralai` 2.x) is next, then item 4 (`@anthropic-ai/sdk`
