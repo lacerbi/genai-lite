@@ -23,10 +23,8 @@ genai-electron default base URL changed `localhost` → `127.0.0.1`; new
 (or git history) for the full change record.
 
 **v0.10.0 release state**: commit `440410a` on main, CI green, tag `v0.10.0`
-pushed — but **`npm publish` has NOT run** (registry still 0.9.2 as of
-2026-07-03; the publish needs the maintainer's credentials/OTP). Publishing is
-the immediate next action: `npm run build && npm publish`, then verify with
-`npm view genai-lite version` → 0.10.0.
+pushed, **published to npm on 2026-07-03** (`npm view genai-lite version` →
+0.10.0). Release complete.
 
 Note: all "latest" package versions below were checked via `npm view` on
 2026-07-03 — re-check before starting any upgrade item.
@@ -106,10 +104,8 @@ Note: all "latest" package versions below were checked via `npm view` on
 
 ## Pickup point
 
-First: **publish v0.10.0 to npm** (see release state above — tag pushed, CI
-green, registry still 0.9.2). Second: the sister-repo doc follow-up below
-(small). Then item 2 (`@google/genai` 2.x), the largest chunk; item 5 folds
-into it. For items 2–4: branch per upgrade, bump floor + lockfile,
+First: the sister-repo doc follow-up below (small). Then item 2
+(`@google/genai` 2.x), the largest chunk; item 5 folds into it. For items 2–4: branch per upgrade, bump floor + lockfile,
 `npm run build` (tsc catches type breaks), full unit suite (adapters are
 mocked, so unit tests alone don't prove wire behavior), then a targeted e2e
 smoke (`npm run test:e2e` — real API calls, costs money, use sparingly per

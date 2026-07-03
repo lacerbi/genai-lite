@@ -283,14 +283,13 @@ reflect reality.
 - [x] 3. Bumped `package.json` to `0.10.0` (+ lockfile); commit `440410a`
    (feat, signed off).
 - [x] 4. Pushed to main; CI green on `440410a`.
-- [~] 5. Tag `v0.10.0` pushed. `npm publish` BLOCKED by permission classifier —
-   requires explicit user approval (public-registry release). Awaiting user.
+- [x] 5. Tag `v0.10.0` pushed; published to npm by the maintainer on 2026-07-03.
 - [ ] 6. (Follow-up, sister repo, not this session's scope): update genai-electron's
    `image-generation.md` caveat about genai-lite versions.
 
 **Verification**:
 - [x] CI green on main.
-- [ ] `npm view genai-lite version` → 0.10.0. (Pending `npm publish` approval.)
+- [x] `npm view genai-lite version` → 0.10.0 (dist-tag latest). Release complete.
 
 ## Testing strategy
 
