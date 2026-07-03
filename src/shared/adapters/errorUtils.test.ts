@@ -168,6 +168,41 @@ describe('adapterErrorUtils', () => {
       expect(connection.errorType).toBe('connection_error');
     });
 
+    it('should classify openai/anthropic errors by constructor name (classes never set this.name)', () => {
+      // Real SDK instances report name "Error"; only the constructor name is
+      // informative — reproduce that exact shape
+      class APIUserAbortError extends Error {}
+      class APIConnectionTimeoutError extends Error {}
+
+      const abort = getCommonMappedErrorDetails(new APIUserAbortError('Request was aborted.'));
+      expect(abort.errorCode).toBe(ADAPTER_ERROR_CODES.REQUEST_ABORTED);
+      expect(abort.errorType).toBe('abort_error');
+
+      const timeout = getCommonMappedErrorDetails(
+        new APIConnectionTimeoutError('Request timed out.')
+      );
+      expect(timeout.errorCode).toBe(ADAPTER_ERROR_CODES.REQUEST_TIMEOUT);
+      expect(timeout.errorType).toBe('timeout_error');
+    });
+
+    it('should walk nested causes for network codes (anthropic APIConnectionError shape)', () => {
+      // APIConnectionError wraps undici's TypeError, which wraps the socket
+      // error — the code sits two causes deep
+      class APIConnectionError extends Error {}
+      const error = Object.assign(new APIConnectionError('Connection error.'), {
+        cause: Object.assign(new TypeError('fetch failed'), {
+          cause: Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:443'), {
+            code: 'ECONNREFUSED',
+          }),
+        }),
+      });
+
+      const result = getCommonMappedErrorDetails(error);
+
+      expect(result.errorCode).toBe(ADAPTER_ERROR_CODES.NETWORK_ERROR);
+      expect(result.errorType).toBe('connection_error');
+    });
+
     it('should not treat non-network causes as network errors', () => {
       const error = Object.assign(new Error('wrapper'), {
         cause: new Error('some unrelated inner failure'),

@@ -61,19 +61,29 @@ export function extractRetryAfterMs(error: any): number | undefined {
 }
 
 /**
- * Matches the error shapes Node's networking stack produces for connection-level
- * failures (DNS lookup, connection refused, connect timeout). Native fetch
- * (undici) wraps these in a generic `TypeError: fetch failed` and keeps the
- * real failure on `cause`, so callers should check both the error and its cause.
+ * Matches an error against known error-class names. The openai/anthropic SDK
+ * error classes never assign `this.name` (instances report name "Error"), so
+ * the constructor name is checked as well.
  */
-function isConnectionFailure(e: any): boolean {
-  return !!e && (
+function matchesErrorName(e: any, names: readonly string[]): boolean {
+  return !!e && (names.includes(e.name) || names.includes(e.constructor?.name));
+}
+
+/**
+ * Matches the error shapes produced for connection-level failures (DNS lookup,
+ * connection refused, connect timeout). Wrappers keep the real failure on
+ * `cause`, sometimes nested (undici's `TypeError: fetch failed` inside
+ * anthropic/openai `APIConnectionError`), so the cause chain is walked too.
+ */
+function isConnectionFailure(e: any, depth: number = 0): boolean {
+  if (!e || depth > 4) return false;
+  return (
     e.code === 'ENOTFOUND' ||
     e.code === 'ECONNREFUSED' ||
     e.code === 'ETIMEDOUT' ||
-    e.name === 'ConnectTimeoutError' ||
-    e.name === 'ConnectionError' ||
-    (typeof e.type === 'string' && e.type.includes('timeout'))
+    matchesErrorName(e, ['ConnectTimeoutError', 'ConnectionError', 'APIConnectionError']) ||
+    (typeof e.type === 'string' && e.type.includes('timeout')) ||
+    isConnectionFailure(e.cause, depth + 1)
   );
 }
 
@@ -104,16 +114,11 @@ export function getCommonMappedErrorDetails(
   const retryAfterMs = extractRetryAfterMs(error);
 
   // Handle user-initiated aborts and client-side timeouts first — the SDKs raise
-  // these as named errors (openai: APIUserAbortError/APIConnectionTimeoutError;
-  // Speakeasy/mistral: RequestAbortedError/RequestTimeoutError;
-  // fetch/undici: AbortError/TimeoutError DOMExceptions)
-  if (
-    error &&
-    (error.name === 'APIUserAbortError' ||
-      error.name === 'AbortError' ||
-      error.name === 'RequestAbortedError' ||
-      (error instanceof DOMException && error.name === 'AbortError'))
-  ) {
+  // these as typed errors (openai/anthropic: APIUserAbortError/
+  // APIConnectionTimeoutError, matched by constructor name since those classes
+  // never set this.name; Speakeasy/mistral: RequestAbortedError/
+  // RequestTimeoutError; fetch/undici: AbortError/TimeoutError DOMExceptions)
+  if (matchesErrorName(error, ['APIUserAbortError', 'AbortError', 'RequestAbortedError'])) {
     return {
       errorCode: ADAPTER_ERROR_CODES.REQUEST_ABORTED,
       errorMessage: providerMessageOverride || error.message || 'Request was aborted',
@@ -121,10 +126,11 @@ export function getCommonMappedErrorDetails(
     };
   }
   if (
-    error &&
-    (error.name === 'APIConnectionTimeoutError' ||
-      error.name === 'TimeoutError' ||
-      error.name === 'RequestTimeoutError')
+    matchesErrorName(error, [
+      'APIConnectionTimeoutError',
+      'TimeoutError',
+      'RequestTimeoutError',
+    ])
   ) {
     return {
       errorCode: ADAPTER_ERROR_CODES.REQUEST_TIMEOUT,
@@ -191,9 +197,9 @@ export function getCommonMappedErrorDetails(
     }
   }
   // Handle network connection errors — either directly (Node error shapes) or
-  // wrapped by native fetch/undici as `TypeError: fetch failed` with the real
-  // failure on `cause` (e.g. @google/genai rethrows these unwrapped)
-  else if (isConnectionFailure(error) || isConnectionFailure(error?.cause)) {
+  // wrapped with the real failure on `cause` (undici's `TypeError: fetch failed`,
+  // anthropic/openai APIConnectionError, Speakeasy ConnectionError)
+  else if (isConnectionFailure(error)) {
     errorCode = ADAPTER_ERROR_CODES.NETWORK_ERROR;
     errorType = 'connection_error';
     errorMessage = providerMessageOverride || error.message || 'Network connection failed';
