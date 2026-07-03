@@ -104,13 +104,14 @@ Note: all "latest" package versions below were checked via `npm view` on
 
 ## Pickup point
 
-First: the sister-repo doc follow-up below (small). Then item 2
-(`@google/genai` 2.x), the largest chunk; item 5 folds into it. For items 2–4: branch per upgrade, bump floor + lockfile,
+Item 2 (`@google/genai` 2.x) is next, the largest chunk; item 5 folds into it. For items 2–4: branch per upgrade, bump floor + lockfile,
 `npm run build` (tsc catches type breaks), full unit suite (adapters are
 mocked, so unit tests alone don't prove wire behavior), then a targeted e2e
 smoke (`npm run test:e2e` — real API calls, costs money, use sparingly per
 CLAUDE.md).
 
-Sister-repo follow-up (not tracked here): update genai-electron's
-`image-generation.md` caveat about genai-lite ≤ 0.9.0 polling behavior now that
-genai-lite 0.10.0 handles `'cancelled'` and sends the DELETE itself.
+Sister-repo follow-up: DONE (2026-07-03, genai-electron commit `064a3d2`) —
+genai-electron's docs (`image-generation.md`, `index.md`,
+`typescript-reference.md`, 0.5→0.6 migration note) now state that the polling
+caveat applies only to genai-lite ≤ 0.9.0, and that ≥ 0.10.0 sends the DELETE
+itself.
