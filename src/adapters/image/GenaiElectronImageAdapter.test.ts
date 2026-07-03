@@ -674,7 +674,7 @@ describe('GenaiElectronImageAdapter', () => {
       ).rejects.toThrow(/Server error/);
     });
 
-    it('should handle GET request failure (polling)', async () => {
+    it('should map a 404 NOT_FOUND poll response (expired generation) to a provider error', async () => {
       mockFetch
         .mockResolvedValueOnce({
           ok: true,
@@ -687,14 +687,21 @@ describe('GenaiElectronImageAdapter', () => {
             JSON.stringify({ error: { message: 'Generation not found', code: 'NOT_FOUND' } }),
         });
 
-      await expect(
-        adapter.generate({
-          request: defaultRequest,
-          resolvedPrompt: 'Test prompt',
-          settings: defaultSettings,
-          apiKey: null,
-        })
-      ).rejects.toThrow(/Generation not found/);
+      const pending = adapter.generate({
+        request: defaultRequest,
+        resolvedPrompt: 'Test prompt',
+        settings: defaultSettings,
+        apiKey: null,
+      });
+
+      // Must NOT surface as MODEL_NOT_FOUND ("model not found" is misleading
+      // for a generation that expired from the server registry)
+      await expect(pending).rejects.toThrow(/expired from the registry/);
+      await expect(pending).rejects.toMatchObject({
+        code: 'PROVIDER_ERROR',
+        type: 'server_error',
+        status: 404,
+      });
     });
 
     it('should handle server busy error (503) as a typed rate-limit error', async () => {
@@ -906,6 +913,79 @@ describe('GenaiElectronImageAdapter', () => {
         code: 'REQUEST_TIMEOUT',
         type: 'timeout_error',
       });
+    });
+
+    it('per-call timeoutMs overrides the construction timeout on the POST', async () => {
+      // Default 120s adapter; the per-call 100ms budget must fire instead
+      const defaultAdapter = new GenaiElectronImageAdapter({
+        baseURL: 'http://localhost:8081',
+      });
+
+      mockFetch.mockImplementationOnce(
+        (_url: string, init: any) =>
+          new Promise((_resolve, reject) => {
+            init.signal.addEventListener('abort', () => {
+              const error: any = new Error('This operation was aborted');
+              error.name = 'AbortError';
+              reject(error);
+            });
+          })
+      );
+
+      const pending = defaultAdapter.generate({
+        request: defaultRequest,
+        resolvedPrompt: 'Test prompt',
+        settings: defaultSettings,
+        apiKey: null,
+        timeoutMs: 100,
+      });
+
+      await expect(pending).rejects.toThrow(/timeout after 100ms/i);
+      await expect(pending).rejects.toMatchObject({
+        code: 'REQUEST_TIMEOUT',
+        type: 'timeout_error',
+      });
+    });
+
+    it('per-call timeoutMs overrides the poll-loop budget and still sends the cancel DELETE', async () => {
+      const defaultAdapter = new GenaiElectronImageAdapter({
+        baseURL: 'http://localhost:8081',
+      });
+
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ id: 'gen_123', status: 'pending', createdAt: Date.now() }),
+        })
+        // Keep returning in_progress forever (also serves the DELETE)
+        .mockResolvedValue({
+          ok: true,
+          json: async () => ({
+            id: 'gen_123',
+            status: 'in_progress',
+            progress: { currentStep: 1, totalSteps: 20, stage: 'diffusion', percentage: 5 },
+          }),
+        });
+
+      const pending = defaultAdapter.generate({
+        request: defaultRequest,
+        resolvedPrompt: 'Test prompt',
+        settings: defaultSettings,
+        apiKey: null,
+        timeoutMs: 100,
+      });
+
+      await expect(pending).rejects.toMatchObject({
+        code: 'REQUEST_TIMEOUT',
+        type: 'timeout_error',
+      });
+
+      // Cancel-on-timeout must still fire with the overridden budget
+      const deleteCalls = mockFetch.mock.calls.filter(
+        ([, init]: any[]) => init?.method === 'DELETE'
+      );
+      expect(deleteCalls).toHaveLength(1);
+      expect(deleteCalls[0][0]).toBe('http://localhost:8081/v1/images/generations/gen_123');
     });
 
     it('should include baseURL in error messages for network errors', async () => {

@@ -399,7 +399,7 @@ function getStatusCodeForError(errorType?: string): number {
 
 ## Prerequisites
 
-- Node.js 18+ and npm
+- Node.js 20+ and npm
 - At least one of:
   - **OpenAI API key** for cloud image generation
   - **genai-electron** server running locally for diffusion

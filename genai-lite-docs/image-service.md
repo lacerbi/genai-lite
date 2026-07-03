@@ -218,6 +218,56 @@ if (result.object === 'error' && result.error.type === 'abort_error') {
 
 ---
 
+## Per-Request Timeout
+
+Pass `timeoutMs` to override the adapter's default timeout (60s for OpenAI
+Images, 120s for genai-electron) for a single call:
+
+```typescript
+const result = await imageService.generateImage(
+  {
+    providerId: 'genai-electron-images',
+    modelId: 'stable-diffusion',
+    prompt: 'A detailed landscape painting',
+    settings: { diffusion: { steps: 80 } },
+  },
+  { timeoutMs: 300_000 }  // allow 5 minutes for a high-step generation
+);
+```
+
+Timeouts surface as `code: 'REQUEST_TIMEOUT'`, `type: 'timeout_error'`. For
+genai-electron the budget covers both the initial POST and the polling loop,
+and the best-effort server-side cancel still runs on expiry. For OpenAI Images
+it covers the API call and (for DALL-E URL responses) the image download.
+
+---
+
+## Automatic Retries
+
+Transient failures — rate limits, network errors, timeouts, and 5xx provider
+errors — are retried automatically with exponential backoff for providers where
+that is safe (currently **OpenAI Images**; a `Retry-After` header is honored via
+`error.retryAfterMs`). Defaults match the LLM service: 2 retries, 500ms initial
+delay, 2x backoff, 10s cap.
+
+```typescript
+// Service-level configuration
+const imageService = new ImageService(fromEnvironment, {
+  retry: { maxRetries: 3, initialDelayMs: 1000 },  // or maxRetries: 0 to disable
+});
+
+// Per-call override
+await imageService.generateImage(request, { maxRetries: 0 });
+```
+
+**genai-electron is never retried**: its generate call POSTs a new server-side
+generation and then polls, so a blind retry of a mid-poll failure could start a
+second GPU generation. Custom adapters registered via `options.adapters` are
+also not retried unless their provider is marked `retryable` in the provider
+config. Aborted requests are never retried.
+
+---
+
 ## Generating Multiple Images
 
 Use `count` parameter to generate multiple variations:

@@ -61,11 +61,39 @@ export function extractRetryAfterMs(error: any): number | undefined {
 }
 
 /**
+ * Matches an error against known error-class names. The openai/anthropic SDK
+ * error classes never assign `this.name` (instances report name "Error"), so
+ * the constructor name is checked as well.
+ */
+function matchesErrorName(e: any, names: readonly string[]): boolean {
+  return !!e && (names.includes(e.name) || names.includes(e.constructor?.name));
+}
+
+/**
+ * Matches the error shapes produced for connection-level failures (DNS lookup,
+ * connection refused, connect timeout). Wrappers keep the real failure on
+ * `cause`, sometimes nested (undici's `TypeError: fetch failed` inside
+ * anthropic/openai `APIConnectionError`), so the cause chain is walked too.
+ */
+function isConnectionFailure(e: any, depth: number = 0): boolean {
+  if (!e || depth > 4) return false;
+  return (
+    e.code === 'ENOTFOUND' ||
+    e.code === 'ECONNREFUSED' ||
+    e.code === 'ETIMEDOUT' ||
+    matchesErrorName(e, ['ConnectTimeoutError', 'ConnectionError', 'APIConnectionError']) ||
+    (typeof e.type === 'string' && e.type.includes('timeout')) ||
+    isConnectionFailure(e.cause, depth + 1)
+  );
+}
+
+/**
  * Maps common error patterns to standardized error codes and types
- * 
+ *
  * This utility handles:
  * - Common HTTP status codes (401, 402, 404, 429, 4xx, 5xx)
- * - Network connection errors (ENOTFOUND, ECONNREFUSED, timeouts)
+ * - Network connection errors (ENOTFOUND, ECONNREFUSED, timeouts), including
+ *   undici's `TypeError: fetch failed` wrapper carrying the failure on `cause`
  * - Generic JavaScript errors
  * 
  * Individual adapters can further refine the mappings for provider-specific cases,
@@ -86,14 +114,11 @@ export function getCommonMappedErrorDetails(
   const retryAfterMs = extractRetryAfterMs(error);
 
   // Handle user-initiated aborts and client-side timeouts first — the SDKs raise
-  // these as named errors (openai: APIUserAbortError/APIConnectionTimeoutError;
-  // fetch/undici: AbortError/TimeoutError DOMExceptions)
-  if (
-    error &&
-    (error.name === 'APIUserAbortError' ||
-      error.name === 'AbortError' ||
-      (error instanceof DOMException && error.name === 'AbortError'))
-  ) {
+  // these as typed errors (openai/anthropic: APIUserAbortError/
+  // APIConnectionTimeoutError, matched by constructor name since those classes
+  // never set this.name; Speakeasy/mistral: RequestAbortedError/
+  // RequestTimeoutError; fetch/undici: AbortError/TimeoutError DOMExceptions)
+  if (matchesErrorName(error, ['APIUserAbortError', 'AbortError', 'RequestAbortedError'])) {
     return {
       errorCode: ADAPTER_ERROR_CODES.REQUEST_ABORTED,
       errorMessage: providerMessageOverride || error.message || 'Request was aborted',
@@ -101,8 +126,11 @@ export function getCommonMappedErrorDetails(
     };
   }
   if (
-    error &&
-    (error.name === 'APIConnectionTimeoutError' || error.name === 'TimeoutError')
+    matchesErrorName(error, [
+      'APIConnectionTimeoutError',
+      'TimeoutError',
+      'RequestTimeoutError',
+    ])
   ) {
     return {
       errorCode: ADAPTER_ERROR_CODES.REQUEST_TIMEOUT,
@@ -111,9 +139,16 @@ export function getCommonMappedErrorDetails(
     };
   }
 
-  // Handle API errors with HTTP status codes
-  if (error && typeof error.status === 'number') {
-    const httpStatus = error.status;
+  // Handle API errors with HTTP status codes — SDKs expose the status as either
+  // `status` (openai/anthropic) or `statusCode` (Speakeasy/mistral MistralError)
+  const numericStatus =
+    error && typeof error.status === 'number'
+      ? error.status
+      : error && typeof error.statusCode === 'number'
+        ? error.statusCode
+        : undefined;
+  if (numericStatus !== undefined) {
+    const httpStatus = numericStatus;
     status = httpStatus;
     errorMessage = providerMessageOverride || error.message || `HTTP ${httpStatus} error`;
 
@@ -161,17 +196,22 @@ export function getCommonMappedErrorDetails(
         }
     }
   }
-  // Handle network connection errors
-  else if (error && (
-    error.code === 'ENOTFOUND' || 
-    error.code === 'ECONNREFUSED' || 
-    error.code === 'ETIMEDOUT' ||
-    error.name === 'ConnectTimeoutError' ||
-    (error.type && error.type.includes('timeout'))
-  )) {
+  // Handle network connection errors — either directly (Node error shapes) or
+  // wrapped with the real failure on `cause` (undici's `TypeError: fetch failed`,
+  // anthropic/openai APIConnectionError, Speakeasy ConnectionError)
+  else if (isConnectionFailure(error)) {
     errorCode = ADAPTER_ERROR_CODES.NETWORK_ERROR;
     errorType = 'connection_error';
     errorMessage = providerMessageOverride || error.message || 'Network connection failed';
+    // Surface the underlying cause when the top-level message is generic
+    // (undici's "fetch failed", Speakeasy's ConnectionError wrapper)
+    if (
+      typeof error?.cause?.message === 'string' &&
+      error.cause.message &&
+      !errorMessage.includes(error.cause.message)
+    ) {
+      errorMessage = `${errorMessage}: ${error.cause.message}`;
+    }
   }
   // Handle generic JavaScript errors
   else if (error instanceof Error) {

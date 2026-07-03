@@ -126,11 +126,23 @@ export class MistralClientAdapter implements ILLMClientAdapter {
         );
       }
 
-      // Make the API call (per-request transport options: timeout + abort signal)
-      const transportOptions = {
-        ...(options?.timeoutMs !== undefined && { timeoutMs: options.timeoutMs }),
-        ...(options?.signal && { fetchOptions: { signal: options.signal } }),
-      };
+      // Make the API call (per-request transport options: timeout + abort signal).
+      // The SDK ignores timeoutMs whenever a signal is supplied, so when both are
+      // set they must be composed into one signal. AbortSignal.timeout carries a
+      // TimeoutError reason, which the SDK maps to RequestTimeoutError (vs a
+      // caller abort's AbortError -> RequestAbortedError), so classification in
+      // errorUtils keeps working.
+      const transportOptions: { timeoutMs?: number; signal?: AbortSignal } = {};
+      if (options?.signal && options?.timeoutMs !== undefined) {
+        transportOptions.signal = AbortSignal.any([
+          options.signal,
+          AbortSignal.timeout(options.timeoutMs),
+        ]);
+      } else if (options?.signal) {
+        transportOptions.signal = options.signal;
+      } else if (options?.timeoutMs !== undefined) {
+        transportOptions.timeoutMs = options.timeoutMs;
+      }
       const completion =
         Object.keys(transportOptions).length > 0
           ? await mistral.chat.complete(requestOptions, transportOptions as any)

@@ -158,6 +158,196 @@ describe('ImageService', () => {
     });
   });
 
+  describe('retry layer', () => {
+    const openaiRequest: ImageGenerationRequest = {
+      providerId: 'openai-images',
+      modelId: 'gpt-image-1-mini',
+      prompt: 'A serene mountain lake',
+    };
+
+    const openaiSuccess: ImageGenerationResponse = {
+      ...successResponse,
+      providerId: 'openai-images',
+      modelId: 'gpt-image-1-mini',
+    };
+
+    function makeOpenAIAdapter(
+      generate: ImageProviderAdapter['generate']
+    ): ImageProviderAdapter {
+      return {
+        id: 'openai-images',
+        supports: {
+          supportsMultipleImages: true,
+          supportsB64Json: true,
+          supportsHostedUrls: true,
+          supportsProgressEvents: false,
+          supportsNegativePrompt: false,
+          defaultModelId: 'gpt-image-1-mini',
+        },
+        generate,
+      };
+    }
+
+    function makeOpenAIService(
+      adapter: ImageProviderAdapter,
+      retry?: Record<string, unknown>
+    ): ImageService {
+      return new ImageService(async () => null, {
+        adapters: { 'openai-images': adapter },
+        logLevel: 'silent',
+        // Tiny delays keep the tests fast with real timers
+        retry: { initialDelayMs: 1, maxDelayMs: 20, ...retry },
+      });
+    }
+
+    function transientError(code: string, extra?: Record<string, unknown>): any {
+      return Object.assign(new Error(`transient ${code}`), {
+        code,
+        type: 'server_error',
+        ...extra,
+      });
+    }
+
+    it('retries transient failures for retry-safe providers and returns the eventual success', async () => {
+      const generateMock = jest
+        .fn<Promise<ImageGenerationResponse>, any[]>()
+        .mockRejectedValueOnce(transientError('NETWORK_ERROR'))
+        .mockResolvedValueOnce(openaiSuccess);
+
+      const service = makeOpenAIService(makeOpenAIAdapter(generateMock));
+      const result = await service.generateImage(openaiRequest);
+
+      expect(generateMock).toHaveBeenCalledTimes(2);
+      expect(result).toBe(openaiSuccess);
+    });
+
+    it('retries PROVIDER_ERROR only for transient HTTP statuses', async () => {
+      const retried = jest
+        .fn<Promise<ImageGenerationResponse>, any[]>()
+        .mockRejectedValueOnce(transientError('PROVIDER_ERROR', { status: 503 }))
+        .mockResolvedValueOnce(openaiSuccess);
+      await makeOpenAIService(makeOpenAIAdapter(retried)).generateImage(openaiRequest);
+      expect(retried).toHaveBeenCalledTimes(2);
+
+      const notRetried = jest
+        .fn<Promise<ImageGenerationResponse>, any[]>()
+        .mockRejectedValue(transientError('PROVIDER_ERROR', { status: 400 }));
+      const result = (await makeOpenAIService(makeOpenAIAdapter(notRetried)).generateImage(
+        openaiRequest
+      )) as ImageFailureResponse;
+      expect(notRetried).toHaveBeenCalledTimes(1);
+      expect(result.object).toBe('error');
+    });
+
+    it('never retries non-retryable codes', async () => {
+      const generateMock = jest
+        .fn<Promise<ImageGenerationResponse>, any[]>()
+        .mockRejectedValue(
+          Object.assign(new Error('bad key'), {
+            code: 'INVALID_API_KEY',
+            type: 'authentication_error',
+          })
+        );
+
+      const service = makeOpenAIService(makeOpenAIAdapter(generateMock));
+      const result = (await service.generateImage(openaiRequest)) as ImageFailureResponse;
+
+      expect(generateMock).toHaveBeenCalledTimes(1);
+      expect(result.error.code).toBe('INVALID_API_KEY');
+    });
+
+    it('never retries providers marked retryable: false (genai-electron)', async () => {
+      const generateMock = jest
+        .fn<Promise<ImageGenerationResponse>, any[]>()
+        .mockRejectedValue(transientError('RATE_LIMIT_EXCEEDED'));
+
+      const service = new ImageService(async () => null, {
+        adapters: { 'genai-electron-images': makeAdapter(generateMock) },
+        logLevel: 'silent',
+        retry: { initialDelayMs: 1 },
+      });
+      const result = (await service.generateImage(defaultRequest)) as ImageFailureResponse;
+
+      expect(generateMock).toHaveBeenCalledTimes(1);
+      expect(result.error.code).toBe('RATE_LIMIT_EXCEEDED');
+    });
+
+    it('honors a per-call maxRetries: 0 override', async () => {
+      const generateMock = jest
+        .fn<Promise<ImageGenerationResponse>, any[]>()
+        .mockRejectedValue(transientError('NETWORK_ERROR'));
+
+      const service = makeOpenAIService(makeOpenAIAdapter(generateMock));
+      await service.generateImage(openaiRequest, { maxRetries: 0 });
+
+      expect(generateMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('honors retryAfterMs from the failure envelope', async () => {
+      const generateMock = jest
+        .fn<Promise<ImageGenerationResponse>, any[]>()
+        .mockRejectedValueOnce(transientError('RATE_LIMIT_EXCEEDED', { retryAfterMs: 60 }))
+        .mockResolvedValueOnce(openaiSuccess);
+
+      const service = makeOpenAIService(makeOpenAIAdapter(generateMock), {
+        initialDelayMs: 1,
+        maxDelayMs: 500,
+      });
+      const started = Date.now();
+      const result = await service.generateImage(openaiRequest);
+
+      expect(result).toBe(openaiSuccess);
+      expect(generateMock).toHaveBeenCalledTimes(2);
+      expect(Date.now() - started).toBeGreaterThanOrEqual(50);
+    });
+
+    it('never retries aborts', async () => {
+      const generateMock = jest
+        .fn<Promise<ImageGenerationResponse>, any[]>()
+        .mockRejectedValue(
+          Object.assign(new Error('aborted'), {
+            code: 'REQUEST_ABORTED',
+            type: 'abort_error',
+          })
+        );
+
+      const service = makeOpenAIService(makeOpenAIAdapter(generateMock));
+      const result = (await service.generateImage(openaiRequest)) as ImageFailureResponse;
+
+      expect(generateMock).toHaveBeenCalledTimes(1);
+      expect(result.error.code).toBe('REQUEST_ABORTED');
+    });
+
+    it('propagates retryAfterMs onto the failure envelope', async () => {
+      const generateMock = jest
+        .fn<Promise<ImageGenerationResponse>, any[]>()
+        .mockRejectedValue(transientError('RATE_LIMIT_EXCEEDED', { retryAfterMs: 3000 }));
+
+      const service = makeOpenAIService(makeOpenAIAdapter(generateMock), { maxRetries: 0 });
+      const result = (await service.generateImage(openaiRequest)) as ImageFailureResponse;
+
+      expect(result.error.retryAfterMs).toBe(3000);
+    });
+  });
+
+  describe('per-call timeoutMs', () => {
+    it('threads timeoutMs into the adapter generate config', async () => {
+      let receivedTimeout: number | undefined = -1;
+      const service = makeService(
+        makeAdapter(async (config) => {
+          receivedTimeout = config.timeoutMs;
+          return successResponse;
+        })
+      );
+
+      await service.generateImage(defaultRequest, { timeoutMs: 12345 });
+      expect(receivedTimeout).toBe(12345);
+
+      await service.generateImage(defaultRequest);
+      expect(receivedTimeout).toBeUndefined();
+    });
+  });
+
   describe('cancellation', () => {
     it('short-circuits with REQUEST_ABORTED when the signal is already aborted', async () => {
       const generateMock = jest.fn(async () => successResponse);

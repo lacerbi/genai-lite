@@ -175,10 +175,12 @@ describe('GeminiClientAdapter', () => {
     });
 
     describe('timeout and abort classification', () => {
-      // The SDK wraps any fetch rejection (including aborts) in a plain Error
-      // with no name/status/code — reproduce that exact shape
+      // Since @google/genai 1.52 fetch rejections that are Error instances are
+      // rethrown unwrapped, so aborts surface as typed AbortError DOMExceptions.
+      // Timeout and caller abort are still byte-identical (same internal
+      // controller), so the adapter must classify from its own state either way.
       const sdkAbortWrapperError = () =>
-        new Error('exception AbortError: This operation was aborted sending request');
+        new DOMException('This operation was aborted', 'AbortError');
 
       const rejectOnAbort = () =>
         mockGenerateContent.mockImplementation(
@@ -232,6 +234,28 @@ describe('GeminiClientAdapter', () => {
         expect(response.object).toBe('error');
         const failure = response as LLMFailureResponse;
         expect(failure.error.code).toBe(ADAPTER_ERROR_CODES.UNKNOWN_ERROR);
+      });
+
+      it('classifies undici fetch failures as NETWORK_ERROR via the cause code', async () => {
+        // Since @google/genai 1.52 network-level failures reach the adapter as
+        // undici's raw `TypeError: fetch failed` with the real error on `cause`
+        mockGenerateContent.mockRejectedValueOnce(
+          Object.assign(new TypeError('fetch failed'), {
+            cause: Object.assign(new Error('connect ECONNREFUSED 142.250.74.106:443'), {
+              code: 'ECONNREFUSED',
+            }),
+          })
+        );
+
+        const response = await adapter.sendMessage(basicRequest, 'test-api-key', {
+          timeoutMs: 5000,
+        });
+
+        expect(response.object).toBe('error');
+        const failure = response as LLMFailureResponse;
+        expect(failure.error.code).toBe(ADAPTER_ERROR_CODES.NETWORK_ERROR);
+        expect(failure.error.type).toBe('connection_error');
+        expect(failure.error.message).toContain('ECONNREFUSED');
       });
     });
 

@@ -78,8 +78,9 @@ export class OpenAIImageAdapter implements ImageProviderAdapter {
     settings: ResolvedImageGenerationSettings;
     apiKey: string | null;
     signal?: AbortSignal;
+    timeoutMs?: number;
   }): Promise<ImageGenerationResponse> {
-    const { request, resolvedPrompt, settings, apiKey, signal } = config;
+    const { request, resolvedPrompt, settings, apiKey, signal, timeoutMs } = config;
 
     if (!apiKey) {
       throw new Error('OpenAI API key is required but was not provided');
@@ -130,10 +131,14 @@ export class OpenAIImageAdapter implements ImageProviderAdapter {
         isGptImageModel,
       });
 
-      // Make API call (per-request abort signal when provided)
+      // Make API call (per-request abort signal and timeout override when provided)
+      const requestOptions = {
+        ...(signal && { signal }),
+        ...(timeoutMs !== undefined && { timeout: timeoutMs }),
+      };
       const response = await client.images.generate(
         params,
-        signal ? { signal } : undefined
+        Object.keys(requestOptions).length > 0 ? requestOptions : undefined
       );
 
       if (!response.data || response.data.length === 0) {
@@ -143,7 +148,7 @@ export class OpenAIImageAdapter implements ImageProviderAdapter {
       this.logger.info(`OpenAI Image API call successful, generated ${response.data.length} images`);
 
       // Process response
-      return await this.processResponse(response, request, isGptImageModel, signal);
+      return await this.processResponse(response, request, isGptImageModel, signal, timeoutMs);
     } catch (error) {
       this.logger.error('OpenAI Image API error:', error);
       throw this.handleError(error, request);
@@ -251,7 +256,8 @@ export class OpenAIImageAdapter implements ImageProviderAdapter {
     response: any,
     request: ImageGenerationRequest,
     isGptImageModel: boolean,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    timeoutMs?: number
   ): Promise<ImageGenerationResponse> {
     const images: GeneratedImage[] = [];
 
@@ -277,9 +283,21 @@ export class OpenAIImageAdapter implements ImageProviderAdapter {
       } else {
         // dall-e-2/dall-e-3: can be url or b64_json
         if (item.url) {
-          // Fetch image from URL
+          // Fetch image from URL. The SDK timeout only covers images.generate,
+          // so bound this fetch with the same per-request budget when one was
+          // given (AbortSignal.timeout carries a TimeoutError reason, mapping
+          // to REQUEST_TIMEOUT; a caller abort still maps to REQUEST_ABORTED)
           imageUrl = item.url;
-          const imageResponse = await fetch(item.url, signal ? { signal } : undefined);
+          const fetchSignal =
+            timeoutMs !== undefined
+              ? signal
+                ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)])
+                : AbortSignal.timeout(timeoutMs)
+              : signal;
+          const imageResponse = await fetch(
+            item.url,
+            fetchSignal ? { signal: fetchSignal } : undefined
+          );
           if (!imageResponse.ok) {
             throw new Error(`Failed to fetch image from URL: ${imageResponse.statusText}`);
           }
@@ -358,6 +376,9 @@ export class OpenAIImageAdapter implements ImageProviderAdapter {
     (enhancedError as any).code = mapped.errorCode;
     (enhancedError as any).type = mapped.errorType;
     (enhancedError as any).status = mapped.status;
+    if (mapped.retryAfterMs !== undefined) {
+      (enhancedError as any).retryAfterMs = mapped.retryAfterMs;
+    }
     (enhancedError as any).providerId = this.id;
     (enhancedError as any).modelId = request.modelId;
 

@@ -100,6 +100,120 @@ describe('adapterErrorUtils', () => {
       });
     });
 
+    it('should map undici fetch-failed wrappers via cause code to network error', () => {
+      // Native fetch (undici) rejects with `TypeError: fetch failed` and keeps
+      // the real failure on `cause` — the shape @google/genai rethrows unwrapped
+      const error = Object.assign(new TypeError('fetch failed'), {
+        cause: Object.assign(new Error('connect ECONNREFUSED 142.250.74.106:443'), {
+          code: 'ECONNREFUSED',
+        }),
+      });
+
+      const result = getCommonMappedErrorDetails(error);
+
+      expect(result.errorCode).toBe(ADAPTER_ERROR_CODES.NETWORK_ERROR);
+      expect(result.errorType).toBe('connection_error');
+      expect(result.errorMessage).toBe(
+        'fetch failed: connect ECONNREFUSED 142.250.74.106:443'
+      );
+      expect(result.status).toBeUndefined();
+    });
+
+    it('should map undici connect-timeout causes to network error', () => {
+      const error = Object.assign(new TypeError('fetch failed'), {
+        cause: Object.assign(new Error('Connect Timeout Error'), {
+          name: 'ConnectTimeoutError',
+          code: 'UND_ERR_CONNECT_TIMEOUT',
+        }),
+      });
+
+      const result = getCommonMappedErrorDetails(error);
+
+      expect(result.errorCode).toBe(ADAPTER_ERROR_CODES.NETWORK_ERROR);
+      expect(result.errorType).toBe('connection_error');
+    });
+
+    it('should map statusCode-shaped errors (Speakeasy/mistral) like status', () => {
+      // MistralError exposes statusCode + a Headers instance, not status
+      const error = Object.assign(new Error('Requests rate limit exceeded'), {
+        statusCode: 429,
+        headers: new Headers({ 'retry-after': '5' }),
+      });
+
+      const result = getCommonMappedErrorDetails(error);
+
+      expect(result.errorCode).toBe(ADAPTER_ERROR_CODES.RATE_LIMIT_EXCEEDED);
+      expect(result.errorType).toBe('rate_limit_error');
+      expect(result.status).toBe(429);
+      expect(result.retryAfterMs).toBe(5000);
+    });
+
+    it('should map Speakeasy client error names to abort/timeout/network codes', () => {
+      const abort = getCommonMappedErrorDetails(
+        Object.assign(new Error('Request aborted by client'), { name: 'RequestAbortedError' })
+      );
+      expect(abort.errorCode).toBe(ADAPTER_ERROR_CODES.REQUEST_ABORTED);
+      expect(abort.errorType).toBe('abort_error');
+
+      const timeout = getCommonMappedErrorDetails(
+        Object.assign(new Error('Request timed out'), { name: 'RequestTimeoutError' })
+      );
+      expect(timeout.errorCode).toBe(ADAPTER_ERROR_CODES.REQUEST_TIMEOUT);
+      expect(timeout.errorType).toBe('timeout_error');
+
+      const connection = getCommonMappedErrorDetails(
+        Object.assign(new Error('Unable to make request'), { name: 'ConnectionError' })
+      );
+      expect(connection.errorCode).toBe(ADAPTER_ERROR_CODES.NETWORK_ERROR);
+      expect(connection.errorType).toBe('connection_error');
+    });
+
+    it('should classify openai/anthropic errors by constructor name (classes never set this.name)', () => {
+      // Real SDK instances report name "Error"; only the constructor name is
+      // informative — reproduce that exact shape
+      class APIUserAbortError extends Error {}
+      class APIConnectionTimeoutError extends Error {}
+
+      const abort = getCommonMappedErrorDetails(new APIUserAbortError('Request was aborted.'));
+      expect(abort.errorCode).toBe(ADAPTER_ERROR_CODES.REQUEST_ABORTED);
+      expect(abort.errorType).toBe('abort_error');
+
+      const timeout = getCommonMappedErrorDetails(
+        new APIConnectionTimeoutError('Request timed out.')
+      );
+      expect(timeout.errorCode).toBe(ADAPTER_ERROR_CODES.REQUEST_TIMEOUT);
+      expect(timeout.errorType).toBe('timeout_error');
+    });
+
+    it('should walk nested causes for network codes (anthropic APIConnectionError shape)', () => {
+      // APIConnectionError wraps undici's TypeError, which wraps the socket
+      // error — the code sits two causes deep
+      class APIConnectionError extends Error {}
+      const error = Object.assign(new APIConnectionError('Connection error.'), {
+        cause: Object.assign(new TypeError('fetch failed'), {
+          cause: Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:443'), {
+            code: 'ECONNREFUSED',
+          }),
+        }),
+      });
+
+      const result = getCommonMappedErrorDetails(error);
+
+      expect(result.errorCode).toBe(ADAPTER_ERROR_CODES.NETWORK_ERROR);
+      expect(result.errorType).toBe('connection_error');
+    });
+
+    it('should not treat non-network causes as network errors', () => {
+      const error = Object.assign(new Error('wrapper'), {
+        cause: new Error('some unrelated inner failure'),
+      });
+
+      const result = getCommonMappedErrorDetails(error);
+
+      expect(result.errorCode).toBe(ADAPTER_ERROR_CODES.UNKNOWN_ERROR);
+      expect(result.errorType).toBe('client_error');
+    });
+
     it('should handle generic Error instances', () => {
       const error = new Error('Something went wrong');
       const result = getCommonMappedErrorDetails(error);

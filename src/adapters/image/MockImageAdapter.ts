@@ -37,6 +37,7 @@ export class MockImageAdapter implements ImageProviderAdapter {
     settings: ResolvedImageGenerationSettings;
     apiKey: string | null;
     signal?: AbortSignal;
+    timeoutMs?: number;
   }): Promise<ImageGenerationResponse> {
     const { request, resolvedPrompt, signal } = config;
 
