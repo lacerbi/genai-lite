@@ -22,6 +22,12 @@ genai-electron default base URL changed `localhost` → `127.0.0.1`; new
 `src/image/ImageService.test.ts`). See `docs/PLAN-image-cancellation-error-fixes.md`
 (or git history) for the full change record.
 
+**v0.10.0 release state**: commit `440410a` on main, CI green, tag `v0.10.0`
+pushed — but **`npm publish` has NOT run** (registry still 0.9.2 as of
+2026-07-03; the publish needs the maintainer's credentials/OTP). Publishing is
+the immediate next action: `npm run build && npm publish`, then verify with
+`npm view genai-lite version` → 0.10.0.
+
 Note: all "latest" package versions below were checked via `npm view` on
 2026-07-03 — re-check before starting any upgrade item.
 
@@ -34,10 +40,13 @@ Note: all "latest" package versions below were checked via `npm view` on
 2. **`@google/genai` 2.x major upgrade** (floor `^1.0.1`, lockfile 1.52.0;
    latest 2.10.0 as of 2026-07-03). Breaking. Review `GeminiClientAdapter`
    against the 2.x API and re-verify the v0.9.2 adapter-owned timeout/abort
-   classification against 2.x internals. Note: 1.52 already changed the SDK's
-   fetch-rejection wrapper (typed `AbortError` in some paths vs the old plain
-   `Error`) — the state-based classification is unaffected, but re-check item 5
-   assumptions while here.
+   classification against 2.x internals. The adapter leans on exactly two SDK
+   surfaces that must still exist/behave the same in 2.x: `config.abortSignal`
+   on `models.generateContent`, and `httpOptions.timeout` (sent padded +1s as a
+   server-side hint; the adapter's own timer fires first). Note: 1.52 already
+   changed the SDK's fetch-rejection wrapper (typed `AbortError` in some paths
+   vs the old plain `Error`) — the state-based classification is unaffected,
+   but re-check item 5 assumptions while here.
 
 3. **`@mistralai/mistralai` 2.x major upgrade** (floor `^1.11.0`, lockfile
    1.15.1; latest 2.4.0). Breaking; Speakeasy-generated SDK — check error
@@ -97,11 +106,14 @@ Note: all "latest" package versions below were checked via `npm view` on
 
 ## Pickup point
 
-Item 2 (`@google/genai` 2.x) is the largest chunk; item 5 folds into it. For
-items 2–4: branch per upgrade, bump floor + lockfile, `npm run build` (tsc
-catches type breaks), full unit suite (adapters are mocked, so unit tests alone
-don't prove wire behavior), then a targeted e2e smoke (`npm run test:e2e` —
-real API calls, costs money, use sparingly per CLAUDE.md).
+First: **publish v0.10.0 to npm** (see release state above — tag pushed, CI
+green, registry still 0.9.2). Second: the sister-repo doc follow-up below
+(small). Then item 2 (`@google/genai` 2.x), the largest chunk; item 5 folds
+into it. For items 2–4: branch per upgrade, bump floor + lockfile,
+`npm run build` (tsc catches type breaks), full unit suite (adapters are
+mocked, so unit tests alone don't prove wire behavior), then a targeted e2e
+smoke (`npm run test:e2e` — real API calls, costs money, use sparingly per
+CLAUDE.md).
 
 Sister-repo follow-up (not tracked here): update genai-electron's
 `image-generation.md` caveat about genai-lite ≤ 0.9.0 polling behavior now that

@@ -275,19 +275,22 @@ reflect reality.
 **Goal**: Publish, flushing the pending #91 anthropic floor bump (ISSUE item 1).
 
 **Steps**:
-- [ ] 1. `npm test` (full suite, coverage), `npm audit --audit-level=high`,
-   `npm run build && npm pack --dry-run`.
-- [ ] 2. Exports smoke: `node -e "const lib = require('./dist'); console.log(Object.keys(lib))"`
-   — verify `GenerateImageOptions` type compiles/exports (types via `tsc` build).
-- [ ] 3. Bump `package.json` to `0.10.0`; conventional commit(s) with `-s` (DCO).
-- [ ] 4. Push, confirm CI green.
-- [ ] 5. Tag `v0.10.0`, push tag, `npm publish`.
+- [x] 1. `npm test` (full suite, coverage: 810 tests / 34 suites),
+   `npm audit --audit-level=high` (0 vulnerabilities),
+   `npm run build && npm pack --dry-run` (89 files).
+- [x] 2. Exports smoke: `GenerateImageOptions` in dist/index.d.ts; `signal` in
+   the adapter contract d.ts; 26 runtime exports intact.
+- [x] 3. Bumped `package.json` to `0.10.0` (+ lockfile); commit `440410a`
+   (feat, signed off).
+- [x] 4. Pushed to main; CI green on `440410a`.
+- [~] 5. Tag `v0.10.0` pushed. `npm publish` BLOCKED by permission classifier —
+   requires explicit user approval (public-registry release). Awaiting user.
 - [ ] 6. (Follow-up, sister repo, not this session's scope): update genai-electron's
    `image-generation.md` caveat about genai-lite versions.
 
 **Verification**:
-- [ ] CI green on main.
-- [ ] `npm view genai-lite version` → 0.10.0.
+- [x] CI green on main.
+- [ ] `npm view genai-lite version` → 0.10.0. (Pending `npm publish` approval.)
 
 ## Testing strategy
 
