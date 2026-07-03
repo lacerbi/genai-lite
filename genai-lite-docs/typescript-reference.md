@@ -407,6 +407,10 @@ interface ImageGenerationRequestWithPreset {
 interface GenerateImageOptions {
   signal?: AbortSignal;   // Client-side cancel; genai-electron also gets a
                           // best-effort server-side DELETE cancellation
+  timeoutMs?: number;     // Per-request timeout override (default 60s OpenAI,
+                          // 120s genai-electron)
+  maxRetries?: number;    // Per-request retry cap; ignored for providers that
+                          // are not retry-safe (e.g. genai-electron)
 }
 ```
 
@@ -437,6 +441,7 @@ interface ImageFailureResponse {
                             // 'connection_error', 'server_error', 'authentication_error',
                             // 'validation_error'
     status?: number;        // HTTP status reported by the provider, when available
+    retryAfterMs?: number;  // Provider-suggested wait (from a Retry-After header)
     param?: string;
     providerError?: any;    // Original provider error (for debugging)
   };

@@ -311,7 +311,9 @@ The `examples/chat-demo` application provides a quick way to test library change
 - Has specific tool/function calling format
 
 **Mistral:**
-- Uses official `@mistralai/mistralai` SDK
+- Uses official `@mistralai/mistralai` SDK (Speakeasy-generated). **Stay on 1.x**: 2.x is ESM-only (`type: module`, no CJS build), which genai-lite's CommonJS output can only `require()` on Node ≥ 20.19 and Jest's CJS module registry cannot load at all — upgrade only when genai-lite ships dual ESM/CJS packaging
+- SDK errors carry `statusCode` (not `status`) and typed names `RequestAbortedError`/`RequestTimeoutError`/`ConnectionError` — all handled by the shared `errorUtils` mapping
+- The SDK silently ignores `timeoutMs` when a signal is supplied, so the adapter composes `AbortSignal.any([signal, AbortSignal.timeout(ms)])` when both are set
 - Does not support `frequencyPenalty` or `presencePenalty` parameters
 - System messages natively supported
 - Configure via `MISTRAL_API_BASE_URL` environment variable (default: https://api.mistral.ai)
@@ -347,7 +349,7 @@ The `examples/chat-demo` application provides a quick way to test library change
 - Progress callbacks via polling (500ms interval, 120s timeout); on caller abort or poll timeout the adapter sends a best-effort DELETE so the server frees the GPU (cancel-on-timeout still surfaces `REQUEST_TIMEOUT`)
 - Batch generation support (count parameter)
 - Configure via `GENAI_ELECTRON_IMAGE_BASE_URL` environment variable (default: http://127.0.0.1:8081 — use `127.0.0.1`, not `localhost`, to avoid a ~2s/request IPv6-fallback stall on Windows, paid repeatedly by the 500ms poll loop)
-- Error mapping: server codes → typed envelopes (`SERVER_BUSY` → `RATE_LIMIT_EXCEEDED`/`rate_limit_error`, `BACKEND_ERROR`/`IO_ERROR` → `PROVIDER_ERROR`/`server_error`, cancelled → `REQUEST_ABORTED`/`abort_error`)
+- Error mapping: server codes → typed envelopes (`SERVER_BUSY` → `RATE_LIMIT_EXCEEDED`/`rate_limit_error`, `BACKEND_ERROR`/`IO_ERROR` → `PROVIDER_ERROR`/`server_error`, cancelled → `REQUEST_ABORTED`/`abort_error`, poll-GET `NOT_FOUND` (expired generation, TTL 300s) → `PROVIDER_ERROR`/`server_error` with an expired-registry message)
 - See `docs/devlog/2025-10-22-genai-electron-changes.md` for the async API baseline (pre-0.6.0, no cancel endpoint); the cancel endpoint spec lives in the genai-electron repo's `image-generation.md`
 
 ### Error Handling
@@ -363,7 +365,9 @@ All adapters should use `adapterErrorUtils.ts` patterns:
 - Configure with `LLMServiceOptions.retry` (defaults: `maxRetries` 2, `initialDelayMs` 500, `maxDelayMs` 10000, `backoffFactor` 2, `retryOnTimeout` true) and `LLMServiceOptions.timeoutMs`. Override per call: `sendMessage(request, { signal, timeoutMs, maxRetries })`.
 - Only transient failures retry (429/network/timeout/408/409/5xx); `Retry-After` hints are honored and aborts are never retried.
 - New adapter error codes `REQUEST_TIMEOUT` (retryable) and `REQUEST_ABORTED` (never retried); `LLMError` carries `status` and `retryAfterMs`. Per-request transport options reach adapters via `AdapterRequestOptions` on `ILLMClientAdapter.sendMessage`.
-- `ImageService` (since v0.10.0): `generateImage(request, { signal })` supports cancellation (no retry layer, no per-call `timeoutMs`). The signal reaches image adapters via the `generate()` config bag; failure envelopes propagate adapter-shaped `code`/`type`/`status` (errors whose `code` isn't in `ADAPTER_ERROR_CODES` fall back to `PROVIDER_ERROR`/`server_error` so e.g. a failing `ApiKeyProvider`'s `ENOENT` doesn't leak).
+- `ImageService` (since v0.10.0): `generateImage(request, { signal })` supports cancellation. The signal reaches image adapters via the `generate()` config bag; failure envelopes propagate adapter-shaped `code`/`type`/`status`/`retryAfterMs` (errors whose `code` isn't in `ADAPTER_ERROR_CODES` fall back to `PROVIDER_ERROR`/`server_error` so e.g. a failing `ApiKeyProvider`'s `ENOENT` doesn't leak).
+- `ImageService` (since v0.11.0) also has per-call `timeoutMs` (overrides the construction defaults: 60s OpenAI, 120s genai-electron; covers genai-electron's POST + poll budget and OpenAI's hosted-URL fetch) and a `withRetry` layer mirroring the LLM options (`ImageServiceOptions.retry`, per-call `maxRetries`), gated on the per-provider `retryable` flag in `src/image/config.ts` — `openai-images` is retryable, `genai-electron-images` is explicitly not (a blind retry after the POST would start a second GPU generation), and unknown/custom providers default to no retries.
+- Error classification in `src/shared/adapters/errorUtils.ts` matches error-class **constructor names** as well as `name` (openai/anthropic SDK error classes never set `this.name`), accepts `statusCode` alongside `status` (Speakeasy/mistral), and walks nested `error.cause` chains for network codes (undici's `fetch failed`, anthropic's `APIConnectionError`).
 
 ## Code Style
 

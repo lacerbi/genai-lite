@@ -49,15 +49,35 @@ Note: all "latest" package versions below were checked via `npm view` on
    off by default in 1.52 and 2.10; it must stay unset or it would multiply
    attempts under `withRetry`.
 
-3. **`@mistralai/mistralai` 2.x major upgrade** (floor `^1.11.0`, lockfile
-   1.15.1; latest 2.4.0). Breaking; Speakeasy-generated SDK — check error
-   shapes and the `rawResponse` Retry-After extraction in
-   `src/shared/adapters/errorUtils.ts` still match.
+3. ~~**`@mistralai/mistralai` 2.x major upgrade**~~ **RESOLVED-AS-DEFERRED
+   (v0.11.0, 2026-07-03)** — 2.x (2.4.1) is **ESM-only** (`type: module`, no
+   CJS build): genai-lite's CJS output can only `require()` it on Node ≥ 20.19,
+   and Jest's CJS module registry cannot load it at all (`type: module`
+   packages bypass the transform pipeline — 8 unit suites and all e2e would
+   break). Deferred to item 12 (dual packaging); floor bumped `^1.11.0` →
+   `^1.15.1` (latest 1.x) instead. The item's real payload shipped anyway —
+   the "check error shapes" review found three production bugs, all fixed in
+   shared `errorUtils`/adapter and live-verified: (a) `MistralError` exposes
+   `statusCode`, not `status`, so HTTP errors (429/401/5xx) mapped to
+   `UNKNOWN_ERROR` and were never retried; (b) Speakeasy's typed
+   `RequestAbortedError`/`RequestTimeoutError`/`ConnectionError` were
+   unrecognized; (c) the SDK silently drops `timeoutMs` whenever a signal is
+   supplied — the adapter now composes
+   `AbortSignal.any([signal, AbortSignal.timeout(ms)])`.
 
-4. **`@anthropic-ai/sdk` catch-up** (0.72.1 vs 0.110.0 latest). 0.x caret pins
-   the minor, so every step needs a manual floor bump; Dependabot proposes one
-   minor at a time. Consider a deliberate jump with adapter review instead of
-   38 incremental PRs.
+4. ~~**`@anthropic-ai/sdk` catch-up**~~ **RESOLVED (v0.11.0, 2026-07-03)** —
+   deliberate jump `^0.72.1` → `^0.110.0`. Changelog review (0.73–0.110): no
+   breaking changes on our surfaces; still CJS; no engines change. Live no-key
+   verification exposed a **pre-existing** bug (also on 0.72.1, and affecting
+   every OpenAI-SDK-based adapter: openai, openrouter, llamacpp):
+   `APIUserAbortError`/`APIConnectionTimeoutError`/`APIConnectionError` never
+   assign `this.name` (instances report name `'Error'`), so the shared
+   name-based classification never fired — aborts/timeouts/network failures
+   fell through to `UNKNOWN_ERROR`/`client_error` and timeouts were never
+   retried. Fixed generically: `errorUtils` now matches constructor names too
+   and walks nested `cause` chains (anthropic buries the socket code at
+   `error.cause.cause.code`). See also new items 13–14 for pre-existing
+   adapter issues found during review.
 
 5. ~~**Gemini network-error flattening**~~ **RESOLVED (v0.11.0, 2026-07-03)** —
    turned out to be already unlocked: since 1.52 the SDK rethrows fetch
@@ -90,24 +110,28 @@ Note: all "latest" package versions below were checked via `npm view` on
    the `SERVER_BUSY` branch was unreachable); both timeout paths are typed
    `REQUEST_TIMEOUT`/`timeout_error`.
 
-8. **404-on-poll (expired generation TTL) remap.** A genai-electron generation
-   that expires from the registry (default TTL 300s) returns 404 `NOT_FOUND`
-   on the poll GET, which the common mapping turns into
-   `MODEL_NOT_FOUND`/`invalid_request_error` — misleading ("model not found"
-   for an expired generation). Low priority: the adapter polls every 500ms, so
-   expiry mid-poll requires an extreme TTL/timeout mismatch. Fix: branch on
-   the attached server code `NOT_FOUND` in `handleError` with a clearer
-   message/mapping (the code now reaches the error object since v0.10.0).
+8. ~~**404-on-poll (expired generation TTL) remap.**~~ **RESOLVED (v0.11.0,
+   2026-07-03)** — `handleError` branches on the attached server code
+   `NOT_FOUND` → `PROVIDER_ERROR`/`server_error` with an expired-registry
+   message instead of the misleading `MODEL_NOT_FOUND`.
 
-9. **Per-call `timeoutMs` for images** (LLM parity). `GenerateImageOptions`
-   currently carries only `signal`; the adapters' timeouts are fixed at
-   construction (60s OpenAI, 120s genai-electron). Deferred from v0.10.0 to
-   keep the bundle focused.
+9. ~~**Per-call `timeoutMs` for images**~~ **RESOLVED (v0.11.0, 2026-07-03)** —
+   `GenerateImageOptions.timeoutMs` threads through the `generate()` config
+   bag. OpenAI Images: SDK per-request timeout + the dall-e hosted-URL fetch
+   bounded by the same budget. genai-electron: overrides both the POST timer
+   and the poll-loop budget; cancel-on-timeout DELETE and abort-wins
+   precedence preserved.
 
-10. **Retry layer for ImageService.** `withRetry` is LLM-only; OpenAI Images
-    calls get no 429/5xx retries (local diffusion doesn't need them). Since
-    v0.10.0 the envelopes carry retryable-vs-not classification, so a shared
-    retry layer would slot in cleanly if wanted.
+10. ~~**Retry layer for ImageService.**~~ **RESOLVED (v0.11.0, 2026-07-03)** —
+    shared `withRetry` around adapter calls, mirroring the LLM options
+    (`ImageServiceOptions.retry`, per-call `maxRetries`), gated on a new
+    per-provider `retryable` flag in `src/image/config.ts`: `openai-images`
+    true, `genai-electron-images` explicitly false (a blind retry of a
+    mid-poll failure would start a second GPU generation), unknown/custom
+    providers default false. Correction found during design: `retryAfterMs`
+    was computed by `getCommonMappedErrorDetails` but dropped by both image
+    adapters — it now propagates onto `ImageFailureResponse.error` and the
+    retry layer honors it.
 
 11. ~~**Node 18 support drift.**~~ **RESOLVED (v0.11.0, 2026-07-03)** —
     Node 18 dropped: CI matrix now 20.x/22.x/24.x, `engines: node >=20.0.0`
@@ -115,21 +139,46 @@ Note: all "latest" package versions below were checked via `npm view` on
     template and demo-doc prerequisites updated 18+ → 20+. Note for consumers
     still on Node 18: stay on genai-lite ≤ 0.10.0.
 
+12. **Dual ESM/CJS packaging.** genai-lite ships CJS-only, which now blocks
+    the `@mistralai/mistralai` 2.x major (ESM-only; see item 3) and will bite
+    again as more SDKs drop CJS. Ship `exports` with both `require` and
+    `import` conditions (e.g. tsup/tshy dual build, or ESM-only with an
+    engines bump). Revisit the Mistral 2.x upgrade (and the Jest strategy for
+    ESM-only deps — likely `moduleNameMapper` stubs or vm-modules) as part of
+    this. Filed 2026-07-03.
+
+13. **Anthropic structured-output param drift** (pre-existing, found in the
+    item 4 review). `AnthropicClientAdapter` sends `output_format` via
+    `(messageParams as any)`, but the SDK/API renamed the param to
+    `output_config` at SDK v0.72.0. Because it bypasses SDK typing, nothing
+    fails loudly — verify against the live API (does `output_format` still
+    work? does structured output work at all?) and migrate. Needs a paid e2e
+    check (`npm run test:e2e` structured-output suite).
+
+14. **Anthropic reasoning-path response parsing** (pre-existing, found in the
+    item 4 review). `createSuccessResponse` reads `completion.thinking_content`
+    / `completion.reasoning_details`, which are not Anthropic response fields —
+    thinking arrives as `content` blocks of `type: "thinking"` — and it assumes
+    `content[0].type === 'text'` (throws "Invalid completion structure"
+    otherwise). With `reasoning.enabled` the first block is a thinking block,
+    so the extended-thinking path likely misbehaves. Verify with a paid e2e
+    reasoning run (`npm run test:e2e:reasoning`) and fix the parsing to walk
+    content blocks.
+
 ## Pickup point
 
-Item 3 (`@mistralai/mistralai` 2.x) is next, then item 4 (`@anthropic-ai/sdk`
-catch-up). For items 3–4: branch per upgrade, bump floor + lockfile,
-`npm run build` (tsc catches type breaks), full unit suite (adapters are
-mocked, so unit tests alone don't prove wire behavior), then a targeted e2e
-smoke (`npm run test:e2e` — real API calls, costs money, use sparingly per
-CLAUDE.md).
+Open items: 12 (dual packaging — unblocks Mistral 2.x), 13–14 (Anthropic
+pre-existing issues; both need paid e2e verification before/with the fix).
 
-**v0.11.0 release state**: items 2 + 5 shipped on branch
-`upgrade/google-genai-2x` (2026-07-03); unit suite green (814 tests), audit
-clean, `npm pack --dry-run` OK. **Gemini e2e wire smoke not run** — no
-`E2E_GEMINI_API_KEY` in the dev environment; run it before/after merging
-(the e2e suite auto-skips providers without keys, so setting just the Gemini
-key keeps the cost to one provider). Not yet merged/tagged/published.
+**v0.11.0 release state**: items 2, 3 (as deferred+fixes), 4, 5, 8, 9, 10, 11
+all shipped on branch `upgrade/google-genai-2x` / PR #92 (2026-07-03); unit
+suite green (837 tests), audit clean. Adapter transport behavior (network /
+timeout / abort classification) live-verified without API keys against real
+SDK wire behavior for Gemini, Mistral, and Anthropic (refused port, hanging
+server, mid-flight abort). **Paid e2e wire smoke not run** — no `E2E_*_API_KEY`
+in the dev environment; given the three SDK bumps, a full `npm run test:e2e`
+(all providers) is warranted before tagging/publishing this release. Not yet
+merged/tagged/published.
 
 Sister-repo follow-up: DONE (2026-07-03, genai-electron commit `064a3d2`) —
 genai-electron's docs (`image-generation.md`, `index.md`,
