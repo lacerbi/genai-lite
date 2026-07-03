@@ -6,6 +6,7 @@
  */
 
 import type { Logger, LogLevel } from '../logging/types';
+import type { RetryPolicy } from '../shared/services/withRetry';
 
 /**
  * Image provider ID type - represents a unique identifier for an image generation provider
@@ -286,6 +287,8 @@ export interface ImageFailureResponse {
     type?: string;
     /** HTTP status code reported by the provider, when available */
     status?: number;
+    /** Provider-suggested wait before retrying, in ms (from a Retry-After header) */
+    retryAfterMs?: number;
     /** Parameter that caused the error (if applicable) */
     param?: string;
     /** Original provider error (for debugging) */
@@ -345,6 +348,13 @@ export interface ImageProviderInfo {
   capabilities: ImageProviderCapabilities;
   /** Available models from this provider */
   models?: ImageModelInfo[];
+  /**
+   * Whether transient failures from this provider are safe to auto-retry.
+   * Omit/false for providers whose generate() has non-idempotent side effects
+   * (e.g. genai-electron's POST-then-poll — a blind retry after the POST would
+   * start a second GPU generation).
+   */
+  retryable?: boolean;
 }
 
 /**
@@ -403,6 +413,8 @@ export interface ImageProviderAdapter {
     apiKey: string | null;
     /** Abort signal for request-side cancellation (optional) */
     signal?: AbortSignal;
+    /** Per-request timeout override in ms; adapters fall back to their construction-time default when undefined */
+    timeoutMs?: number;
   }): Promise<ImageGenerationResponse>;
 
   /**
@@ -442,6 +454,14 @@ export interface ImageServiceOptions {
   logLevel?: LogLevel;
   /** Custom logger implementation. If provided, logLevel is ignored. */
   logger?: Logger;
+  /**
+   * Retry policy for transient failures (rate limits, 5xx, network, timeouts)
+   * from retry-safe providers only. Defaults: maxRetries 2, initialDelayMs 500,
+   * maxDelayMs 10000, backoffFactor 2, retryOnTimeout true. Set maxRetries: 0
+   * to disable. Providers marked retryable: false (e.g. genai-electron, where a
+   * blind retry would start a second GPU generation) are never retried.
+   */
+  retry?: Partial<RetryPolicy> & { retryOnTimeout?: boolean };
 }
 
 /**
@@ -455,6 +475,17 @@ export interface GenerateImageOptions {
    * requests surface as REQUEST_ABORTED / abort_error failures.
    */
   signal?: AbortSignal;
+  /**
+   * Per-request timeout in ms. Overrides the adapter's construction-time
+   * default (60s OpenAI Images, 120s genai-electron). Timeouts surface as
+   * REQUEST_TIMEOUT / timeout_error failures.
+   */
+  timeoutMs?: number;
+  /**
+   * Per-request retry cap (overrides the service-level retry.maxRetries;
+   * ignored for providers marked retryable: false).
+   */
+  maxRetries?: number;
 }
 
 /**

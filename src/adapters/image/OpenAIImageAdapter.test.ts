@@ -134,6 +134,91 @@ describe('OpenAIImageAdapter', () => {
     });
   });
 
+  describe('Per-call timeout', () => {
+    const gptImageConfig = {
+      request: {
+        providerId: 'openai-images',
+        modelId: 'gpt-image-1-mini',
+        prompt: 'A cute otter',
+      } as ImageGenerationRequest,
+      resolvedPrompt: 'A cute otter',
+      settings: {
+        width: 1024,
+        height: 1024,
+        quality: 'auto',
+        responseFormat: 'buffer',
+        style: 'vivid',
+      } as ResolvedImageGenerationSettings,
+      apiKey: 'sk-test123456789012345',
+    };
+
+    it('passes timeoutMs as a per-request timeout to the SDK', async () => {
+      mockOpenAIClient.images.generate.mockResolvedValue({
+        created: Math.floor(Date.now() / 1000),
+        data: [{ b64_json: 'dGVzdA==' }],
+      });
+
+      await adapter.generate({ ...gptImageConfig, timeoutMs: 5000 });
+
+      expect(mockOpenAIClient.images.generate).toHaveBeenCalledWith(
+        expect.any(Object),
+        { timeout: 5000 }
+      );
+    });
+
+    it('combines timeoutMs with the abort signal', async () => {
+      mockOpenAIClient.images.generate.mockResolvedValue({
+        created: Math.floor(Date.now() / 1000),
+        data: [{ b64_json: 'dGVzdA==' }],
+      });
+
+      const controller = new AbortController();
+      await adapter.generate({
+        ...gptImageConfig,
+        signal: controller.signal,
+        timeoutMs: 5000,
+      });
+
+      expect(mockOpenAIClient.images.generate).toHaveBeenCalledWith(
+        expect.any(Object),
+        { signal: controller.signal, timeout: 5000 }
+      );
+    });
+  });
+
+  describe('Retry-After propagation', () => {
+    it('attaches retryAfterMs from a rate-limited response', async () => {
+      const rateLimitError: any = new Error('Rate limit exceeded');
+      rateLimitError.status = 429;
+      rateLimitError.headers = new Headers({ 'retry-after': '7' });
+      mockOpenAIClient.images.generate.mockRejectedValue(rateLimitError);
+
+      const pending = adapter.generate({
+        request: {
+          providerId: 'openai-images',
+          modelId: 'gpt-image-1-mini',
+          prompt: 'A cute otter',
+        },
+        resolvedPrompt: 'A cute otter',
+        settings: {
+          width: 1024,
+          height: 1024,
+          quality: 'auto',
+          responseFormat: 'buffer',
+          style: 'vivid',
+        } as ResolvedImageGenerationSettings,
+        apiKey: 'sk-test123456789012345',
+      });
+
+      await expect(pending).rejects.toMatchObject({
+        code: 'RATE_LIMIT_EXCEEDED',
+        type: 'rate_limit_error',
+        status: 429,
+        retryAfterMs: 7000,
+      });
+    });
+  });
+
   describe('gpt-image-1-mini Generation', () => {
     it('should generate image with gpt-image-1-mini and base64 response', async () => {
       const mockResponse = {

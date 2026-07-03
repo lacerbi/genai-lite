@@ -24,6 +24,8 @@ export const SUPPORTED_IMAGE_PROVIDERS: ImageProviderInfo[] = [
     id: 'openai-images',
     displayName: 'OpenAI Images',
     description: 'DALL-E and GPT-Image models from OpenAI',
+    // Single atomic POST per generation — safe to auto-retry transient failures
+    retryable: true,
     capabilities: {
       supportsMultipleImages: true,
       supportsB64Json: true,
@@ -130,6 +132,9 @@ export const SUPPORTED_IMAGE_PROVIDERS: ImageProviderInfo[] = [
     id: 'genai-electron-images',
     displayName: 'Local Diffusion (genai-electron)',
     description: 'Local stable-diffusion models via genai-electron wrapper',
+    // POST-then-poll: a blind retry of a mid-poll failure would start a second
+    // GPU generation, so the service-level retry layer must never touch this
+    retryable: false,
     capabilities: {
       supportsMultipleImages: true,
       supportsB64Json: true,

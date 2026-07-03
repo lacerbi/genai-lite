@@ -104,8 +104,12 @@ export class GenaiElectronImageAdapter implements ImageProviderAdapter {
     settings: ResolvedImageGenerationSettings;
     apiKey: string | null;
     signal?: AbortSignal;
+    timeoutMs?: number;
   }): Promise<ImageGenerationResponse> {
-    const { request, resolvedPrompt, settings, signal } = config;
+    const { request, resolvedPrompt, settings, signal, timeoutMs } = config;
+    // Per-request override of the construction-time timeout; applies to both
+    // the POST and the poll-loop budget
+    const effectiveTimeout = timeoutMs ?? this.timeout;
     let generationId: string | undefined;
 
     try {
@@ -126,7 +130,7 @@ export class GenaiElectronImageAdapter implements ImageProviderAdapter {
       });
 
       // Start generation (returns immediately with ID)
-      generationId = await this.startGeneration(payload, signal);
+      generationId = await this.startGeneration(payload, signal, effectiveTimeout);
 
       this.logger.info(`GenaiElectron Image API: Generation started with ID: ${generationId}`);
 
@@ -134,7 +138,8 @@ export class GenaiElectronImageAdapter implements ImageProviderAdapter {
       const result = await this.pollForCompletion(
         generationId,
         settings.diffusion?.onProgress,
-        signal
+        signal,
+        effectiveTimeout
       );
 
       this.logger.info(`GenaiElectron Image API: Generation complete (${result.timeTaken}ms)`);
@@ -189,7 +194,11 @@ export class GenaiElectronImageAdapter implements ImageProviderAdapter {
    * so both surface as AbortError — classification comes from adapter-side
    * state (timer-fired flag vs signal.aborted), with the caller's abort winning.
    */
-  private async startGeneration(payload: any, signal?: AbortSignal): Promise<string> {
+  private async startGeneration(
+    payload: any,
+    signal: AbortSignal | undefined,
+    effectiveTimeout: number
+  ): Promise<string> {
     const url = `${this.baseURL}/v1/images/generations`;
 
     const controller = new AbortController();
@@ -205,7 +214,7 @@ export class GenaiElectronImageAdapter implements ImageProviderAdapter {
     const timeoutId = setTimeout(() => {
       timedOut = true;
       controller.abort();
-    }, this.timeout);
+    }, effectiveTimeout);
 
     try {
       const response = await fetch(url, {
@@ -231,7 +240,7 @@ export class GenaiElectronImageAdapter implements ImageProviderAdapter {
         }
         if (timedOut) {
           throw this.createTimeoutError(
-            `Request timeout after ${this.timeout}ms (connecting to ${this.baseURL})`
+            `Request timeout after ${effectiveTimeout}ms (connecting to ${this.baseURL})`
           );
         }
       }
@@ -248,8 +257,9 @@ export class GenaiElectronImageAdapter implements ImageProviderAdapter {
    */
   private async pollForCompletion(
     generationId: string,
-    onProgress?: ImageProgressCallback,
-    signal?: AbortSignal
+    onProgress: ImageProgressCallback | undefined,
+    signal: AbortSignal | undefined,
+    effectiveTimeout: number
   ): Promise<NonNullable<GenerationStatusResponse['result']>> {
     const url = `${this.baseURL}/v1/images/generations/${generationId}`;
     const startTime = Date.now();
@@ -263,9 +273,9 @@ export class GenaiElectronImageAdapter implements ImageProviderAdapter {
       }
 
       // Check overall timeout
-      if (Date.now() - startTime > this.timeout) {
+      if (Date.now() - startTime > effectiveTimeout) {
         throw this.createTimeoutError(
-          `Generation timeout after ${this.timeout}ms (ID: ${generationId})`
+          `Generation timeout after ${effectiveTimeout}ms (ID: ${generationId})`
         );
       }
 
@@ -514,6 +524,9 @@ export class GenaiElectronImageAdapter implements ImageProviderAdapter {
     (enhancedError as any).code = errorCode;
     (enhancedError as any).type = errorType;
     (enhancedError as any).status = mapped.status;
+    if (mapped.retryAfterMs !== undefined) {
+      (enhancedError as any).retryAfterMs = mapped.retryAfterMs;
+    }
     (enhancedError as any).providerId = this.id;
     (enhancedError as any).modelId = request.modelId;
 

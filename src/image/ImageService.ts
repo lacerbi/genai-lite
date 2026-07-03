@@ -22,7 +22,13 @@ import type {
   GenerateImageOptions,
 } from '../types/image';
 import { ADAPTER_ERROR_CODES } from '../llm/clients/types';
-import { SUPPORTED_IMAGE_PROVIDERS, getImageModelsByProvider, IMAGE_ADAPTER_CONFIGS } from './config';
+import { withRetry } from '../shared/services/withRetry';
+import {
+  SUPPORTED_IMAGE_PROVIDERS,
+  getImageModelsByProvider,
+  getImageProviderById,
+  IMAGE_ADAPTER_CONFIGS,
+} from './config';
 import rawDefaultImagePresets from '../config/image-presets.json';
 import { PresetManager } from '../shared/services/PresetManager';
 import { AdapterRegistry } from '../shared/services/AdapterRegistry';
@@ -51,9 +57,11 @@ export class ImageService {
   private requestValidator: ImageRequestValidator;
   private settingsResolver: ImageSettingsResolver;
   private modelResolver: ImageModelResolver;
+  private retryOptions: ImageServiceOptions['retry'];
 
   constructor(getApiKey: ApiKeyProvider, options: ImageServiceOptions = {}) {
     this.getApiKey = getApiKey;
+    this.retryOptions = options.retry;
 
     // Initialize logger - custom logger takes precedence over logLevel
     this.logger = options.logger ?? createDefaultLogger(options.logLevel);
@@ -194,47 +202,62 @@ export class ImageService {
           };
         }
 
-        // Generate images
+        // Generate images. Only providers marked retryable in config are ever
+        // retried — genai-electron's POST-then-poll is not idempotent (a blind
+        // retry after the POST would start a second GPU generation), and custom
+        // adapters without a config entry get the safe default (no retries).
         this.logger.info(`ImageService: Calling adapter for provider: ${providerId}`);
-        const response = await adapter.generate({
-          request: fullRequest,
-          resolvedPrompt,
-          settings: resolvedSettings,
-          apiKey,
-          signal: options?.signal,
-        });
+        const providerRetryable = getImageProviderById(providerId!)?.retryable === true;
+        const retryOnTimeout = this.retryOptions?.retryOnTimeout ?? true;
+        const retryableCodes = new Set<string>([
+          ADAPTER_ERROR_CODES.RATE_LIMIT_EXCEEDED,
+          ADAPTER_ERROR_CODES.NETWORK_ERROR,
+          ...(retryOnTimeout ? [ADAPTER_ERROR_CODES.REQUEST_TIMEOUT] : []),
+        ]);
 
-        this.logger.info('ImageService: Image generation completed successfully');
-        return response;
-      } catch (error) {
-        this.logger.error('ImageService: Error during image generation:', error);
-        // Adapters throw errors stamped with an ADAPTER_ERROR_CODES code plus
-        // type/status — propagate that classification. Anything else caught here
-        // (e.g. a failing ApiKeyProvider whose error carries a foreign `.code`
-        // like ENOENT) keeps the generic fallback so unrelated codes don't leak
-        // into the API surface.
-        const thrown = error as any;
-        const isAdapterError =
-          typeof thrown?.code === 'string' && ADAPTER_ERROR_CODE_VALUES.has(thrown.code);
-        return {
-          object: 'error',
-          providerId: providerId!,
-          modelId: modelId!,
-          error: {
-            message:
-              error instanceof Error
-                ? error.message
-                : 'An unknown error occurred during image generation',
-            code: isAdapterError ? thrown.code : 'PROVIDER_ERROR',
-            type:
-              isAdapterError && typeof thrown.type === 'string'
-                ? thrown.type
-                : 'server_error',
-            ...(isAdapterError &&
-              typeof thrown.status === 'number' && { status: thrown.status }),
-            providerError: error,
+        return await withRetry<ImageGenerationResponse | ImageFailureResponse>(
+          async () => {
+            try {
+              const response = await adapter.generate({
+                request: fullRequest,
+                resolvedPrompt,
+                settings: resolvedSettings,
+                apiKey,
+                signal: options?.signal,
+                timeoutMs: options?.timeoutMs,
+              });
+              this.logger.info('ImageService: Image generation completed successfully');
+              return response;
+            } catch (error) {
+              this.logger.error('ImageService: Error during image generation:', error);
+              return this.buildFailureEnvelope(error, providerId!, modelId!);
+            }
           },
-        };
+          (result) => {
+            if (result.object !== 'error' || !providerRetryable) {
+              return { retry: false };
+            }
+            const code = String(result.error.code);
+            const status = result.error.status;
+            const retry =
+              retryableCodes.has(code) ||
+              (code === ADAPTER_ERROR_CODES.PROVIDER_ERROR &&
+                typeof status === 'number' &&
+                (status === 408 || status === 409 || status >= 500));
+            return { retry, retryAfterMs: result.error.retryAfterMs };
+          },
+          {
+            ...this.retryOptions,
+            ...(options?.maxRetries !== undefined && { maxRetries: options.maxRetries }),
+            signal: options?.signal,
+            logger: this.logger,
+            label: `${providerId}/${modelId}`,
+          }
+        );
+      } catch (error) {
+        // Errors thrown outside the adapter call (e.g. a failing ApiKeyProvider)
+        this.logger.error('ImageService: Error during image generation:', error);
+        return this.buildFailureEnvelope(error, providerId!, modelId!);
       }
     } catch (error) {
       this.logger.error('ImageService: Unexpected error:', error);
@@ -252,6 +275,46 @@ export class ImageService {
         },
       };
     }
+  }
+
+  /**
+   * Builds a failure envelope from a thrown error.
+   *
+   * Adapters throw errors stamped with an ADAPTER_ERROR_CODES code plus
+   * type/status/retryAfterMs — that classification is propagated. Anything else
+   * (e.g. a failing ApiKeyProvider whose error carries a foreign `.code` like
+   * ENOENT) keeps the generic fallback so unrelated codes don't leak into the
+   * API surface.
+   */
+  private buildFailureEnvelope(
+    error: unknown,
+    providerId: ImageProviderId,
+    modelId: string | undefined
+  ): ImageFailureResponse {
+    const thrown = error as any;
+    const isAdapterError =
+      typeof thrown?.code === 'string' && ADAPTER_ERROR_CODE_VALUES.has(thrown.code);
+    return {
+      object: 'error',
+      providerId,
+      modelId,
+      error: {
+        message:
+          error instanceof Error
+            ? error.message
+            : 'An unknown error occurred during image generation',
+        code: isAdapterError ? thrown.code : 'PROVIDER_ERROR',
+        type:
+          isAdapterError && typeof thrown.type === 'string'
+            ? thrown.type
+            : 'server_error',
+        ...(isAdapterError &&
+          typeof thrown.status === 'number' && { status: thrown.status }),
+        ...(isAdapterError &&
+          typeof thrown.retryAfterMs === 'number' && { retryAfterMs: thrown.retryAfterMs }),
+        providerError: error,
+      },
+    };
   }
 
   /**
