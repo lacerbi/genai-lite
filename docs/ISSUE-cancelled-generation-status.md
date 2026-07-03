@@ -1,7 +1,10 @@
 # ISSUE: Treat 'cancelled' as a terminal generation status in GenaiElectronImageAdapter
 
 Created: 2026-07-03
-Status: OPEN
+Status: RESOLVED (2026-07-03, v0.9.2) — items 1–2 implemented: `'cancelled'`
+added to the status union and treated as terminal in `pollForCompletion`,
+surfacing as `REQUEST_ABORTED`/`abort_error`. Item 3 (request-side DELETE
+cancellation) deferred until the ImageService API grows an AbortSignal.
 Package: genai-lite (filed from genai-electron v0.6.0 work)
 
 ## Problem
