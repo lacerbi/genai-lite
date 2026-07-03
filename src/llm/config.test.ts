@@ -590,8 +590,9 @@ describe('LLM Config', () => {
       expect(caps?.defaultSettings).toMatchObject({ temperature: 1.0, topK: 64 });
     });
 
-    it('detects Gemma 4 MoE and 31B variants', () => {
-      expect(detectGgufCapabilities('gemma-4-26B-A4B-it-UD-IQ4_NL.gguf')?.contextWindow).toBe(131072);
+    it('detects Gemma 4 12B, MoE and 31B variants', () => {
+      expect(detectGgufCapabilities('gemma-4-12B-it-Q4_K_M.gguf')?.contextWindow).toBe(262144);
+      expect(detectGgufCapabilities('gemma-4-26B-A4B-it-UD-IQ4_NL.gguf')?.contextWindow).toBe(262144);
       expect(detectGgufCapabilities('gemma-4-31B-it-UD-Q6_K_XL.gguf')?.contextWindow).toBe(262144);
     });
 
