@@ -147,10 +147,11 @@ type LLMStreamEvent =
 | Provider | Streaming | Notes |
 |----------|-----------|-------|
 | `openai` | Yes | Uses OpenAI chat-completion streaming with usage chunks when available. Reasoning deltas are forwarded defensively if the API emits them. |
+| `anthropic` | Yes | Uses Anthropic Messages streaming. Text blocks emit `content_delta`; thinking blocks emit `reasoning_delta` when reasoning is not excluded. |
 | `gemini` | Yes | Uses `generateContentStream()`. Gemini thought parts are emitted as `reasoning_delta` when thoughts are included and not excluded. |
+| `mistral` | Yes | Uses the Mistral SDK streaming endpoint. String text deltas and text content chunks emit `content_delta`; thinking chunks emit `reasoning_delta` when reasoning is not excluded. |
 | `llamacpp` | Yes | Uses llama-server's OpenAI-compatible streaming endpoint. `reasoning_delta` appears when the server emits separated reasoning fields. |
 | `openrouter` | Yes | Uses OpenRouter's OpenAI-compatible streaming endpoint. Reasoning deltas are forwarded when the underlying model/provider emits them. |
-| Anthropic, Mistral | Not yet | `streamMessage()` yields a single `error` event for adapters that do not implement streaming. |
 
 ### Cancellation and Timeouts
 

@@ -2,7 +2,7 @@
 // Handles Claude-specific request formatting, response parsing, and error mapping to standardized format.
 
 import Anthropic from "@anthropic-ai/sdk";
-import type { LLMResponse, LLMFailureResponse, LLMMessage } from "../types";
+import type { LLMResponse, LLMFailureResponse, LLMMessage, LLMStreamEvent } from "../types";
 import type {
   ILLMClientAdapter,
   InternalLLMChatRequest,
@@ -17,6 +17,24 @@ import {
 } from "../../shared/adapters/systemMessageUtils";
 import type { Logger } from "../../logging/types";
 import { createDefaultLogger } from "../../logging/defaultLogger";
+
+interface AnthropicPreparedRequest {
+  anthropic: Anthropic;
+  messageParams: Anthropic.Messages.MessageCreateParams;
+  requestTransportOptions: Record<string, any>;
+  useStructuredOutput: boolean;
+  messages: Anthropic.Messages.MessageParam[];
+}
+
+interface AnthropicStreamAccumulator {
+  id: string;
+  model: string;
+  created: number;
+  content: string;
+  reasoning: string;
+  stopReason: string | null;
+  usage?: any;
+}
 
 /**
  * Client adapter for Anthropic API integration
@@ -57,97 +75,13 @@ export class AnthropicClientAdapter implements ILLMClientAdapter {
     options?: AdapterRequestOptions
   ): Promise<LLMResponse | LLMFailureResponse> {
     try {
-      // Check if structured output is requested - need beta API
-      const useStructuredOutput = request.settings.structuredOutput?.schema &&
-        request.settings.structuredOutput.enabled !== false;
-
-      // Initialize Anthropic client
-      const anthropic = new Anthropic({
-        apiKey,
-        ...(this.baseURL && { baseURL: this.baseURL }),
-        maxRetries: 0, // retries are owned by the unified LLMService retry layer
-      });
-
-      // Per-request transport options (abort signal, timeout)
-      const requestTransportOptions = {
-        ...(options?.signal && { signal: options.signal }),
-        ...(options?.timeoutMs !== undefined && { timeout: options.timeoutMs }),
-      };
-
-      // Format messages for Anthropic API (Claude has specific requirements)
-      const { messages, systemMessage } =
-        this.formatMessagesForAnthropic(request);
-
-      // Prepare API call parameters
-      const messageParams: Anthropic.Messages.MessageCreateParams = {
-        model: request.modelId,
-        messages: messages,
-        max_tokens: request.settings.maxTokens,
-        temperature: request.settings.temperature,
-        top_p: request.settings.topP,
-        ...(request.settings.topK !== undefined && {
-          top_k: request.settings.topK,
-        }),
-        ...(systemMessage && { system: systemMessage }),
-        ...(request.settings.stopSequences.length > 0 && {
-          stop_sequences: request.settings.stopSequences,
-        }),
-      };
-
-      // Handle structured output configuration for Anthropic
-      // Note: Structured output requires the beta API endpoint
-      if (useStructuredOutput) {
-        const so = request.settings.structuredOutput!;
-        // Anthropic requires additionalProperties: false on all object schemas
-        const processedSchema = so.strict !== false
-          ? this.addAdditionalPropertiesFalse(so.schema)
-          : so.schema;
-        // Anthropic's format: output_format.schema is the schema directly
-        (messageParams as any).output_format = {
-          type: 'json_schema',
-          name: so.name,
-          schema: processedSchema,
-          strict: so.strict !== false,
-        };
-      }
-
-      // Handle reasoning/thinking configuration for Claude models
-      if (request.settings.reasoning && !request.settings.reasoning.exclude) {
-        const reasoning = request.settings.reasoning;
-        let budgetTokens: number | undefined;
-
-        // Convert reasoning settings to Anthropic's thinking format
-        if (reasoning.maxTokens !== undefined) {
-          budgetTokens = Math.max(reasoning.maxTokens, 1024); // Minimum 1024
-        } else if (reasoning.effort) {
-          // Convert effort levels to token budgets
-          // Max budget for Anthropic is 32000
-          const maxBudget = 32000;
-          
-          switch (reasoning.effort) {
-            case 'high':
-              budgetTokens = Math.floor(maxBudget * 0.8);
-              break;
-            case 'medium':
-              budgetTokens = Math.floor(maxBudget * 0.5);
-              break;
-            case 'low':
-              budgetTokens = Math.floor(maxBudget * 0.2);
-              break;
-          }
-        } else if (reasoning.enabled !== false) {
-          // Use default budget
-          budgetTokens = 10000;
-        }
-
-        if (budgetTokens !== undefined) {
-          // Add thinking configuration to the request
-          (messageParams as any).thinking = {
-            type: "enabled",
-            budget_tokens: Math.min(budgetTokens, 32000) // Cap at max
-          };
-        }
-      }
+      const {
+        anthropic,
+        messageParams,
+        requestTransportOptions,
+        useStructuredOutput,
+        messages,
+      } = this.prepareMessageRequest(request, apiKey, options);
 
       this.logger.info(`Making Anthropic API call for model: ${request.modelId}`);
       this.logger.debug(`Anthropic API parameters:`, {
@@ -179,7 +113,7 @@ export class AnthropicClientAdapter implements ILLMClientAdapter {
       }
 
       this.logger.info(
-        `Anthropic API call successful, response ID: ${completion.id}`
+        `Anthropic API call successful, response ID: ${(completion as any).id}`
       );
 
       // Convert to standardized response format
@@ -188,6 +122,154 @@ export class AnthropicClientAdapter implements ILLMClientAdapter {
     } catch (error) {
       this.logger.error("Anthropic API error:", error);
       return this.createErrorResponse(error, request);
+    }
+  }
+
+  async *streamMessage(
+    request: InternalLLMChatRequest,
+    apiKey: string,
+    options?: AdapterRequestOptions
+  ): AsyncIterable<LLMStreamEvent> {
+    const accumulator: AnthropicStreamAccumulator = {
+      id: "",
+      model: request.modelId,
+      created: Math.floor(Date.now() / 1000),
+      content: "",
+      reasoning: "",
+      stopReason: null,
+    };
+    let sawEvent = false;
+    let started = false;
+
+    try {
+      const {
+        anthropic,
+        messageParams,
+        requestTransportOptions,
+        useStructuredOutput,
+      } = this.prepareMessageRequest(request, apiKey, options);
+
+      this.logger.info(`Making Anthropic streaming API call for model: ${request.modelId}`);
+      const streamOptions = useStructuredOutput
+        ? {
+            headers: {
+              "anthropic-beta": "structured-outputs-2025-11-13",
+            },
+            ...requestTransportOptions,
+          }
+        : requestTransportOptions;
+      const stream =
+        Object.keys(streamOptions).length > 0
+          ? anthropic.messages.stream(messageParams as any, streamOptions as any)
+          : anthropic.messages.stream(messageParams as any);
+
+      for await (const event of stream as AsyncIterable<Anthropic.Messages.MessageStreamEvent>) {
+        sawEvent = true;
+
+        if (event.type === "message_start") {
+          accumulator.id = event.message.id || accumulator.id;
+          accumulator.model = event.message.model || accumulator.model;
+          accumulator.stopReason = event.message.stop_reason ?? accumulator.stopReason;
+          accumulator.usage = this.mergeAnthropicUsage(accumulator.usage, event.message.usage);
+
+          if (!started) {
+            started = true;
+            yield {
+              type: "start",
+              provider: request.providerId,
+              model: accumulator.model,
+              id: accumulator.id,
+              created: accumulator.created,
+            };
+          }
+
+          if (event.message.usage) {
+            yield {
+              type: "usage",
+              usage: this.mapAnthropicUsage(accumulator.usage),
+            };
+          }
+          continue;
+        }
+
+        if (!started) {
+          started = true;
+          yield {
+            type: "start",
+            provider: request.providerId,
+            model: accumulator.model,
+            id: accumulator.id,
+            created: accumulator.created,
+          };
+        }
+
+        if (event.type === "content_block_start") {
+          const block = event.content_block as any;
+          if (block?.type === "text" && typeof block.text === "string" && block.text.length > 0) {
+            accumulator.content += block.text;
+            yield { type: "content_delta", delta: block.text, index: event.index };
+          } else if (
+            block?.type === "thinking" &&
+            typeof block.thinking === "string" &&
+            block.thinking.length > 0
+          ) {
+            accumulator.reasoning += block.thinking;
+            if (request.settings.reasoning?.exclude !== true) {
+              yield { type: "reasoning_delta", delta: block.thinking, index: event.index };
+            }
+          }
+        } else if (event.type === "content_block_delta") {
+          const delta = event.delta as any;
+          if (delta?.type === "text_delta" && typeof delta.text === "string" && delta.text.length > 0) {
+            accumulator.content += delta.text;
+            yield { type: "content_delta", delta: delta.text, index: event.index };
+          } else if (
+            delta?.type === "thinking_delta" &&
+            typeof delta.thinking === "string" &&
+            delta.thinking.length > 0
+          ) {
+            accumulator.reasoning += delta.thinking;
+            if (request.settings.reasoning?.exclude !== true) {
+              yield { type: "reasoning_delta", delta: delta.thinking, index: event.index };
+            }
+          }
+        } else if (event.type === "message_delta") {
+          accumulator.stopReason = event.delta.stop_reason ?? accumulator.stopReason;
+          accumulator.usage = this.mergeAnthropicUsage(accumulator.usage, event.usage);
+          if (event.usage) {
+            yield {
+              type: "usage",
+              usage: this.mapAnthropicUsage(accumulator.usage),
+            };
+          }
+        }
+      }
+
+      const response = this.createSuccessResponse(
+        this.createSyntheticMessage(request, accumulator),
+        request
+      );
+      yield { type: "complete", response };
+    } catch (error) {
+      this.logger.error("Anthropic streaming API error:", error);
+      const errorResponse = this.createErrorResponse(error, request);
+
+      if (sawEvent || accumulator.content.length > 0 || accumulator.reasoning.length > 0) {
+        const partial = this.createSuccessResponse(
+          this.createSyntheticMessage(request, accumulator),
+          request
+        );
+        errorResponse.partialResponse = {
+          id: partial.id,
+          provider: partial.provider,
+          model: partial.model,
+          created: partial.created,
+          choices: partial.choices,
+          usage: partial.usage,
+        };
+      }
+
+      yield { type: "error", error: errorResponse };
     }
   }
 
@@ -211,6 +293,168 @@ export class AnthropicClientAdapter implements ILLMClientAdapter {
       name: "Anthropic Client Adapter",
       version: "1.0.0",
     };
+  }
+
+  private prepareMessageRequest(
+    request: InternalLLMChatRequest,
+    apiKey: string,
+    options?: AdapterRequestOptions
+  ): AnthropicPreparedRequest {
+    // Check if structured output is requested - need beta API
+    const useStructuredOutput = !!(
+      request.settings.structuredOutput?.schema &&
+      request.settings.structuredOutput.enabled !== false
+    );
+
+    // Initialize Anthropic client
+    const anthropic = new Anthropic({
+      apiKey,
+      ...(this.baseURL && { baseURL: this.baseURL }),
+      maxRetries: 0, // retries are owned by the unified LLMService retry layer
+    });
+
+    // Per-request transport options (abort signal, timeout)
+    const requestTransportOptions = {
+      ...(options?.signal && { signal: options.signal }),
+      ...(options?.timeoutMs !== undefined && { timeout: options.timeoutMs }),
+    };
+
+    // Format messages for Anthropic API (Claude has specific requirements)
+    const { messages, systemMessage } = this.formatMessagesForAnthropic(request);
+
+    // Prepare API call parameters
+    const messageParams: Anthropic.Messages.MessageCreateParams = {
+      model: request.modelId,
+      messages: messages,
+      max_tokens: request.settings.maxTokens,
+      temperature: request.settings.temperature,
+      top_p: request.settings.topP,
+      ...(request.settings.topK !== undefined && {
+        top_k: request.settings.topK,
+      }),
+      ...(systemMessage && { system: systemMessage }),
+      ...(request.settings.stopSequences.length > 0 && {
+        stop_sequences: request.settings.stopSequences,
+      }),
+    };
+
+    // Handle structured output configuration for Anthropic
+    // Note: Structured output requires the beta API endpoint
+    if (useStructuredOutput) {
+      const so = request.settings.structuredOutput!;
+      // Anthropic requires additionalProperties: false on all object schemas
+      const processedSchema = so.strict !== false
+        ? this.addAdditionalPropertiesFalse(so.schema)
+        : so.schema;
+      // Anthropic's format: output_format.schema is the schema directly
+      (messageParams as any).output_format = {
+        type: 'json_schema',
+        name: so.name,
+        schema: processedSchema,
+        strict: so.strict !== false,
+      };
+    }
+
+    // Handle reasoning/thinking configuration for Claude models
+    if (request.settings.reasoning && !request.settings.reasoning.exclude) {
+      const reasoning = request.settings.reasoning;
+      let budgetTokens: number | undefined;
+
+      // Convert reasoning settings to Anthropic's thinking format
+      if (reasoning.maxTokens !== undefined) {
+        budgetTokens = Math.max(reasoning.maxTokens, 1024); // Minimum 1024
+      } else if (reasoning.effort) {
+        // Convert effort levels to token budgets
+        // Max budget for Anthropic is 32000
+        const maxBudget = 32000;
+
+        switch (reasoning.effort) {
+          case 'high':
+            budgetTokens = Math.floor(maxBudget * 0.8);
+            break;
+          case 'medium':
+            budgetTokens = Math.floor(maxBudget * 0.5);
+            break;
+          case 'low':
+            budgetTokens = Math.floor(maxBudget * 0.2);
+            break;
+        }
+      } else if (reasoning.enabled !== false) {
+        // Use default budget
+        budgetTokens = 10000;
+      }
+
+      if (budgetTokens !== undefined) {
+        // Add thinking configuration to the request
+        (messageParams as any).thinking = {
+          type: "enabled",
+          budget_tokens: Math.min(budgetTokens, 32000), // Cap at max
+        };
+      }
+    }
+
+    return {
+      anthropic,
+      messageParams,
+      requestTransportOptions,
+      useStructuredOutput,
+      messages,
+    };
+  }
+
+  private mapAnthropicUsage(usage: any) {
+    const promptTokens = usage.input_tokens ?? 0;
+    const completionTokens = usage.output_tokens ?? 0;
+    return {
+      prompt_tokens: promptTokens,
+      completion_tokens: completionTokens,
+      total_tokens: promptTokens + completionTokens,
+    };
+  }
+
+  private mergeAnthropicUsage(
+    current: any | undefined,
+    next: any | undefined
+  ): any | undefined {
+    if (!next) {
+      return current;
+    }
+
+    return {
+      ...(current || {}),
+      ...next,
+      input_tokens: next.input_tokens ?? current?.input_tokens ?? 0,
+      output_tokens: next.output_tokens ?? current?.output_tokens ?? 0,
+    };
+  }
+
+  private createSyntheticMessage(
+    request: InternalLLMChatRequest,
+    accumulator: AnthropicStreamAccumulator
+  ): Anthropic.Messages.Message {
+    const content: any[] = [];
+    if (accumulator.reasoning) {
+      content.push({
+        type: "thinking",
+        thinking: accumulator.reasoning,
+        signature: "",
+      });
+    }
+    content.push({
+      type: "text",
+      text: accumulator.content,
+    });
+
+    return {
+      id: accumulator.id || `anthropic-stream-${Date.now()}`,
+      type: "message",
+      role: "assistant",
+      model: accumulator.model || request.modelId,
+      content,
+      stop_reason: accumulator.stopReason as any,
+      stop_sequence: null,
+      usage: accumulator.usage,
+    } as any;
   }
 
   /**
@@ -387,10 +631,12 @@ export class AnthropicClientAdapter implements ILLMClientAdapter {
     completion: Anthropic.Messages.Message,
     request: InternalLLMChatRequest
   ): LLMResponse {
-    // Anthropic returns content as an array of content blocks
-    const contentBlock = completion.content[0];
+    // Anthropic returns content as an array of content blocks. Thinking-capable
+    // models may place a thinking block before the text block.
+    const textBlocks = completion.content.filter((block: any) => block.type === "text");
+    const textContent = textBlocks.map((block: any) => block.text || "").join("");
 
-    if (!contentBlock || contentBlock.type !== "text") {
+    if (textBlocks.length === 0) {
       throw new Error("Invalid completion structure from Anthropic API");
     }
 
@@ -401,6 +647,14 @@ export class AnthropicClientAdapter implements ILLMClientAdapter {
     // Check for thinking content in the response
     if ((completion as any).thinking_content) {
       reasoning = (completion as any).thinking_content;
+    }
+
+    const thinkingContent = completion.content
+      .filter((block: any) => block.type === "thinking" && typeof block.thinking === "string")
+      .map((block: any) => block.thinking)
+      .join("");
+    if (!reasoning && thinkingContent) {
+      reasoning = thinkingContent;
     }
     
     // Check for reasoning details that need to be preserved
@@ -414,7 +668,7 @@ export class AnthropicClientAdapter implements ILLMClientAdapter {
     const choice: any = {
       message: {
         role: "assistant",
-        content: contentBlock.text,
+        content: textContent,
       },
       finish_reason: finishReason,
       index: 0,

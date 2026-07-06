@@ -51,6 +51,7 @@ Complete reference of all supported AI providers and models in genai-lite.
 **Notes:**
 - Requires explicit `maxTokens` parameter (no default)
 - System messages handled differently than OpenAI
+- Supports `LLMService.streamMessage()` via Anthropic Messages streaming; text blocks emit `content_delta`, and thinking blocks emit `reasoning_delta` when reasoning output is included
 - Sampling parameters: supports `topK`. Does not support `seed`, `minP`, `repeatPenalty`, or `logprobs`/`topLogprobs` (silently stripped)
 
 ---
@@ -140,6 +141,7 @@ Complete reference of all supported AI providers and models in genai-lite.
 - Real adapter using the official `@mistralai/mistralai` SDK (since v0.8)
 - Does not support `frequencyPenalty` or `presencePenalty` parameters
 - System messages are natively supported
+- Supports `LLMService.streamMessage()` via the SDK streaming endpoint for content deltas, usage events, final normalized responses, and thinking chunks as `reasoning_delta` when present
 - Sampling parameters: supports `seed` (mapped to the SDK's `randomSeed`). Does not support `topK`, `minP`, `repeatPenalty`, or `logprobs`/`topLogprobs` (silently stripped)
 
 ---

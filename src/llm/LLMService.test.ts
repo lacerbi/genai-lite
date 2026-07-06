@@ -1,5 +1,6 @@
 import { LLMService } from './LLMService';
 import { MockClientAdapter } from './clients/MockClientAdapter';
+import { AnthropicClientAdapter } from './clients/AnthropicClientAdapter';
 import type { ApiKeyProvider } from '../types';
 import type { LLMChatRequest, LLMResponse, LLMFailureResponse } from './types';
 
@@ -207,23 +208,29 @@ describe('LLMService', () => {
 
     it('should yield an error when an adapter does not support streaming', async () => {
       mockApiKeyProvider.mockResolvedValueOnce('sk-ant-test-key-12345678901234567890');
+      const originalStreamMessage = AnthropicClientAdapter.prototype.streamMessage;
+      (AnthropicClientAdapter.prototype as any).streamMessage = undefined;
 
-      const events = await collectEvents({
-        providerId: 'anthropic',
-        modelId: 'claude-3-5-sonnet-20241022',
-        messages: [{ role: 'user', content: 'Hello' }],
-      });
+      try {
+        const events = await collectEvents({
+          providerId: 'anthropic',
+          modelId: 'claude-3-5-sonnet-20241022',
+          messages: [{ role: 'user', content: 'Hello' }],
+        });
 
-      expect(events).toHaveLength(1);
-      expect(events[0]).toMatchObject({
-        type: 'error',
-        error: {
+        expect(events).toHaveLength(1);
+        expect(events[0]).toMatchObject({
+          type: 'error',
           error: {
-            code: 'PROVIDER_ERROR',
-            type: 'unsupported_feature',
+            error: {
+              code: 'PROVIDER_ERROR',
+              type: 'unsupported_feature',
+            },
           },
-        },
-      });
+        });
+      } finally {
+        AnthropicClientAdapter.prototype.streamMessage = originalStreamMessage;
+      }
     });
 
     it('should post-process the final response for thinking tag fallback', async () => {

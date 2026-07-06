@@ -6,7 +6,7 @@ A lightweight, portable Node.js/TypeScript library providing a unified interface
 
 - 🔌 **Unified API** - Single interface for multiple AI providers
 - 🏠 **Local & Cloud Models** - Run models locally with llama.cpp or use cloud APIs
-- ⚡ **Text Streaming** - Async iterable token deltas for OpenAI, Gemini, OpenRouter, and llama.cpp
+- ⚡ **Text Streaming** - Async iterable token deltas for OpenAI, Anthropic, Gemini, Mistral, OpenRouter, and llama.cpp
 - 🖼️ **Image Generation** - First-class support for AI image generation (OpenAI, local diffusion)
 - 🔐 **Flexible API Key Management** - Bring your own key storage solution
 - 📦 **Zero Electron Dependencies** - Works in any Node.js environment
@@ -103,7 +103,7 @@ for await (const event of llmService.streamMessage({
 }
 ```
 
-Streaming is currently implemented for `openai`, `gemini`, `openrouter`, and `llamacpp`. The final `complete.response` event contains the same normalized response shape returned by `sendMessage()`.
+Streaming is implemented for all text providers: `openai`, `anthropic`, `gemini`, `mistral`, `openrouter`, and `llamacpp`. The final `complete.response` event contains the same normalized response shape returned by `sendMessage()`.
 
 ### Image Generation
 
