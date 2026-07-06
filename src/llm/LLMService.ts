@@ -15,10 +15,12 @@ import type {
   LLMSettings,
   ModelContext,
   LLMMessage,
+  LLMStreamEvent,
 } from "./types";
 import type {
   ILLMClientAdapter,
   InternalLLMChatRequest,
+  AdapterRequestOptions,
 } from "./clients/types";
 import type { ModelPreset } from "../types/presets";
 import {
@@ -87,6 +89,19 @@ export interface SendMessageOptions {
 }
 
 /**
+ * Per-call options for LLMService.streamMessage
+ */
+export interface StreamMessageOptions {
+  /**
+   * Abort signal to cancel the request (client-side - the provider may still
+   * process and bill an already-dispatched request).
+   */
+  signal?: AbortSignal;
+  /** Per-request timeout in ms (overrides the service-level timeoutMs) */
+  timeoutMs?: number;
+}
+
+/**
  * Result from createMessages method
  */
 export interface CreateMessagesResult {
@@ -96,6 +111,17 @@ export interface CreateMessagesResult {
   modelContext: ModelContext | null;
   /** Settings extracted from the template's <META> block */
   settings: Partial<LLMSettings>;
+}
+
+interface PreparedLLMRequest {
+  providerId: ApiProviderId;
+  modelId: string;
+  modelInfo: ModelInfo;
+  resolvedRequest: LLMChatRequest;
+  internalRequest: InternalLLMChatRequest;
+  clientAdapter: ILLMClientAdapter;
+  apiKey: string;
+  adapterOptions: AdapterRequestOptions;
 }
 
 /**
@@ -191,151 +217,20 @@ export class LLMService {
     );
 
     try {
-      // Resolve model information from preset or direct IDs
-      const resolved = await this.modelResolver.resolve(request);
-      if (resolved.error) {
-        return resolved.error;
+      const preparedResult = await this.prepareRequest(request, callOptions);
+      if ("error" in preparedResult) {
+        return preparedResult.error;
       }
 
-      const { providerId, modelId, modelInfo, settings: resolvedSettings } = resolved;
-
-      // Create a proper LLMChatRequest with resolved values
-      const resolvedRequest: LLMChatRequest = {
-        ...request,
-        providerId: providerId!,
-        modelId: modelId!,
-      };
-
-      // Validate basic request structure
-      const structureValidationResult = this.requestValidator.validateRequestStructure(resolvedRequest);
-      if (structureValidationResult) {
-        return structureValidationResult;
-      }
-
-      // Validate settings if provided  
-      const combinedSettings = { ...resolvedSettings, ...request.settings };
-      if (combinedSettings) {
-        const settingsValidation = this.requestValidator.validateSettings(
-          combinedSettings,
-          providerId!,
-          modelId!
-        );
-        if (settingsValidation) {
-          return settingsValidation;
-        }
-      }
-
-      // Apply model-specific defaults and merge with user settings
-      const finalSettings = this.settingsManager.mergeSettingsForModel(
-        modelId!,
-        providerId!,
-        combinedSettings,
-        modelInfo
-      );
-
-      // Validate reasoning settings for model capabilities
-      const reasoningValidation = this.requestValidator.validateReasoningSettings(
-        modelInfo!,
-        finalSettings.reasoning,
-        resolvedRequest
-      );
-      if (reasoningValidation) {
-        return reasoningValidation;
-      }
-
-      // Validate structured output settings for model capabilities
-      const structuredOutputValidation = this.requestValidator.validateStructuredOutputSettings(
-        modelInfo!,
-        finalSettings.structuredOutput,
-        resolvedRequest
-      );
-      if (structuredOutputValidation) {
-        return structuredOutputValidation;
-      }
-
-      // Get provider info for parameter filtering
-      const providerInfo = getProviderById(providerId!);
-      if (!providerInfo) {
-        return {
-          provider: providerId!,
-          model: modelId!,
-          error: {
-            message: `Provider information not found: ${providerId}`,
-            code: "PROVIDER_ERROR",
-            type: "server_error",
-          },
-          object: "error",
-        };
-      }
-
-      // Filter out unsupported parameters
-      const filteredSettings = this.settingsManager.filterUnsupportedParameters(
-        finalSettings,
-        modelInfo!,
-        providerInfo
-      );
-
-      const internalRequest: InternalLLMChatRequest = {
-        ...resolvedRequest,
-        settings: filteredSettings as Required<LLMSettings>,
-      };
-
-      this.logger.debug(
-        `Processing LLM request with (potentially filtered) settings:`,
-        {
-          provider: providerId,
-          model: modelId,
-          settings: filteredSettings,
-          messageCount: resolvedRequest.messages.length,
-        }
-      );
-
-      // Get client adapter
-      const clientAdapter = this.adapterRegistry.getAdapter(providerId!);
-
-      // Use ApiKeyProvider to get the API key and make the request
+      const prepared = preparedResult.prepared;
       try {
-        const apiKey = await this.getApiKey(providerId!);
-        if (!apiKey) {
-          return {
-            provider: providerId!,
-            model: modelId!,
-            error: {
-              message: `API key for provider '${providerId}' could not be retrieved. Ensure your ApiKeyProvider is configured correctly.`,
-              code: "API_KEY_ERROR",
-              type: "authentication_error",
-            },
-            object: "error",
-          };
-        }
-
-        // Validate API key format if adapter supports it
-        if (clientAdapter.validateApiKey && !clientAdapter.validateApiKey(apiKey)) {
-          return {
-            provider: providerId!,
-            model: modelId!,
-            error: {
-              message: `Invalid API key format for provider '${providerId}'. Please check your API key.`,
-              code: "INVALID_API_KEY",
-              type: "authentication_error",
-            },
-            object: "error",
-          };
-        }
-
         this.logger.info(
-          `Making LLM request with ${clientAdapter.constructor.name} for provider: ${providerId}`
+          `Making LLM request with ${prepared.clientAdapter.constructor.name} for provider: ${prepared.providerId}`
         );
 
         // Unified retry layer: adapters never throw, so retry decisions are made on
         // RETURNED failure responses. SDK-internal retries are disabled (maxRetries: 0
         // at client construction) — this loop is the single owner of retry behavior.
-        const adapterOptions = {
-          ...(callOptions?.signal && { signal: callOptions.signal }),
-          ...((callOptions?.timeoutMs ?? this.defaultTimeoutMs) !== undefined && {
-            timeoutMs: callOptions?.timeoutMs ?? this.defaultTimeoutMs,
-          }),
-        };
         const retryOnTimeout = this.retryOptions?.retryOnTimeout ?? true;
         const retryableCodes = new Set<string>([
           ADAPTER_ERROR_CODES.RATE_LIMIT_EXCEEDED,
@@ -344,7 +239,11 @@ export class LLMService {
         ]);
 
         const result = await withRetry(
-          () => clientAdapter.sendMessage(internalRequest, apiKey, adapterOptions),
+          () => prepared.clientAdapter.sendMessage(
+            prepared.internalRequest,
+            prepared.apiKey,
+            prepared.adapterOptions
+          ),
           (res) => {
             if (res.object !== 'error') {
               return { retry: false };
@@ -365,108 +264,23 @@ export class LLMService {
             }),
             signal: callOptions?.signal,
             logger: this.logger,
-            label: `${providerId}/${modelId}`,
+            label: `${prepared.providerId}/${prepared.modelId}`,
           }
         );
 
-        // Post-process for thinking tag fallback
-        // This feature extracts reasoning from XML tags when native reasoning is not active.
-        // It's a fallback mechanism for models without native reasoning or when native is disabled.
-        const fallbackSettings = internalRequest.settings.thinkingTagFallback;
-        if (result.object === 'chat.completion' && fallbackSettings && fallbackSettings.enabled !== false) {
-          const tagName = fallbackSettings.tagName || 'thinking';
+        const processedResult = this.postProcessResponse(result, prepared);
 
-          // Check if native reasoning is active for this request
-          const isNativeReasoningActive =
-            modelInfo!.reasoning?.supported === true &&
-            (internalRequest.settings.reasoning?.enabled === true ||
-             (modelInfo!.reasoning?.enabledByDefault === true &&
-              internalRequest.settings.reasoning?.enabled !== false) ||
-             modelInfo!.reasoning?.canDisable === false);
-
-          // Process the response - extract thinking tags if present
-          const choice = result.choices[0];
-          if (choice?.message?.content) {
-            const { extracted, remaining } = extractInitialTaggedContent(choice.message.content, tagName);
-
-            if (extracted !== null) {
-              // Success: thinking tag found
-              this.logger.debug(`Extracted <${tagName}> block from response.`);
-
-              // Handle the edge case: append to existing reasoning if present (e.g., native reasoning + thinking tags)
-              const existingReasoning = choice.reasoning || '';
-
-              if (existingReasoning) {
-                // Use a neutral markdown header that works for any consumer (human or AI)
-                choice.reasoning = `${existingReasoning}\n\n#### Additional Reasoning\n\n${extracted}`;
-              } else {
-                // No existing reasoning, just use the extracted content directly
-                choice.reasoning = extracted;
-              }
-              choice.message.content = remaining;
-            } else {
-              // Tag was not found
-              // Enforce only if: (1) enforce: true AND (2) native reasoning is NOT active
-              if (fallbackSettings.enforce === true && !isNativeReasoningActive) {
-                const nativeReasoningCapable = modelInfo!.reasoning?.supported === true;
-
-                return {
-                  provider: providerId!,
-                  model: modelId!,
-                  error: {
-                    message: `Model response missing required <${tagName}> tags.`,
-                    code: "THINKING_TAGS_MISSING",
-                    type: "validation_error",
-                    param: nativeReasoningCapable && !isNativeReasoningActive
-                      ? `You disabled native reasoning for this model (${modelId}). ` +
-                        `To see its reasoning, you must prompt it to use <${tagName}> tags. ` +
-                        `Example: "Write your step-by-step reasoning in <${tagName}> tags before answering."`
-                      : `This model (${modelId}) does not support native reasoning. ` +
-                        `To get reasoning, you must prompt it to use <${tagName}> tags. ` +
-                        `Example: "Write your step-by-step reasoning in <${tagName}> tags before answering."`,
-                  },
-                  object: "error",
-                  partialResponse: {
-                    id: result.id,
-                    provider: result.provider,
-                    model: result.model,
-                    created: result.created,
-                    choices: result.choices,
-                    usage: result.usage
-                  }
-                };
-              }
-              // If enforce: false or native reasoning is active, do nothing
-            }
-          }
+        if (processedResult.object === "chat.completion") {
+          this.logger.info(
+            `LLM request completed successfully for model: ${prepared.modelId}`
+          );
         }
-
-        // Post-process for structured output auto-parsing
-        // Parse JSON response when structuredOutput is enabled and autoParse is not disabled
-        const structuredOutputSettings = internalRequest.settings.structuredOutput;
-        if (result.object === 'chat.completion' && structuredOutputSettings &&
-            structuredOutputSettings.enabled !== false && structuredOutputSettings.autoParse !== false) {
-          for (const choice of result.choices) {
-            if (choice.message?.content) {
-              try {
-                choice.parsedContent = JSON.parse(choice.message.content);
-              } catch (e) {
-                choice.parseError = `JSON parse failed: ${e instanceof Error ? e.message : String(e)}`;
-                this.logger.warn(`Failed to parse structured output for choice ${choice.index}: ${choice.parseError}`);
-              }
-            }
-          }
-        }
-
-        this.logger.info(
-          `LLM request completed successfully for model: ${modelId}`
-        );
-        return result;
+        return processedResult;
       } catch (error) {
         this.logger.error("Error in LLMService.sendMessage:", error);
         return {
-          provider: providerId!,
-          model: modelId!,
+          provider: prepared.providerId,
+          model: prepared.modelId,
           error: {
             message:
               error instanceof Error
@@ -497,6 +311,387 @@ export class LLMService {
         object: "error",
       };
     }
+  }
+
+  /**
+   * Streams a chat message from an LLM provider.
+   *
+   * The final `complete` event contains the same normalized response shape as
+   * sendMessage(). Validation/API key failures and unsupported streaming adapters
+   * are yielded as a single `error` event.
+   */
+  async *streamMessage(
+    request: LLMChatRequest | LLMChatRequestWithPreset,
+    callOptions?: StreamMessageOptions
+  ): AsyncGenerator<LLMStreamEvent> {
+    this.logger.info(
+      `LLMService.streamMessage called with presetId: ${(request as LLMChatRequestWithPreset).presetId}, provider: ${request.providerId}, model: ${request.modelId}`
+    );
+
+    try {
+      const preparedResult = await this.prepareRequest(request, callOptions);
+      if ("error" in preparedResult) {
+        yield { type: "error", error: preparedResult.error };
+        return;
+      }
+
+      const prepared = preparedResult.prepared;
+      if (!prepared.clientAdapter.streamMessage) {
+        yield {
+          type: "error",
+          error: {
+            provider: prepared.providerId,
+            model: prepared.modelId,
+            error: {
+              message: `Streaming is not supported for provider '${prepared.providerId}'.`,
+              code: "PROVIDER_ERROR",
+              type: "unsupported_feature",
+            },
+            object: "error",
+          },
+        };
+        return;
+      }
+
+      try {
+        for await (const event of prepared.clientAdapter.streamMessage(
+          prepared.internalRequest,
+          prepared.apiKey,
+          prepared.adapterOptions
+        )) {
+          if (event.type === "complete") {
+            const processedResult = this.postProcessResponse(event.response, prepared);
+            if (processedResult.object === "error") {
+              yield { type: "error", error: processedResult };
+            } else {
+              yield { type: "complete", response: processedResult };
+            }
+            continue;
+          }
+
+          yield event;
+        }
+      } catch (error) {
+        this.logger.error("Error in LLMService.streamMessage:", error);
+        yield {
+          type: "error",
+          error: {
+            provider: prepared.providerId,
+            model: prepared.modelId,
+            error: {
+              message:
+                error instanceof Error
+                  ? error.message
+                  : "An unknown error occurred during message streaming.",
+              code: "PROVIDER_ERROR",
+              type: "server_error",
+              providerError: error,
+            },
+            object: "error",
+          },
+        };
+      }
+    } catch (error) {
+      this.logger.error("Error in LLMService.streamMessage (outer):", error);
+      yield {
+        type: "error",
+        error: {
+          provider: request.providerId || (request as LLMChatRequestWithPreset).presetId || 'unknown',
+          model: request.modelId || (request as LLMChatRequestWithPreset).presetId || 'unknown',
+          error: {
+            message:
+              error instanceof Error
+                ? error.message
+                : "An unknown error occurred.",
+            code: "UNEXPECTED_ERROR",
+            type: "server_error",
+            providerError: error,
+          },
+          object: "error",
+        },
+      };
+    }
+  }
+
+  private async prepareRequest(
+    request: LLMChatRequest | LLMChatRequestWithPreset,
+    callOptions?: StreamMessageOptions
+  ): Promise<{ prepared: PreparedLLMRequest } | { error: LLMFailureResponse }> {
+    // Resolve model information from preset or direct IDs
+    const resolved = await this.modelResolver.resolve(request);
+    if (resolved.error) {
+      return { error: resolved.error };
+    }
+
+    const { providerId, modelId, modelInfo, settings: resolvedSettings } = resolved;
+
+    // Create a proper LLMChatRequest with resolved values
+    const resolvedRequest: LLMChatRequest = {
+      ...request,
+      providerId: providerId!,
+      modelId: modelId!,
+    };
+
+    // Validate basic request structure
+    const structureValidationResult = this.requestValidator.validateRequestStructure(resolvedRequest);
+    if (structureValidationResult) {
+      return { error: structureValidationResult };
+    }
+
+    // Validate settings if provided
+    const combinedSettings = { ...resolvedSettings, ...request.settings };
+    if (combinedSettings) {
+      const settingsValidation = this.requestValidator.validateSettings(
+        combinedSettings,
+        providerId!,
+        modelId!
+      );
+      if (settingsValidation) {
+        return { error: settingsValidation };
+      }
+    }
+
+    // Apply model-specific defaults and merge with user settings
+    const finalSettings = this.settingsManager.mergeSettingsForModel(
+      modelId!,
+      providerId!,
+      combinedSettings,
+      modelInfo
+    );
+
+    // Validate reasoning settings for model capabilities
+    const reasoningValidation = this.requestValidator.validateReasoningSettings(
+      modelInfo!,
+      finalSettings.reasoning,
+      resolvedRequest
+    );
+    if (reasoningValidation) {
+      return { error: reasoningValidation };
+    }
+
+    // Validate structured output settings for model capabilities
+    const structuredOutputValidation = this.requestValidator.validateStructuredOutputSettings(
+      modelInfo!,
+      finalSettings.structuredOutput,
+      resolvedRequest
+    );
+    if (structuredOutputValidation) {
+      return { error: structuredOutputValidation };
+    }
+
+    // Get provider info for parameter filtering
+    const providerInfo = getProviderById(providerId!);
+    if (!providerInfo) {
+      return {
+        error: {
+          provider: providerId!,
+          model: modelId!,
+          error: {
+            message: `Provider information not found: ${providerId}`,
+            code: "PROVIDER_ERROR",
+            type: "server_error",
+          },
+          object: "error",
+        },
+      };
+    }
+
+    // Filter out unsupported parameters
+    const filteredSettings = this.settingsManager.filterUnsupportedParameters(
+      finalSettings,
+      modelInfo!,
+      providerInfo
+    );
+
+    const internalRequest: InternalLLMChatRequest = {
+      ...resolvedRequest,
+      settings: filteredSettings as Required<LLMSettings>,
+    };
+
+    this.logger.debug(
+      `Processing LLM request with (potentially filtered) settings:`,
+      {
+        provider: providerId,
+        model: modelId,
+        settings: filteredSettings,
+        messageCount: resolvedRequest.messages.length,
+      }
+    );
+
+    // Get client adapter
+    const clientAdapter = this.adapterRegistry.getAdapter(providerId!);
+
+    try {
+      const apiKey = await this.getApiKey(providerId!);
+      if (!apiKey) {
+        return {
+          error: {
+            provider: providerId!,
+            model: modelId!,
+            error: {
+              message: `API key for provider '${providerId}' could not be retrieved. Ensure your ApiKeyProvider is configured correctly.`,
+              code: "API_KEY_ERROR",
+              type: "authentication_error",
+            },
+            object: "error",
+          },
+        };
+      }
+
+      // Validate API key format if adapter supports it
+      if (clientAdapter.validateApiKey && !clientAdapter.validateApiKey(apiKey)) {
+        return {
+          error: {
+            provider: providerId!,
+            model: modelId!,
+            error: {
+              message: `Invalid API key format for provider '${providerId}'. Please check your API key.`,
+              code: "INVALID_API_KEY",
+              type: "authentication_error",
+            },
+            object: "error",
+          },
+        };
+      }
+
+      const adapterOptions: AdapterRequestOptions = {
+        ...(callOptions?.signal && { signal: callOptions.signal }),
+        ...((callOptions?.timeoutMs ?? this.defaultTimeoutMs) !== undefined && {
+          timeoutMs: callOptions?.timeoutMs ?? this.defaultTimeoutMs,
+        }),
+      };
+
+      return {
+        prepared: {
+          providerId: providerId!,
+          modelId: modelId!,
+          modelInfo: modelInfo!,
+          resolvedRequest,
+          internalRequest,
+          clientAdapter,
+          apiKey,
+          adapterOptions,
+        },
+      };
+    } catch (error) {
+      this.logger.error("Error preparing LLM request:", error);
+      return {
+        error: {
+          provider: providerId!,
+          model: modelId!,
+          error: {
+            message:
+              error instanceof Error
+                ? error.message
+                : "An unknown error occurred during request preparation.",
+            code: "PROVIDER_ERROR",
+            type: "server_error",
+            providerError: error,
+          },
+          object: "error",
+        },
+      };
+    }
+  }
+
+  private postProcessResponse(
+    result: LLMResponse | LLMFailureResponse,
+    prepared: PreparedLLMRequest
+  ): LLMResponse | LLMFailureResponse {
+    if (result.object === "error") {
+      return result;
+    }
+
+    // Post-process for thinking tag fallback
+    // This feature extracts reasoning from XML tags when native reasoning is not active.
+    // It's a fallback mechanism for models without native reasoning or when native is disabled.
+    const fallbackSettings = prepared.internalRequest.settings.thinkingTagFallback;
+    if (fallbackSettings && fallbackSettings.enabled !== false) {
+      const tagName = fallbackSettings.tagName || 'thinking';
+
+      // Check if native reasoning is active for this request
+      const isNativeReasoningActive =
+        prepared.modelInfo.reasoning?.supported === true &&
+        (prepared.internalRequest.settings.reasoning?.enabled === true ||
+         (prepared.modelInfo.reasoning?.enabledByDefault === true &&
+          prepared.internalRequest.settings.reasoning?.enabled !== false) ||
+         prepared.modelInfo.reasoning?.canDisable === false);
+
+      // Process the response - extract thinking tags if present
+      const choice = result.choices[0];
+      if (choice?.message?.content) {
+        const { extracted, remaining } = extractInitialTaggedContent(choice.message.content, tagName);
+
+        if (extracted !== null) {
+          // Success: thinking tag found
+          this.logger.debug(`Extracted <${tagName}> block from response.`);
+
+          // Handle the edge case: append to existing reasoning if present (e.g., native reasoning + thinking tags)
+          const existingReasoning = choice.reasoning || '';
+
+          if (existingReasoning) {
+            // Use a neutral markdown header that works for any consumer (human or AI)
+            choice.reasoning = `${existingReasoning}\n\n#### Additional Reasoning\n\n${extracted}`;
+          } else {
+            // No existing reasoning, just use the extracted content directly
+            choice.reasoning = extracted;
+          }
+          choice.message.content = remaining;
+        } else {
+          // Tag was not found
+          // Enforce only if: (1) enforce: true AND (2) native reasoning is NOT active
+          if (fallbackSettings.enforce === true && !isNativeReasoningActive) {
+            const nativeReasoningCapable = prepared.modelInfo.reasoning?.supported === true;
+
+            return {
+              provider: prepared.providerId,
+              model: prepared.modelId,
+              error: {
+                message: `Model response missing required <${tagName}> tags.`,
+                code: "THINKING_TAGS_MISSING",
+                type: "validation_error",
+                param: nativeReasoningCapable && !isNativeReasoningActive
+                  ? `You disabled native reasoning for this model (${prepared.modelId}). ` +
+                    `To see its reasoning, you must prompt it to use <${tagName}> tags. ` +
+                    `Example: "Write your step-by-step reasoning in <${tagName}> tags before answering."`
+                  : `This model (${prepared.modelId}) does not support native reasoning. ` +
+                    `To get reasoning, you must prompt it to use <${tagName}> tags. ` +
+                    `Example: "Write your step-by-step reasoning in <${tagName}> tags before answering."`,
+              },
+              object: "error",
+              partialResponse: {
+                id: result.id,
+                provider: result.provider,
+                model: result.model,
+                created: result.created,
+                choices: result.choices,
+                usage: result.usage
+              }
+            };
+          }
+          // If enforce: false or native reasoning is active, do nothing
+        }
+      }
+    }
+
+    // Post-process for structured output auto-parsing
+    // Parse JSON response when structuredOutput is enabled and autoParse is not disabled
+    const structuredOutputSettings = prepared.internalRequest.settings.structuredOutput;
+    if (structuredOutputSettings &&
+        structuredOutputSettings.enabled !== false && structuredOutputSettings.autoParse !== false) {
+      for (const choice of result.choices) {
+        if (choice.message?.content) {
+          try {
+            choice.parsedContent = JSON.parse(choice.message.content);
+          } catch (e) {
+            choice.parseError = `JSON parse failed: ${e instanceof Error ? e.message : String(e)}`;
+            this.logger.warn(`Failed to parse structured output for choice ${choice.index}: ${choice.parseError}`);
+          }
+        }
+      }
+    }
+
+    return result;
   }
 
   /**

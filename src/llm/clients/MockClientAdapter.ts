@@ -6,6 +6,7 @@ import type {
   LLMFailureResponse,
   ApiProviderId,
   LLMSettings,
+  LLMStreamEvent,
 } from "../types";
 import type {
   ILLMClientAdapter,
@@ -152,6 +153,68 @@ export class MockClientAdapter implements ILLMClientAdapter {
         request
       );
     }
+  }
+
+  async *streamMessage(
+    request: InternalLLMChatRequest,
+    apiKey: string,
+    options?: AdapterRequestOptions
+  ): AsyncIterable<LLMStreamEvent> {
+    const response = await this.sendMessage(request, apiKey, options);
+    if (response.object === "error") {
+      yield { type: "error", error: response };
+      return;
+    }
+
+    yield {
+      type: "start",
+      provider: request.providerId,
+      model: response.model,
+      id: response.id,
+      created: response.created,
+    };
+
+    const choice = response.choices[0];
+    if (choice?.reasoning && request.settings.reasoning?.exclude !== true) {
+      yield {
+        type: "reasoning_delta",
+        delta: choice.reasoning,
+        index: choice.index ?? 0,
+      };
+    }
+
+    const content = choice?.message?.content || "";
+    const chunks = content.match(/.{1,16}/gs) || [];
+    for (const chunk of chunks) {
+      if (options?.signal?.aborted) {
+        yield {
+          type: "error",
+          error: {
+            provider: request.providerId,
+            model: request.modelId,
+            error: {
+              message: "Request was aborted",
+              code: ADAPTER_ERROR_CODES.REQUEST_ABORTED,
+              type: "abort_error",
+            },
+            object: "error",
+          },
+        };
+        return;
+      }
+
+      yield {
+        type: "content_delta",
+        delta: chunk,
+        index: choice?.index ?? 0,
+      };
+    }
+
+    if (response.usage) {
+      yield { type: "usage", usage: response.usage };
+    }
+
+    yield { type: "complete", response };
   }
 
   /**

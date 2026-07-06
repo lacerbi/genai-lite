@@ -172,6 +172,7 @@ Detected models also receive vendor-recommended sampling defaults automatically.
 - OpenAI-compatible API (uses OpenAI SDK internally)
 - Supports any GGUF model from Hugging Face
 - No API costs, completely private
+- Supports `LLMService.streamMessage()` for content deltas, usage events, and final normalized responses
 - Reasoning on/off for hybrid models is driven by `settings.reasoning.enabled` (requires llama-server `--jinja`); see [Reasoning on/off for Hybrid Models](llamacpp-integration.md#reasoning-onoff-for-hybrid-models)
 - Sampling parameters: supports `topK`, `minP`, `repeatPenalty`, `seed`, and `logprobs`/`topLogprobs`; plus llama.cpp-only `grammar` and `chatTemplateKwargs` via the `llamacpp` namespace
 - Default base URL is `http://127.0.0.1:8080` (not `localhost`) to avoid a Windows IPv6-fallback stall
@@ -237,6 +238,7 @@ The reasoning trace is returned on `choice.reasoning`, with any structured detai
 **Notes:**
 - Single API key for all models
 - OpenAI-compatible API format
+- Supports `LLMService.streamMessage()` for content deltas, usage events, final normalized responses, and reasoning deltas when the underlying provider emits them
 - `allowUnknownModels: true` - Use any OpenRouter model ID
 - Free tier models have rate limits
 - **Structured output supported** - Both free tier models support JSON mode/structured output

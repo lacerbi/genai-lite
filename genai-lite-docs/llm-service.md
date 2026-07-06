@@ -6,6 +6,7 @@ Complete guide to text generation and chat completions using genai-lite's LLMSer
 
 - [Overview](#overview) - When to use LLMService
 - [Basic Usage](#basic-usage) - Simple message sending
+- [Streaming Text](#streaming-text) - Token deltas from streaming-capable providers
 - [Structured Output](#structured-output) - Guaranteed JSON responses with schema validation
 - [Reasoning Mode](#reasoning-mode) - Advanced problem-solving with native reasoning
 - [Thinking Tag Fallback](#thinking-tag-fallback) - Structured reasoning for non-reasoning models
@@ -32,6 +33,7 @@ The `LLMService` class provides a unified interface for text generation across m
 - Thinking tag extraction for non-reasoning models
 - Template engine with model context awareness
 - Preset management for common configurations
+- Streaming text deltas for providers that implement streaming
 - Consistent error handling
 
 ## Basic Usage
@@ -91,6 +93,77 @@ const presets = llmService.getPresets();
 ```
 
 See [Providers & Models](providers-and-models.md) for all supported providers and models.
+
+---
+
+## Streaming Text
+
+`streamMessage()` returns an async iterable of events. It uses the same request shape as `sendMessage()` and the same validation, preset resolution, defaults, API-key lookup, structured-output parsing, and thinking-tag cleanup. The final `complete.response` event is the authoritative normalized response.
+
+```typescript
+for await (const event of llmService.streamMessage({
+  providerId: 'llamacpp',
+  modelId: 'llamacpp',
+  messages: [{ role: 'user', content: 'Explain streaming in one sentence.' }],
+  settings: {
+    maxTokens: 80,
+    reasoning: { enabled: false }
+  }
+})) {
+  switch (event.type) {
+    case 'content_delta':
+      process.stdout.write(event.delta);
+      break;
+    case 'reasoning_delta':
+      process.stderr.write(event.delta);
+      break;
+    case 'usage':
+      console.log('Usage:', event.usage);
+      break;
+    case 'complete':
+      console.log('Final:', event.response.choices[0].message.content);
+      break;
+    case 'error':
+      console.error(event.error.error.message);
+      break;
+  }
+}
+```
+
+### Stream Events
+
+```typescript
+type LLMStreamEvent =
+  | { type: 'start'; provider: string; model: string; id?: string; created?: number }
+  | { type: 'content_delta'; delta: string; index: number }
+  | { type: 'reasoning_delta'; delta: string; index: number }
+  | { type: 'usage'; usage: LLMUsage }
+  | { type: 'complete'; response: LLMResponse }
+  | { type: 'error'; error: LLMFailureResponse };
+```
+
+### Provider Support
+
+| Provider | Streaming | Notes |
+|----------|-----------|-------|
+| `llamacpp` | Yes | Uses llama-server's OpenAI-compatible streaming endpoint. `reasoning_delta` appears when the server emits separated reasoning fields. |
+| `openrouter` | Yes | Uses OpenRouter's OpenAI-compatible streaming endpoint. Reasoning deltas are forwarded when the underlying model/provider emits them. |
+| Other LLM providers | Not yet | `streamMessage()` yields a single `error` event for adapters that do not implement streaming. |
+
+### Cancellation and Timeouts
+
+```typescript
+const controller = new AbortController();
+
+for await (const event of llmService.streamMessage(request, {
+  signal: controller.signal,
+  timeoutMs: 30_000
+})) {
+  // ...
+}
+```
+
+Streaming does not use automatic retries. Once tokens have been emitted, retrying could duplicate output. If a provider fails after partial output, the `error` event may include `error.partialResponse` with the accumulated normalized response so far.
 
 ---
 

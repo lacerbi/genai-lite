@@ -69,6 +69,7 @@ import type {
   LLMChatRequestWithPreset,
   LLMResponse,
   LLMFailureResponse,
+  LLMStreamEvent,
   LLMError,
   LLMSettings,
   LlamaCppSettings,
@@ -83,6 +84,7 @@ import type {
   ModelPreset,
   LLMServiceOptions,
   SendMessageOptions,
+  StreamMessageOptions,
   ModelContext,
   CreateMessagesResult,
   TemplateMetadata
@@ -217,6 +219,21 @@ interface LLMFailureResponse {
 }
 
 type LLMServiceResponse = LLMResponse | LLMFailureResponse;
+
+type LLMStreamEvent =
+  | { type: 'start'; provider: string; model: string; id?: string; created?: number }
+  | { type: 'content_delta'; delta: string; index: number }
+  | { type: 'reasoning_delta'; delta: string; index: number }
+  | {
+      type: 'usage';
+      usage: {
+        prompt_tokens: number;
+        completion_tokens: number;
+        total_tokens: number;
+      };
+    }
+  | { type: 'complete'; response: LLMResponse }
+  | { type: 'error'; error: LLMFailureResponse };
 ```
 
 ### Settings Types
@@ -365,6 +382,12 @@ interface SendMessageOptions {
   signal?: AbortSignal;   // Client-side cancel (provider may still process/bill)
   timeoutMs?: number;     // Overrides the service-level timeoutMs
   maxRetries?: number;    // Overrides the service-level retry.maxRetries
+}
+
+// Second argument to LLMService.streamMessage(request, options)
+interface StreamMessageOptions {
+  signal?: AbortSignal;   // Client-side cancel (provider may still process/bill)
+  timeoutMs?: number;     // Overrides the service-level timeoutMs
 }
 
 interface RetryPolicy {

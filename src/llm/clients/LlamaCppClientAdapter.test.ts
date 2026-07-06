@@ -35,6 +35,7 @@ describe('LlamaCppClientAdapter', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockGetModels.mockResolvedValue({ data: [{ id: 'some-custom-model.gguf' }] });
 
     adapter = new LlamaCppClientAdapter();
 
@@ -936,6 +937,209 @@ describe('LlamaCppClientAdapter', () => {
       if (response.object === 'chat.completion') {
         expect(response.choices[0].logprobs).toBeUndefined();
       }
+    });
+  });
+
+  describe('streamMessage', () => {
+    const streamFrom = async function* (chunks: any[]) {
+      for (const chunk of chunks) {
+        if (chunk instanceof Error) {
+          throw chunk;
+        }
+        yield chunk;
+      }
+    };
+
+    const collectEvents = async (request = basicRequest, options?: any) => {
+      const events = [];
+      for await (const event of adapter.streamMessage(request, 'not-needed', options)) {
+        events.push(event);
+      }
+      return events;
+    };
+
+    const chunk = (content: string, extra?: Record<string, any>) => ({
+      id: 'chatcmpl-stream',
+      object: 'chat.completion.chunk',
+      created: 1677652288,
+      model: 'llamacpp',
+      choices: [
+        {
+          index: 0,
+          delta: { content, ...extra },
+          finish_reason: null,
+        },
+      ],
+    });
+
+    it('streams content deltas and a final normalized response', async () => {
+      mockCreate.mockResolvedValueOnce(streamFrom([
+        chunk('Hello '),
+        {
+          ...chunk('world'),
+          choices: [{ index: 0, delta: { content: 'world' }, finish_reason: 'stop' }],
+        },
+        {
+          id: 'chatcmpl-stream',
+          object: 'chat.completion.chunk',
+          created: 1677652288,
+          model: 'llamacpp',
+          choices: [],
+          usage: { prompt_tokens: 2, completion_tokens: 3, total_tokens: 5 },
+        },
+      ]));
+
+      const events = await collectEvents();
+
+      expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({
+        stream: true,
+        stream_options: { include_usage: true },
+      }));
+      expect(events[0]).toMatchObject({
+        type: 'start',
+        provider: 'llamacpp',
+        model: 'llamacpp',
+        id: 'chatcmpl-stream',
+      });
+      expect(events.filter((event) => event.type === 'content_delta').map((event) => event.delta).join(''))
+        .toBe('Hello world');
+      expect(events.some((event) => event.type === 'usage')).toBe(true);
+      const complete = events[events.length - 1] as any;
+      expect(complete.type).toBe('complete');
+      expect(complete.response.choices[0].message.content).toBe('Hello world');
+      expect(complete.response.usage).toEqual({
+        prompt_tokens: 2,
+        completion_tokens: 3,
+        total_tokens: 5,
+      });
+    });
+
+    it('streams provider-specific reasoning deltas and includes reasoning in the final response', async () => {
+      mockCreate.mockResolvedValueOnce(streamFrom([
+        chunk('', { reasoning_content: 'Think. ' }),
+        {
+          ...chunk('Answer.'),
+          choices: [{ index: 0, delta: { content: 'Answer.' }, finish_reason: 'stop' }],
+        },
+      ]));
+
+      basicRequest.settings.reasoning = { enabled: true, exclude: false } as any;
+      const events = await collectEvents();
+
+      expect(events.find((event) => event.type === 'reasoning_delta')).toMatchObject({
+        type: 'reasoning_delta',
+        delta: 'Think. ',
+      });
+      const complete = events[events.length - 1] as any;
+      expect(complete.response.choices[0].reasoning).toBe('Think. ');
+      expect(complete.response.choices[0].message.content).toBe('Answer.');
+    });
+
+    it('suppresses the live nothink prefix and returns cleaned final content', async () => {
+      mockGetModels.mockResolvedValue({ data: [{ id: 'Qwen3.5-4B-Q4_K_M.gguf' }] });
+      mockCreate.mockResolvedValueOnce(streamFrom([
+        chunk('<think>\n\n'),
+        chunk('</think>\n\nClean'),
+        {
+          ...chunk(' answer'),
+          choices: [{ index: 0, delta: { content: ' answer' }, finish_reason: 'stop' }],
+        },
+      ]));
+
+      const events = await collectEvents();
+      const liveContent = events
+        .filter((event) => event.type === 'content_delta')
+        .map((event) => event.delta)
+        .join('');
+      const complete = events[events.length - 1] as any;
+
+      expect(liveContent).toBe('Clean answer');
+      expect(complete.response.choices[0].message.content).toBe('Clean answer');
+    });
+
+    it('returns health-check errors without starting a stream', async () => {
+      const healthCheckAdapter = new LlamaCppClientAdapter({ checkHealth: true });
+      mockGetHealth.mockResolvedValueOnce({ status: 'loading' });
+
+      const events = [];
+      for await (const event of healthCheckAdapter.streamMessage(basicRequest, 'not-needed')) {
+        events.push(event);
+      }
+
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({
+        type: 'error',
+        error: {
+          error: { type: 'server_not_ready' },
+        },
+      });
+      expect(mockCreate).not.toHaveBeenCalled();
+    });
+
+    it('applies the assistant prefill guard before streaming', async () => {
+      mockGetModels.mockResolvedValue({ data: [{ id: 'Qwen3.5-4B-Q4_K_M.gguf' }] });
+      basicRequest.settings.reasoning = { enabled: true, exclude: false } as any;
+      basicRequest.messages = [
+        { role: 'user', content: 'Q' },
+        { role: 'assistant', content: 'partial' },
+      ];
+
+      const events = await collectEvents();
+
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({
+        type: 'error',
+        error: {
+          error: { type: 'invalid_request_error' },
+        },
+      });
+      expect(mockCreate).not.toHaveBeenCalled();
+    });
+
+    it('passes abort and timeout options to the OpenAI SDK stream call', async () => {
+      const controller = new AbortController();
+      mockCreate.mockResolvedValueOnce(streamFrom([
+        {
+          ...chunk('Hi'),
+          choices: [{ index: 0, delta: { content: 'Hi' }, finish_reason: 'stop' }],
+        },
+      ]));
+
+      await collectEvents(basicRequest, { signal: controller.signal, timeoutMs: 1234 });
+
+      expect(mockCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ stream: true }),
+        expect.objectContaining({ signal: controller.signal, timeout: 1234 })
+      );
+    });
+
+    it('emits an error with partialResponse when the stream throws after content', async () => {
+      mockCreate.mockResolvedValueOnce(streamFrom([
+        chunk('Partial'),
+        new Error('stream broke'),
+      ]));
+
+      const events = await collectEvents();
+      const error = events[events.length - 1] as any;
+
+      expect(error.type).toBe('error');
+      expect(error.error.partialResponse?.choices[0].message.content).toBe('Partial');
+    });
+
+    it('maps connection errors and clears the model cache', async () => {
+      const clearSpy = jest.spyOn(adapter, 'clearModelCache');
+      mockCreate.mockRejectedValueOnce(new Error('fetch failed: ECONNREFUSED'));
+
+      const events = await collectEvents();
+
+      expect(events[0]).toMatchObject({
+        type: 'error',
+        error: {
+          error: { code: 'NETWORK_ERROR' },
+        },
+      });
+      expect(clearSpy).toHaveBeenCalled();
+      clearSpy.mockRestore();
     });
   });
 });

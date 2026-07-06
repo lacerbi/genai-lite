@@ -148,6 +148,154 @@ describe('LLMService', () => {
     });
   });
 
+  describe('streamMessage', () => {
+    const collectEvents = async (request: LLMChatRequest, options?: Parameters<LLMService['streamMessage']>[1]) => {
+      const events = [];
+      for await (const event of service.streamMessage(request, options)) {
+        events.push(event);
+      }
+      return events;
+    };
+
+    it('should stream content chunks and a final response', async () => {
+      const events = await collectEvents({
+        providerId: 'mock',
+        modelId: 'mock-model',
+        messages: [{ role: 'user', content: 'Hello' }],
+      });
+
+      expect(events[0]).toMatchObject({ type: 'start', provider: 'mock' });
+      expect(events.some((event) => event.type === 'content_delta')).toBe(true);
+      expect(events[events.length - 1].type).toBe('complete');
+    });
+
+    it('should yield validation errors as error events', async () => {
+      const events = await collectEvents({
+        providerId: 'unsupported-provider',
+        modelId: 'some-model',
+        messages: [{ role: 'user', content: 'Hello' }],
+      });
+
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({
+        type: 'error',
+        error: {
+          object: 'error',
+          error: { code: 'UNSUPPORTED_PROVIDER' },
+        },
+      });
+    });
+
+    it('should yield API key failures as error events', async () => {
+      mockApiKeyProvider.mockResolvedValueOnce(null);
+
+      const events = await collectEvents({
+        providerId: 'mock',
+        modelId: 'mock-model',
+        messages: [{ role: 'user', content: 'Hello' }],
+      });
+
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({
+        type: 'error',
+        error: {
+          object: 'error',
+          error: { code: 'API_KEY_ERROR' },
+        },
+      });
+    });
+
+    it('should yield an error when an adapter does not support streaming', async () => {
+      mockApiKeyProvider.mockResolvedValueOnce('sk-test-key-12345678901234567890');
+
+      const events = await collectEvents({
+        providerId: 'openai',
+        modelId: 'gpt-4.1',
+        messages: [{ role: 'user', content: 'Hello' }],
+      });
+
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({
+        type: 'error',
+        error: {
+          error: {
+            code: 'PROVIDER_ERROR',
+            type: 'unsupported_feature',
+          },
+        },
+      });
+    });
+
+    it('should post-process the final response for thinking tag fallback', async () => {
+      const events = await collectEvents({
+        providerId: 'mock',
+        modelId: 'codestral-2501',
+        messages: [{
+          role: 'user',
+          content: 'test_thinking:<thinking>Streamed thought.</thinking>Streamed answer.',
+        }],
+        settings: {
+          thinkingTagFallback: {
+            enabled: true,
+            tagName: 'thinking',
+          },
+        },
+      });
+
+      const complete = events.find((event) => event.type === 'complete') as any;
+      expect(complete.response.choices[0].reasoning).toBe('Streamed thought.');
+      expect(complete.response.choices[0].message.content).toBe('Streamed answer.');
+    });
+
+    it('should post-process structured output on the final response', async () => {
+      const events = await collectEvents({
+        providerId: 'mock',
+        modelId: 'mistral-small-latest',
+        messages: [{ role: 'user', content: 'json:{"ok":true}' }],
+        settings: {
+          structuredOutput: {
+            name: 'result',
+            schema: {
+              type: 'object',
+              properties: { ok: { type: 'boolean' } },
+              required: ['ok'],
+            },
+          },
+        },
+      });
+
+      const complete = events.find((event) => event.type === 'complete') as any;
+      expect(complete.response.choices[0].parsedContent).toEqual({ ok: true });
+    });
+
+    it('should pass signal and timeout through to the streaming adapter', async () => {
+      const timedService = new LLMService(mockApiKeyProvider, {
+        timeoutMs: 12345,
+        logLevel: 'silent',
+      });
+      const spy = jest.spyOn(MockClientAdapter.prototype, 'streamMessage');
+      const controller = new AbortController();
+      const events = [];
+
+      for await (const event of timedService.streamMessage({
+        providerId: 'mock',
+        modelId: 'mock-model',
+        messages: [{ role: 'user', content: 'Hello' }],
+      }, { signal: controller.signal })) {
+        events.push(event);
+      }
+
+      expect(events[events.length - 1].type).toBe('complete');
+      expect(spy).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.any(String),
+        expect.objectContaining({ signal: controller.signal, timeoutMs: 12345 })
+      );
+
+      spy.mockRestore();
+    });
+  });
+
   describe('sendMessage', () => {
     describe('request validation', () => {
       it('should return validation error for unsupported provider', async () => {
