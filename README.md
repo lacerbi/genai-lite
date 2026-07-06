@@ -6,6 +6,7 @@ A lightweight, portable Node.js/TypeScript library providing a unified interface
 
 - 🔌 **Unified API** - Single interface for multiple AI providers
 - 🏠 **Local & Cloud Models** - Run models locally with llama.cpp or use cloud APIs
+- ⚡ **Text Streaming** - Async iterable token deltas for OpenAI, Anthropic, Gemini, Mistral, OpenRouter, and llama.cpp
 - 🖼️ **Image Generation** - First-class support for AI image generation (OpenAI, local diffusion)
 - 🔐 **Flexible API Key Management** - Bring your own key storage solution
 - 📦 **Zero Electron Dependencies** - Works in any Node.js environment
@@ -77,6 +78,33 @@ if (response.object === 'chat.completion') {
 }
 ```
 
+### Streaming Text
+
+```typescript
+import { LLMService } from 'genai-lite';
+
+const llmService = new LLMService(async () => 'not-needed');
+
+for await (const event of llmService.streamMessage({
+  providerId: 'llamacpp',
+  modelId: 'llamacpp',
+  messages: [{ role: 'user', content: 'Say hello in five words.' }],
+  settings: { maxTokens: 32 }
+})) {
+  if (event.type === 'content_delta') {
+    process.stdout.write(event.delta);
+  } else if (event.type === 'reasoning_delta') {
+    process.stderr.write(event.delta);
+  } else if (event.type === 'complete') {
+    console.log('\nTokens:', event.response.usage?.total_tokens);
+  } else if (event.type === 'error') {
+    console.error(event.error.error.message);
+  }
+}
+```
+
+Streaming is implemented for all text providers: `openai`, `anthropic`, `gemini`, `mistral`, `openrouter`, and `llamacpp`. The final `complete.response` event contains the same normalized response shape returned by `sendMessage()`.
+
 ### Image Generation
 
 ```typescript
@@ -134,7 +162,7 @@ Comprehensive documentation is available in the **[`genai-lite-docs`](./genai-li
 - **Google Gemini** - Gemini 3 (Pro, Flash preview), Gemini 2.5, Gemma 3 & 4 (free)
 - **Mistral** - Codestral, Devstral
 - **OpenRouter** - Unified gateway to 100+ models (unknown models assumed reasoning-capable)
-- **llama.cpp** - Run any GGUF model locally (no API keys required); local reasoning toggle for detected models
+- **llama.cpp** - Run any GGUF model locally (no API keys required); streaming and local reasoning toggle for detected models
 
 ### Image Providers
 - **OpenAI Images** - gpt-image-1, dall-e-3, dall-e-2

@@ -551,6 +551,40 @@ export interface LLMFailureResponse {
 }
 
 /**
+ * Streaming event emitted by LLMService.streamMessage().
+ */
+export type LLMStreamEvent =
+  | {
+      type: "start";
+      provider: ApiProviderId;
+      model: string;
+      id?: string;
+      created?: number;
+    }
+  | {
+      type: "content_delta";
+      delta: string;
+      index: number;
+    }
+  | {
+      type: "reasoning_delta";
+      delta: string;
+      index: number;
+    }
+  | {
+      type: "usage";
+      usage: LLMUsage;
+    }
+  | {
+      type: "complete";
+      response: LLMResponse;
+    }
+  | {
+      type: "error";
+      error: LLMFailureResponse;
+    };
+
+/**
  * Information about a supported LLM provider
  */
 export interface ProviderInfo {
@@ -675,6 +709,7 @@ export const LLM_IPC_CHANNELS = {
   GET_PROVIDERS: 'llm:get-providers',
   GET_MODELS: 'llm:get-models',
   SEND_MESSAGE: 'llm:send-message',
+  STREAM_MESSAGE: 'llm:stream-message',
   IS_KEY_AVAILABLE: 'llm:is-key-available',
 } as const;
 

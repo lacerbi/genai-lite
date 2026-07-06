@@ -51,6 +51,7 @@ Complete reference of all supported AI providers and models in genai-lite.
 **Notes:**
 - Requires explicit `maxTokens` parameter (no default)
 - System messages handled differently than OpenAI
+- Supports `LLMService.streamMessage()` via Anthropic Messages streaming; text blocks emit `content_delta`, and thinking blocks emit `reasoning_delta` when reasoning output is included
 - Sampling parameters: supports `topK`. Does not support `seed`, `minP`, `repeatPenalty`, or `logprobs`/`topLogprobs` (silently stripped)
 
 ---
@@ -80,6 +81,7 @@ Complete reference of all supported AI providers and models in genai-lite.
 **Notes:**
 - Supports `response_format` for JSON mode
 - Specific tool/function calling format
+- Supports `LLMService.streamMessage()` for content deltas, usage events, final normalized responses, and reasoning deltas if the API emits them
 - Sampling parameters: supports `seed` (beta; ignored by reasoning models such as GPT-5 and o4-mini) and `logprobs`/`topLogprobs`. Does not support `topK`, `minP`, `repeatPenalty`, or `frequencyPenalty` (silently stripped)
 
 ---
@@ -114,6 +116,7 @@ Complete reference of all supported AI providers and models in genai-lite.
 - Gemma 3 and Gemma 4 are open-weight and **free** via the Gemini API (no API costs)
 - **Gemma 3 does not support system instructions** - genai-lite automatically prepends system content to the first user message (see [System Message Fallback](llm-service.md#system-message-fallback)). **Gemma 4 does support a native system role** (unlike Gemma 3)
 - **Gemma models do not support structured output (JSON mode)** via Google's API - use OpenRouter instead for JSON output. Reasoning/thinking is not exposed for Gemma on the Gemini API
+- Supports `LLMService.streamMessage()` via `generateContentStream()`; thought parts are emitted as `reasoning_delta` when reasoning output is included
 - Sampling parameters: supports `topK` and `seed`. Does not support `minP`, `repeatPenalty`, or `logprobs`/`topLogprobs` (Gemini's log-probability mechanism has a different shape and is not mapped)
 
 ---
@@ -138,6 +141,7 @@ Complete reference of all supported AI providers and models in genai-lite.
 - Real adapter using the official `@mistralai/mistralai` SDK (since v0.8)
 - Does not support `frequencyPenalty` or `presencePenalty` parameters
 - System messages are natively supported
+- Supports `LLMService.streamMessage()` via the SDK streaming endpoint for content deltas, usage events, final normalized responses, and thinking chunks as `reasoning_delta` when present
 - Sampling parameters: supports `seed` (mapped to the SDK's `randomSeed`). Does not support `topK`, `minP`, `repeatPenalty`, or `logprobs`/`topLogprobs` (silently stripped)
 
 ---
@@ -172,6 +176,7 @@ Detected models also receive vendor-recommended sampling defaults automatically.
 - OpenAI-compatible API (uses OpenAI SDK internally)
 - Supports any GGUF model from Hugging Face
 - No API costs, completely private
+- Supports `LLMService.streamMessage()` for content deltas, usage events, and final normalized responses
 - Reasoning on/off for hybrid models is driven by `settings.reasoning.enabled` (requires llama-server `--jinja`); see [Reasoning on/off for Hybrid Models](llamacpp-integration.md#reasoning-onoff-for-hybrid-models)
 - Sampling parameters: supports `topK`, `minP`, `repeatPenalty`, `seed`, and `logprobs`/`topLogprobs`; plus llama.cpp-only `grammar` and `chatTemplateKwargs` via the `llamacpp` namespace
 - Default base URL is `http://127.0.0.1:8080` (not `localhost`) to avoid a Windows IPv6-fallback stall
@@ -237,6 +242,7 @@ The reasoning trace is returned on `choice.reasoning`, with any structured detai
 **Notes:**
 - Single API key for all models
 - OpenAI-compatible API format
+- Supports `LLMService.streamMessage()` for content deltas, usage events, final normalized responses, and reasoning deltas when the underlying provider emits them
 - `allowUnknownModels: true` - Use any OpenRouter model ID
 - Free tier models have rate limits
 - **Structured output supported** - Both free tier models support JSON mode/structured output

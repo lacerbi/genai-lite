@@ -552,4 +552,187 @@ describe('OpenRouterClientAdapter', () => {
       expect(info.baseURL).toBe('https://custom.api.com');
     });
   });
+
+  describe('streamMessage', () => {
+    const KEY = 'sk-or-test-api-key-1234567890123456789012345678901234567890';
+    const streamFrom = async function* (chunks: any[]) {
+      for (const chunk of chunks) {
+        if (chunk instanceof Error) {
+          throw chunk;
+        }
+        yield chunk;
+      }
+    };
+    const chunk = (content: string, extra?: Record<string, any>) => ({
+      id: 'gen-stream',
+      object: 'chat.completion.chunk',
+      created: 1234567890,
+      model: 'google/gemma-3-27b-it:free',
+      choices: [{
+        index: 0,
+        delta: { content, ...extra },
+        finish_reason: null
+      }]
+    });
+    const collectEvents = async (request = basicRequest, options?: any) => {
+      const events = [];
+      for await (const event of adapter.streamMessage(request, KEY, options)) {
+        events.push(event);
+      }
+      return events;
+    };
+
+    it('streams content deltas and a final normalized response', async () => {
+      mockCreate.mockResolvedValueOnce(streamFrom([
+        chunk('Hi '),
+        {
+          ...chunk('there'),
+          choices: [{ index: 0, delta: { content: 'there' }, finish_reason: 'stop' }]
+        },
+        {
+          id: 'gen-stream',
+          object: 'chat.completion.chunk',
+          created: 1234567890,
+          model: 'google/gemma-3-27b-it:free',
+          choices: [],
+          usage: { prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 }
+        }
+      ]));
+
+      const events = await collectEvents();
+
+      expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({
+        stream: true,
+        stream_options: { include_usage: true },
+        model: 'google/gemma-3-27b-it:free'
+      }));
+      expect(events[0]).toMatchObject({
+        type: 'start',
+        provider: 'openrouter',
+        id: 'gen-stream'
+      });
+      expect(events.filter((event) => event.type === 'content_delta').map((event) => event.delta).join(''))
+        .toBe('Hi there');
+      expect(events.some((event) => event.type === 'usage')).toBe(true);
+      const complete = events[events.length - 1] as any;
+      expect(complete.type).toBe('complete');
+      expect(complete.response.choices[0].message.content).toBe('Hi there');
+      expect(complete.response.usage).toEqual({
+        prompt_tokens: 1,
+        completion_tokens: 2,
+        total_tokens: 3
+      });
+    });
+
+    it('preserves OpenRouter-specific request params when streaming', async () => {
+      mockCreate.mockResolvedValueOnce(streamFrom([
+        { ...chunk('Hi'), choices: [{ index: 0, delta: { content: 'Hi' }, finish_reason: 'stop' }] }
+      ]));
+      basicRequest.settings.openRouterProvider = {
+        order: ['Together'],
+        dataCollection: 'deny',
+        requireParameters: true
+      };
+      basicRequest.settings.reasoning = {
+        enabled: true,
+        effort: 'high',
+        exclude: true
+      } as any;
+      basicRequest.settings.structuredOutput = {
+        name: 'result',
+        schema: { type: 'object' }
+      } as any;
+      basicRequest.settings.logprobs = true;
+      basicRequest.settings.topLogprobs = 3;
+      basicRequest.settings.topK = 20;
+      basicRequest.settings.minP = 0;
+      basicRequest.settings.repeatPenalty = 1.1;
+      basicRequest.settings.seed = 42;
+
+      await collectEvents();
+      const params = mockCreate.mock.calls[0][0];
+
+      expect(params.provider).toEqual({
+        order: ['Together'],
+        data_collection: 'deny',
+        require_parameters: true
+      });
+      expect(params.reasoning).toEqual({ effort: 'high', exclude: true });
+      expect(params.response_format).toEqual({
+        type: 'json_schema',
+        json_schema: {
+          name: 'result',
+          strict: true,
+          schema: { type: 'object' }
+        }
+      });
+      expect(params.logprobs).toBe(true);
+      expect(params.top_logprobs).toBe(3);
+      expect(params.top_k).toBe(20);
+      expect(params.min_p).toBe(0);
+      expect(params.repetition_penalty).toBe(1.1);
+      expect(params.seed).toBe(42);
+    });
+
+    it('streams reasoning deltas and includes reasoning in the final response', async () => {
+      mockCreate.mockResolvedValueOnce(streamFrom([
+        chunk('', { reasoning: 'Thinking...' }),
+        { ...chunk('Done'), choices: [{ index: 0, delta: { content: 'Done' }, finish_reason: 'stop' }] }
+      ]));
+      basicRequest.settings.reasoning = { enabled: true, exclude: false } as any;
+
+      const events = await collectEvents();
+
+      expect(events.find((event) => event.type === 'reasoning_delta')).toMatchObject({
+        type: 'reasoning_delta',
+        delta: 'Thinking...'
+      });
+      const complete = events[events.length - 1] as any;
+      expect(complete.response.choices[0].reasoning).toBe('Thinking...');
+      expect(complete.response.choices[0].message.content).toBe('Done');
+    });
+
+    it('passes abort and timeout options to the OpenAI SDK stream call', async () => {
+      const controller = new AbortController();
+      mockCreate.mockResolvedValueOnce(streamFrom([
+        { ...chunk('Hi'), choices: [{ index: 0, delta: { content: 'Hi' }, finish_reason: 'stop' }] }
+      ]));
+
+      await collectEvents(basicRequest, { signal: controller.signal, timeoutMs: 4321 });
+
+      expect(mockCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ stream: true }),
+        expect.objectContaining({ signal: controller.signal, timeout: 4321 })
+      );
+    });
+
+    it('emits an error with partialResponse when the stream throws after content', async () => {
+      mockCreate.mockResolvedValueOnce(streamFrom([
+        chunk('Partial'),
+        new Error('stream broke')
+      ]));
+
+      const events = await collectEvents();
+      const error = events[events.length - 1] as any;
+
+      expect(error.type).toBe('error');
+      expect(error.error.partialResponse?.choices[0].message.content).toBe('Partial');
+    });
+
+    it('maps stream creation errors', async () => {
+      const apiError = new Error('Rate limit exceeded');
+      (apiError as any).status = 429;
+      mockCreate.mockRejectedValueOnce(apiError);
+
+      const events = await collectEvents();
+
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({
+        type: 'error',
+        error: {
+          error: { code: ADAPTER_ERROR_CODES.RATE_LIMIT_EXCEEDED }
+        }
+      });
+    });
+  });
 });

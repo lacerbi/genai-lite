@@ -13,16 +13,19 @@ const MockAnthropic = Anthropic as jest.MockedClass<typeof Anthropic>;
 describe('AnthropicClientAdapter', () => {
   let adapter: AnthropicClientAdapter;
   let mockCreate: jest.Mock;
+  let mockStream: jest.Mock;
   let basicRequest: InternalLLMChatRequest;
 
   beforeEach(() => {
     // Reset mocks before each test
     MockAnthropic.mockClear();
     mockCreate = jest.fn();
+    mockStream = jest.fn();
     
     // Mock the messages.create method
     MockAnthropic.prototype.messages = {
       create: mockCreate,
+      stream: mockStream,
     } as any;
 
     adapter = new AnthropicClientAdapter();
@@ -63,6 +66,15 @@ describe('AnthropicClientAdapter', () => {
       }
     };
   });
+
+  const streamFrom = async function* (events: any[], error?: Error) {
+    for (const event of events) {
+      yield event;
+    }
+    if (error) {
+      throw error;
+    }
+  };
 
   describe('sendMessage', () => {
     it('should format the request correctly and call the Anthropic API', async () => {
@@ -329,6 +341,189 @@ describe('AnthropicClientAdapter', () => {
         expect(errorResponse.error.code).toBe(ADAPTER_ERROR_CODES.NETWORK_ERROR);
         expect(errorResponse.error.type).toBe('connection_error');
       });
+    });
+  });
+
+  describe('streamMessage', () => {
+    const collectEvents = async (request: InternalLLMChatRequest = basicRequest, options?: Parameters<AnthropicClientAdapter['streamMessage']>[2]) => {
+      const events = [];
+      for await (const event of adapter.streamMessage(request, 'test-api-key', options)) {
+        events.push(event);
+      }
+      return events;
+    };
+
+    const messageStart = {
+      type: 'message_start',
+      message: {
+        id: 'msg_stream',
+        type: 'message',
+        role: 'assistant',
+        model: 'claude-3-5-sonnet-20241022',
+        content: [],
+        stop_reason: null,
+        stop_sequence: null,
+        usage: { input_tokens: 5, output_tokens: 0 }
+      }
+    };
+
+    it('should stream content deltas and emit a final normalized response', async () => {
+      const controller = new AbortController();
+      mockStream.mockReturnValueOnce(streamFrom([
+        messageStart,
+        { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
+        { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'Hello ' } },
+        { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'Claude' } },
+        {
+          type: 'message_delta',
+          delta: { stop_reason: 'end_turn', stop_sequence: null },
+          usage: { input_tokens: 5, output_tokens: 2 }
+        },
+        { type: 'message_stop' }
+      ]));
+
+      const events = await collectEvents(basicRequest, {
+        signal: controller.signal,
+        timeoutMs: 5000,
+      });
+
+      expect(mockStream).toHaveBeenCalledWith(expect.objectContaining({
+        model: 'claude-3-5-sonnet-20241022',
+        messages: [{ role: 'user', content: 'Hello' }],
+        max_tokens: 100,
+      }), {
+        signal: controller.signal,
+        timeout: 5000,
+      });
+      expect(events[0]).toMatchObject({
+        type: 'start',
+        provider: 'anthropic',
+        model: 'claude-3-5-sonnet-20241022',
+        id: 'msg_stream'
+      });
+      expect(events.filter((event) => event.type === 'content_delta').map((event) => event.delta).join(''))
+        .toBe('Hello Claude');
+      const usageEvents = events.filter((event) => event.type === 'usage');
+      const latestUsage = usageEvents[usageEvents.length - 1];
+      expect(latestUsage).toMatchObject({
+        type: 'usage',
+        usage: { prompt_tokens: 5, completion_tokens: 2, total_tokens: 7 }
+      });
+
+      const complete = events.find((event) => event.type === 'complete');
+      expect(complete).toBeDefined();
+      if (complete?.type === 'complete') {
+        expect(complete.response.id).toBe('msg_stream');
+        expect(complete.response.choices[0].message.content).toBe('Hello Claude');
+        expect(complete.response.choices[0].finish_reason).toBe('stop');
+        expect(complete.response.usage?.total_tokens).toBe(7);
+      }
+    });
+
+    it('should emit reasoning deltas when Anthropic sends thinking deltas', async () => {
+      basicRequest.settings.reasoning = {
+        enabled: true,
+        effort: undefined as any,
+        maxTokens: undefined as any,
+        exclude: false
+      };
+      mockStream.mockReturnValueOnce(streamFrom([
+        messageStart,
+        { type: 'content_block_start', index: 0, content_block: { type: 'thinking', thinking: '', signature: '' } },
+        { type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: 'thinking ' } },
+        { type: 'content_block_start', index: 1, content_block: { type: 'text', text: '' } },
+        { type: 'content_block_delta', index: 1, delta: { type: 'text_delta', text: 'answer' } },
+        {
+          type: 'message_delta',
+          delta: { stop_reason: 'end_turn', stop_sequence: null },
+          usage: { input_tokens: 5, output_tokens: 3 }
+        },
+        { type: 'message_stop' }
+      ]));
+
+      const events = await collectEvents();
+
+      expect(events.find((event) => event.type === 'reasoning_delta')).toMatchObject({
+        type: 'reasoning_delta',
+        delta: 'thinking ',
+        index: 0
+      });
+      const complete = events.find((event) => event.type === 'complete');
+      if (complete?.type === 'complete') {
+        expect(complete.response.choices[0].reasoning).toBe('thinking ');
+        expect(complete.response.choices[0].message.content).toBe('answer');
+      }
+    });
+
+    it('should not emit or return reasoning when reasoning.exclude is true', async () => {
+      basicRequest.settings.reasoning = {
+        enabled: true,
+        effort: undefined as any,
+        maxTokens: 1024,
+        exclude: true
+      };
+      mockStream.mockReturnValueOnce(streamFrom([
+        messageStart,
+        { type: 'content_block_start', index: 0, content_block: { type: 'thinking', thinking: '', signature: '' } },
+        { type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: 'hidden thought' } },
+        { type: 'content_block_start', index: 1, content_block: { type: 'text', text: '' } },
+        { type: 'content_block_delta', index: 1, delta: { type: 'text_delta', text: 'visible answer' } },
+        {
+          type: 'message_delta',
+          delta: { stop_reason: 'end_turn', stop_sequence: null },
+          usage: { input_tokens: 5, output_tokens: 3 }
+        },
+        { type: 'message_stop' }
+      ]));
+
+      const events = await collectEvents();
+
+      expect(events.find((event) => event.type === 'reasoning_delta')).toBeUndefined();
+      const complete = events.find((event) => event.type === 'complete');
+      if (complete?.type === 'complete') {
+        expect(complete.response.choices[0].reasoning).toBeUndefined();
+        expect(complete.response.choices[0].message.content).toBe('visible answer');
+      }
+    });
+
+    it('should map stream creation errors', async () => {
+      const apiError = new Error('Rate limit exceeded');
+      (apiError as any).status = 429;
+      mockStream.mockImplementationOnce(() => {
+        throw apiError;
+      });
+
+      const events = await collectEvents();
+
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({
+        type: 'error',
+        error: {
+          provider: 'anthropic',
+          model: 'claude-3-5-sonnet-20241022',
+          error: {
+            code: ADAPTER_ERROR_CODES.RATE_LIMIT_EXCEEDED,
+            type: 'rate_limit_error'
+          }
+        }
+      });
+    });
+
+    it('should include a partial response when a stream fails after deltas', async () => {
+      mockStream.mockReturnValueOnce(streamFrom([
+        messageStart,
+        { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
+        { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'Partial' } }
+      ], new Error('stream interrupted')));
+
+      const events = await collectEvents();
+      const error = events.find((event) => event.type === 'error');
+
+      expect(error).toBeDefined();
+      if (error?.type === 'error') {
+        expect(error.error.partialResponse?.id).toBe('msg_stream');
+        expect(error.error.partialResponse?.choices[0].message.content).toBe('Partial');
+      }
     });
   });
 

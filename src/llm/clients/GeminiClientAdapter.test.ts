@@ -10,9 +10,19 @@ jest.mock('@google/genai');
 // Cast the mocked module to allow setting up mock implementations
 const MockGoogleGenAI = GoogleGenAI as jest.MockedClass<typeof GoogleGenAI>;
 
+async function* streamFrom(chunks: any[], error?: Error): AsyncGenerator<any> {
+  for (const chunk of chunks) {
+    yield chunk;
+  }
+  if (error) {
+    throw error;
+  }
+}
+
 describe('GeminiClientAdapter', () => {
   let adapter: GeminiClientAdapter;
   let mockGenerateContent: jest.Mock;
+  let mockGenerateContentStream: jest.Mock;
   let mockGetGenerativeModel: jest.Mock;
   let mockModel: any;
   let basicRequest: InternalLLMChatRequest;
@@ -21,11 +31,13 @@ describe('GeminiClientAdapter', () => {
     // Reset mocks before each test
     MockGoogleGenAI.mockClear();
     mockGenerateContent = jest.fn();
+    mockGenerateContentStream = jest.fn();
     
     // Mock the models.generateContent method
     MockGoogleGenAI.mockImplementation(() => ({
       models: {
-        generateContent: mockGenerateContent
+        generateContent: mockGenerateContent,
+        generateContentStream: mockGenerateContentStream
       }
     } as any));
 
@@ -765,6 +777,247 @@ describe('GeminiClientAdapter', () => {
         const successResponse = response as LLMResponse;
         expect(successResponse.object).toBe('chat.completion');
         expect(successResponse.choices[0].message.content).toBe('');
+      });
+    });
+  });
+
+  describe('streamMessage', () => {
+    const collectEvents = async (request: InternalLLMChatRequest = basicRequest, options?: Parameters<GeminiClientAdapter['streamMessage']>[2]) => {
+      const events = [];
+      for await (const event of adapter.streamMessage(request, 'test-api-key', options)) {
+        events.push(event);
+      }
+      return events;
+    };
+
+    it('should stream content, reasoning, usage, and final normalized response', async () => {
+      mockGenerateContentStream.mockResolvedValueOnce(streamFrom([
+        {
+          modelUsed: 'gemini-2.5-pro',
+          candidates: [{
+            content: { parts: [{ text: 'thinking ', thought: true }], role: 'model' }
+          }]
+        },
+        {
+          modelUsed: 'gemini-2.5-pro',
+          candidates: [{
+            content: { parts: [{ text: 'Hello ' }], role: 'model' }
+          }]
+        },
+        {
+          modelUsed: 'gemini-2.5-pro',
+          candidates: [{
+            finishReason: 'STOP',
+            content: { parts: [{ text: 'world' }], role: 'model' }
+          }],
+          usageMetadata: {
+            promptTokenCount: 3,
+            candidatesTokenCount: 4,
+            totalTokenCount: 7
+          }
+        }
+      ]));
+
+      basicRequest.settings.reasoning = {
+        enabled: true,
+        effort: undefined as any,
+        maxTokens: undefined as any,
+        exclude: false
+      };
+
+      const events = await collectEvents();
+
+      expect(mockGenerateContentStream).toHaveBeenCalledTimes(1);
+      const callArgs = mockGenerateContentStream.mock.calls[0][0];
+      expect(callArgs.model).toBe('gemini-2.5-pro');
+      expect(callArgs.contents).toEqual([
+        { role: 'user', parts: [{ text: 'Hello' }] }
+      ]);
+      expect(callArgs.config.thinkingConfig).toEqual({
+        thinkingBudget: -1,
+        includeThoughts: true
+      });
+      expect(events[0]).toMatchObject({
+        type: 'start',
+        provider: 'gemini',
+        model: 'gemini-2.5-pro'
+      });
+      expect(events.find((event) => event.type === 'reasoning_delta')).toMatchObject({
+        type: 'reasoning_delta',
+        delta: 'thinking ',
+        index: 0
+      });
+      expect(events.filter((event) => event.type === 'content_delta').map((event) => event.delta).join(''))
+        .toBe('Hello world');
+      expect(events.find((event) => event.type === 'usage')).toMatchObject({
+        type: 'usage',
+        usage: { prompt_tokens: 3, completion_tokens: 4, total_tokens: 7 }
+      });
+
+      const complete = events.find((event) => event.type === 'complete');
+      expect(complete).toBeDefined();
+      if (complete?.type === 'complete') {
+        expect(complete.response.provider).toBe('gemini');
+        expect(complete.response.model).toBe('gemini-2.5-pro');
+        expect(complete.response.choices[0].message.content).toBe('Hello world');
+        expect(complete.response.choices[0].reasoning).toBe('thinking ');
+        expect(complete.response.choices[0].finish_reason).toBe('stop');
+        expect(complete.response.usage?.total_tokens).toBe(7);
+      }
+    });
+
+    it('should preserve transport options and request configuration', async () => {
+      mockGenerateContentStream.mockResolvedValueOnce(streamFrom([
+        {
+          candidates: [{
+            finishReason: 'STOP',
+            content: { parts: [{ text: '{}' }], role: 'model' }
+          }]
+        }
+      ]));
+
+      const controller = new AbortController();
+      const request = {
+        ...basicRequest,
+        messages: [
+          { role: 'system' as const, content: 'You are concise.' },
+          { role: 'user' as const, content: 'JSON please' }
+        ],
+        settings: {
+          ...basicRequest.settings,
+          topK: 64,
+          seed: 99,
+          stopSequences: ['END'],
+          structuredOutput: {
+            name: 'result',
+            schema: {
+              type: 'object' as const,
+              properties: {
+                ok: { type: 'boolean' as const }
+              }
+            }
+          }
+        }
+      };
+
+      await collectEvents(request, {
+        signal: controller.signal,
+        timeoutMs: 7000,
+      });
+
+      const callArgs = mockGenerateContentStream.mock.calls[0][0];
+      expect(callArgs.config).toMatchObject({
+        temperature: 0.7,
+        maxOutputTokens: 100,
+        topP: 1,
+        topK: 64,
+        seed: 99,
+        stopSequences: ['END'],
+        systemInstruction: 'You are concise.',
+        responseMimeType: 'application/json',
+        httpOptions: { timeout: 8000 }
+      });
+      expect(callArgs.config.abortSignal).toBeInstanceOf(AbortSignal);
+      expect(callArgs.config.abortSignal).not.toBe(controller.signal);
+    });
+
+    it('should not emit or return reasoning when reasoning.exclude is true', async () => {
+      mockGenerateContentStream.mockResolvedValueOnce(streamFrom([
+        {
+          candidates: [{
+            content: {
+              parts: [
+                { text: 'hidden thought', thought: true },
+                { text: 'visible answer' }
+              ],
+              role: 'model'
+            },
+            finishReason: 'STOP'
+          }]
+        }
+      ]));
+
+      basicRequest.settings.reasoning = {
+        enabled: true,
+        effort: undefined as any,
+        maxTokens: 1024,
+        exclude: true
+      };
+
+      const events = await collectEvents();
+
+      expect(events.find((event) => event.type === 'reasoning_delta')).toBeUndefined();
+      const complete = events.find((event) => event.type === 'complete');
+      if (complete?.type === 'complete') {
+        expect(complete.response.choices[0].reasoning).toBeUndefined();
+        expect(complete.response.choices[0].message.content).toBe('visible answer');
+      }
+    });
+
+    it('should map stream creation errors', async () => {
+      mockGenerateContentStream.mockRejectedValueOnce(new Error('API rate limit exceeded'));
+
+      const events = await collectEvents();
+
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({
+        type: 'error',
+        error: {
+          provider: 'gemini',
+          model: 'gemini-2.5-pro',
+          error: {
+            code: ADAPTER_ERROR_CODES.RATE_LIMIT_EXCEEDED,
+            type: 'rate_limit_error'
+          }
+        }
+      });
+    });
+
+    it('should include a partial response when a stream fails after chunks', async () => {
+      mockGenerateContentStream.mockResolvedValueOnce(streamFrom([
+        {
+          modelUsed: 'gemini-2.5-pro',
+          candidates: [{
+            content: { parts: [{ text: 'partial' }], role: 'model' }
+          }]
+        }
+      ], new Error('stream interrupted')));
+
+      const events = await collectEvents();
+      const error = events.find((event) => event.type === 'error');
+
+      expect(error).toBeDefined();
+      if (error?.type === 'error') {
+        expect(error.error.partialResponse?.model).toBe('gemini-2.5-pro');
+        expect(error.error.partialResponse?.choices[0].message.content).toBe('partial');
+      }
+    });
+
+    it('should classify adapter-owned stream timeouts as REQUEST_TIMEOUT', async () => {
+      mockGenerateContentStream.mockImplementationOnce(
+        (args: any) =>
+          Promise.resolve((async function* () {
+            await new Promise((_resolve, reject) => {
+              args.config.abortSignal.addEventListener('abort', () => {
+                reject(new DOMException('This operation was aborted', 'AbortError'));
+              });
+            });
+          })())
+      );
+
+      const events = await collectEvents(basicRequest, {
+        timeoutMs: 20,
+      });
+
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({
+        type: 'error',
+        error: {
+          error: {
+            code: ADAPTER_ERROR_CODES.REQUEST_TIMEOUT,
+            type: 'timeout_error'
+          }
+        }
       });
     });
   });

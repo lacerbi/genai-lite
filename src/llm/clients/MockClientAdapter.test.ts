@@ -282,6 +282,86 @@ describe('MockClientAdapter', () => {
     });
   });
 
+  describe('streamMessage', () => {
+    it('should stream content chunks and a final response', async () => {
+      const events = [];
+
+      for await (const event of adapter.streamMessage(basicRequest, 'test-key')) {
+        events.push(event);
+      }
+
+      expect(events[0]).toMatchObject({
+        type: 'start',
+        provider: 'openai',
+        model: 'mock-model',
+      });
+      expect(events.some((event) => event.type === 'content_delta')).toBe(true);
+      expect(events.some((event) => event.type === 'usage')).toBe(true);
+      expect(events[events.length - 1].type).toBe('complete');
+
+      const streamedContent = events
+        .filter((event) => event.type === 'content_delta')
+        .map((event) => event.delta)
+        .join('');
+      const complete = events[events.length - 1] as any;
+      expect(complete.response.choices[0].message.content).toBe(streamedContent);
+    });
+
+    it('should emit error events for simulated failures', async () => {
+      basicRequest.messages[0].content = 'error_rate_limit';
+      const events = [];
+
+      for await (const event of adapter.streamMessage(basicRequest, 'test-key')) {
+        events.push(event);
+      }
+
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({
+        type: 'error',
+        error: {
+          object: 'error',
+          error: { code: ADAPTER_ERROR_CODES.RATE_LIMIT_EXCEEDED },
+        },
+      });
+    });
+
+    it('should emit reasoning deltas when the mock response has reasoning', async () => {
+      basicRequest.messages[0].content = 'test_reasoning:The answer is 42.';
+      basicRequest.settings.reasoning = { enabled: true, exclude: false } as any;
+      const events = [];
+
+      for await (const event of adapter.streamMessage(basicRequest, 'test-key')) {
+        events.push(event);
+      }
+
+      const reasoning = events.find((event) => event.type === 'reasoning_delta');
+      expect(reasoning).toMatchObject({
+        type: 'reasoning_delta',
+        delta: 'Initial model reasoning from native capabilities.',
+      });
+    });
+
+    it('should honor an already-aborted signal', async () => {
+      const controller = new AbortController();
+      controller.abort();
+      const events = [];
+
+      for await (const event of adapter.streamMessage(basicRequest, 'test-key', {
+        signal: controller.signal,
+      })) {
+        events.push(event);
+      }
+
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({
+        type: 'error',
+        error: {
+          error: { code: ADAPTER_ERROR_CODES.REQUEST_ABORTED },
+        },
+      });
+    });
+  });
+
   describe('validateApiKey', () => {
     it('should return true for non-empty API keys', () => {
       expect(adapter.validateApiKey('valid-key')).toBe(true);

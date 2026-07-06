@@ -7,6 +7,7 @@ Complete guide to running local LLMs with llama.cpp and genai-lite.
 - [Overview](#overview)
 - [Setup](#setup)
 - [Basic Usage](#basic-usage)
+- [Streaming Usage](#streaming-usage)
 - [Configuration](#configuration)
 - [Automatic Capability Detection](#automatic-capability-detection)
 - [Reasoning on/off for Hybrid Models](#reasoning-onoff-for-hybrid-models)
@@ -108,6 +109,42 @@ if (response.object === 'chat.completion') {
 
 **Model ID:** Always use `'llamacpp'` - the actual model is determined by the GGUF file loaded in the server.
 
+## Streaming Usage
+
+`LLMService.streamMessage()` streams text from llama-server through the same OpenAI-compatible chat completions endpoint used by `sendMessage()`.
+
+```typescript
+import { LLMService } from 'genai-lite';
+
+const service = new LLMService(async () => 'not-needed');
+
+for await (const event of service.streamMessage({
+  providerId: 'llamacpp',
+  modelId: 'llamacpp',
+  messages: [{ role: 'user', content: 'Write a short haiku about local models.' }],
+  settings: {
+    maxTokens: 120,
+    reasoning: { enabled: false }
+  }
+})) {
+  if (event.type === 'content_delta') {
+    process.stdout.write(event.delta);
+  } else if (event.type === 'reasoning_delta') {
+    process.stderr.write(event.delta);
+  } else if (event.type === 'usage') {
+    console.log('\nUsage:', event.usage);
+  } else if (event.type === 'complete') {
+    console.log('\nFinal:', event.response.choices[0].message.content);
+  } else if (event.type === 'error') {
+    console.error(event.error.error.message);
+  }
+}
+```
+
+Use `http://127.0.0.1:8080` for the base URL on Windows; avoid `localhost` unless your server is listening on IPv6 as well. For hybrid reasoning models, start llama-server with `--jinja` so `settings.reasoning.enabled` can control `chat_template_kwargs.enable_thinking`. Adding `--reasoning-format deepseek` (or the matching reasoning format for your build/model) improves the chance that live reasoning appears as `reasoning_delta` instead of inline marker text.
+
+If a server streams raw `<think>...</think>` markers instead of separated reasoning fields, live `content_delta` events may contain those markers. The final `complete.response` still goes through genai-lite's normal reasoning cleanup and is the authoritative normalized result.
+
 ## Configuration
 
 ### Environment Variable
@@ -116,7 +153,7 @@ if (response.object === 'chat.completion') {
 export LLAMACPP_API_BASE_URL=http://127.0.0.1:8080  # Default
 ```
 
-> **Note (Windows):** the default base URL is `http://127.0.0.1:8080`, not `http://127.0.0.1:8080`. On Windows, `localhost` resolves to IPv6 (`::1`) first; when llama-server listens on IPv4 only, every fresh connection waits ~2s for the IPv6 attempt to time out (measured ~9x per-request slowdown). Using `127.0.0.1` avoids this. Set `LLAMACPP_API_BASE_URL` to override.
+> **Note (Windows):** the default base URL is `http://127.0.0.1:8080`, not `http://localhost:8080`. On Windows, `localhost` resolves to IPv6 (`::1`) first; when llama-server listens on IPv4 only, every fresh connection waits ~2s for the IPv6 attempt to time out (measured ~9x per-request slowdown). Using `127.0.0.1` avoids this. Set `LLAMACPP_API_BASE_URL` to override.
 
 ### Multiple Servers
 

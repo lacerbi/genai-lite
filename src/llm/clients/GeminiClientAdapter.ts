@@ -6,11 +6,11 @@ import type {
   LLMResponse,
   LLMFailureResponse,
   GeminiSafetySetting,
+  LLMStreamEvent,
 } from "../types";
 import type {
   ILLMClientAdapter,
   InternalLLMChatRequest,
-  AdapterErrorCode,
   AdapterRequestOptions,
 } from "./types";
 import { ADAPTER_ERROR_CODES } from "./types";
@@ -21,6 +21,32 @@ import {
 } from "../../shared/adapters/systemMessageUtils";
 import type { Logger } from "../../logging/types";
 import { createDefaultLogger } from "../../logging/defaultLogger";
+
+interface GeminiTransportState {
+  abortSignal?: AbortSignal;
+  timedOut: boolean;
+  cleanup: () => void;
+}
+
+interface GeminiPreparedRequest {
+  genAI: GoogleGenAI;
+  params: any;
+  transportState: GeminiTransportState;
+  generationConfig: any;
+  safetySettings?: any[];
+  systemInstruction?: string;
+  contents: any[];
+}
+
+interface GeminiStreamAccumulator {
+  responseId: string;
+  created: number;
+  model: string;
+  contentParts: string[];
+  thoughtParts: string[];
+  finishReason: string | null;
+  usageMetadata?: any;
+}
 
 /**
  * Client adapter for Google Gemini API integration
@@ -65,64 +91,25 @@ export class GeminiClientAdapter implements ILLMClientAdapter {
     // identical AbortErrors and cannot be distinguished from the error object. The
     // adapter owns the timeout instead and classifies from its own state in the
     // catch block.
-    let timedOut = false;
-    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+    let transportState: GeminiTransportState | undefined;
     try {
       // Initialize Gemini client. The SDK's internal retry layer is opt-in via
       // httpOptions.retryOptions — it must stay unset here because LLMService's
       // withRetry owns retrying (SDK retries would multiply attempts).
-      const genAI = new GoogleGenAI({ apiKey });
-
-      // Format the request for Gemini API
-      const { contents, generationConfig, safetySettings, systemInstruction } =
-        this.formatInternalRequestToGemini(request);
+      const prepared = this.prepareGenerateContentRequest(request, apiKey, options);
+      transportState = prepared.transportState;
 
       this.logger.info(`Making Gemini API call for model: ${request.modelId}`);
       this.logger.debug(`Gemini API parameters:`, {
         model: request.modelId,
-        temperature: generationConfig.temperature,
-        maxOutputTokens: generationConfig.maxOutputTokens,
-        hasSystemInstruction: !!systemInstruction,
-        contentsLength: contents.length,
-        safetySettingsCount: safetySettings?.length || 0,
+        temperature: prepared.generationConfig.temperature,
+        maxOutputTokens: prepared.generationConfig.maxOutputTokens,
+        hasSystemInstruction: !!prepared.systemInstruction,
+        contentsLength: prepared.contents.length,
+        safetySettingsCount: prepared.safetySettings?.length || 0,
       });
 
-      let abortSignal = options?.signal;
-      if (options?.timeoutMs !== undefined) {
-        const controller = new AbortController();
-        if (options.signal) {
-          if (options.signal.aborted) {
-            controller.abort();
-          } else {
-            options.signal.addEventListener("abort", () => controller.abort(), {
-              once: true,
-            });
-          }
-        }
-        timeoutHandle = setTimeout(() => {
-          timedOut = true;
-          controller.abort();
-        }, options.timeoutMs);
-        timeoutHandle.unref?.();
-        abortSignal = controller.signal;
-      }
-
-      // Generate content using the modern API
-      const result = await genAI.models.generateContent({
-        model: request.modelId,
-        contents: contents,
-        config: {
-          ...generationConfig,
-          safetySettings: safetySettings,
-          ...(systemInstruction && { systemInstruction: systemInstruction }),
-          ...(abortSignal && { abortSignal }),
-          // Keep the SDK's server-side timeout hint (X-Server-Timeout header),
-          // padded so the adapter's local timer always fires first
-          ...(options?.timeoutMs !== undefined && {
-            httpOptions: { timeout: options.timeoutMs + 1000 },
-          }),
-        },
-      });
+      const result = await prepared.genAI.models.generateContent(prepared.params);
 
       this.logger.info(`Gemini API call successful, processing response`);
 
@@ -130,14 +117,91 @@ export class GeminiClientAdapter implements ILLMClientAdapter {
       return this.createSuccessResponse(result, request);
     } catch (error) {
       this.logger.error("Gemini API error:", error);
-      return this.createErrorResponse(error, request, {
-        timedOut,
-        aborted: options?.signal?.aborted === true,
-      });
+      return this.createErrorResponse(
+        error,
+        request,
+        this.getTransportErrorContext(options, transportState)
+      );
     } finally {
-      if (timeoutHandle !== undefined) {
-        clearTimeout(timeoutHandle);
+      transportState?.cleanup();
+    }
+  }
+
+  async *streamMessage(
+    request: InternalLLMChatRequest,
+    apiKey: string,
+    options?: AdapterRequestOptions
+  ): AsyncIterable<LLMStreamEvent> {
+    const accumulator: GeminiStreamAccumulator = {
+      responseId: this.generateResponseId(),
+      created: Math.floor(Date.now() / 1000),
+      model: request.modelId,
+      contentParts: [],
+      thoughtParts: [],
+      finishReason: null,
+    };
+    let transportState: GeminiTransportState | undefined;
+    let sawChunk = false;
+    let started = false;
+
+    try {
+      const prepared = this.prepareGenerateContentRequest(request, apiKey, options);
+      transportState = prepared.transportState;
+
+      this.logger.info(`Making Gemini streaming API call for model: ${request.modelId}`);
+      const stream = await prepared.genAI.models.generateContentStream(prepared.params);
+
+      for await (const chunk of stream) {
+        sawChunk = true;
+        this.updateGeminiAccumulatorMetadata(accumulator, chunk);
+
+        if (!started) {
+          started = true;
+          yield {
+            type: "start",
+            provider: request.providerId,
+            model: accumulator.model,
+            id: accumulator.responseId,
+            created: accumulator.created,
+          };
+        }
+
+        for (const event of this.processGeminiStreamChunk(accumulator, chunk, request)) {
+          yield event;
+        }
       }
+
+      const response = this.createSuccessResponse(
+        this.createSyntheticGeminiResponse(accumulator),
+        request
+      );
+      yield { type: "complete", response };
+    } catch (error) {
+      this.logger.error("Gemini streaming API error:", error);
+      const errorResponse = this.createErrorResponse(
+        error,
+        request,
+        this.getTransportErrorContext(options, transportState)
+      );
+
+      if (sawChunk || accumulator.contentParts.length > 0 || accumulator.thoughtParts.length > 0) {
+        const partial = this.createSuccessResponse(
+          this.createSyntheticGeminiResponse(accumulator),
+          request
+        );
+        errorResponse.partialResponse = {
+          id: partial.id,
+          provider: partial.provider,
+          model: partial.model,
+          created: partial.created,
+          choices: partial.choices,
+          usage: partial.usage,
+        };
+      }
+
+      yield { type: "error", error: errorResponse };
+    } finally {
+      transportState?.cleanup();
     }
   }
 
@@ -164,6 +228,174 @@ export class GeminiClientAdapter implements ILLMClientAdapter {
       providerId: "gemini" as const,
       name: "Gemini Client Adapter",
       version: "1.0.0",
+    };
+  }
+
+  private prepareGenerateContentRequest(
+    request: InternalLLMChatRequest,
+    apiKey: string,
+    options?: AdapterRequestOptions
+  ): GeminiPreparedRequest {
+    // The SDK's internal retry layer is opt-in via httpOptions.retryOptions and
+    // must stay unset because LLMService's withRetry owns retrying.
+    const genAI = new GoogleGenAI({ apiKey });
+    const { contents, generationConfig, safetySettings, systemInstruction } =
+      this.formatInternalRequestToGemini(request);
+    const transportState = this.createTransportState(options);
+
+    return {
+      genAI,
+      params: {
+        model: request.modelId,
+        contents,
+        config: {
+          ...generationConfig,
+          safetySettings,
+          ...(systemInstruction && { systemInstruction }),
+          ...(transportState.abortSignal && {
+            abortSignal: transportState.abortSignal,
+          }),
+          // Keep the SDK's server-side timeout hint (X-Server-Timeout header),
+          // padded so the adapter's local timer always fires first.
+          ...(options?.timeoutMs !== undefined && {
+            httpOptions: { timeout: options.timeoutMs + 1000 },
+          }),
+        },
+      },
+      transportState,
+      generationConfig,
+      safetySettings,
+      systemInstruction,
+      contents,
+    };
+  }
+
+  private createTransportState(options?: AdapterRequestOptions): GeminiTransportState {
+    // The SDK enforces httpOptions.timeout by aborting the same internal controller
+    // the caller's abortSignal funnels into, so timeout and caller abort surface as
+    // identical AbortErrors. The adapter owns the timeout and classifies from this
+    // state in the catch block.
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+    const state: GeminiTransportState = {
+      abortSignal: options?.signal,
+      timedOut: false,
+      cleanup: () => {
+        if (timeoutHandle !== undefined) {
+          clearTimeout(timeoutHandle);
+        }
+      },
+    };
+
+    if (options?.timeoutMs !== undefined) {
+      const controller = new AbortController();
+      if (options.signal) {
+        if (options.signal.aborted) {
+          controller.abort();
+        } else {
+          options.signal.addEventListener("abort", () => controller.abort(), {
+            once: true,
+          });
+        }
+      }
+      timeoutHandle = setTimeout(() => {
+        state.timedOut = true;
+        controller.abort();
+      }, options.timeoutMs);
+      timeoutHandle.unref?.();
+      state.abortSignal = controller.signal;
+    }
+
+    return state;
+  }
+
+  private getTransportErrorContext(
+    options?: AdapterRequestOptions,
+    transportState?: GeminiTransportState
+  ): { timedOut?: boolean; aborted?: boolean } {
+    return {
+      timedOut: transportState?.timedOut,
+      aborted: options?.signal?.aborted === true,
+    };
+  }
+
+  private updateGeminiAccumulatorMetadata(
+    accumulator: GeminiStreamAccumulator,
+    chunk: any
+  ): void {
+    accumulator.model = chunk.modelUsed || accumulator.model;
+    const candidate = chunk.candidates?.[0];
+    accumulator.finishReason = candidate?.finishReason ?? accumulator.finishReason;
+    if (chunk.usageMetadata) {
+      accumulator.usageMetadata = chunk.usageMetadata;
+    }
+  }
+
+  private processGeminiStreamChunk(
+    accumulator: GeminiStreamAccumulator,
+    chunk: any,
+    request: InternalLLMChatRequest
+  ): LLMStreamEvent[] {
+    const events: LLMStreamEvent[] = [];
+    const parts = chunk.candidates?.[0]?.content?.parts || [];
+
+    for (const part of parts) {
+      if (typeof part?.text !== "string" || part.text.length === 0) {
+        continue;
+      }
+
+      if (part.thought) {
+        accumulator.thoughtParts.push(part.text);
+        if (request.settings.reasoning?.exclude !== true) {
+          events.push({
+            type: "reasoning_delta",
+            delta: part.text,
+            index: 0,
+          });
+        }
+      } else {
+        accumulator.contentParts.push(part.text);
+        events.push({
+          type: "content_delta",
+          delta: part.text,
+          index: 0,
+        });
+      }
+    }
+
+    if (chunk.usageMetadata) {
+      events.push({
+        type: "usage",
+        usage: {
+          prompt_tokens: chunk.usageMetadata.promptTokenCount || 0,
+          completion_tokens: chunk.usageMetadata.candidatesTokenCount || 0,
+          total_tokens: chunk.usageMetadata.totalTokenCount || 0,
+        },
+      });
+    }
+
+    return events;
+  }
+
+  private createSyntheticGeminiResponse(
+    accumulator: GeminiStreamAccumulator
+  ): any {
+    const parts = [
+      ...accumulator.thoughtParts.map((text) => ({ text, thought: true })),
+      ...accumulator.contentParts.map((text) => ({ text })),
+    ];
+
+    return {
+      responseId: accumulator.responseId,
+      created: accumulator.created,
+      modelUsed: accumulator.model,
+      candidates: [{
+        finishReason: accumulator.finishReason,
+        content: {
+          role: "model",
+          parts,
+        },
+      }],
+      usageMetadata: accumulator.usageMetadata,
     };
   }
 
@@ -377,10 +609,10 @@ export class GeminiClientAdapter implements ILLMClientAdapter {
     }
 
     return {
-      id: this.generateResponseId(),
+      id: (response as any).responseId || this.generateResponseId(),
       provider: request.providerId,
       model: response.modelUsed || request.modelId,
-      created: Math.floor(Date.now() / 1000),
+      created: (response as any).created || Math.floor(Date.now() / 1000),
       choices: [choice],
       usage: usageMetadata
         ? {

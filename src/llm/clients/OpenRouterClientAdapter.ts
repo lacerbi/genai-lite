@@ -2,7 +2,7 @@
 // Provides unified access to 100+ LLM models from various providers through a single API.
 
 import OpenAI from "openai";
-import type { LLMResponse, LLMFailureResponse } from "../types";
+import type { LLMResponse, LLMFailureResponse, LLMStreamEvent } from "../types";
 import type {
   ILLMClientAdapter,
   InternalLLMChatRequest,
@@ -30,6 +30,19 @@ export interface OpenRouterClientConfig {
   siteTitle?: string;
   /** Logger instance for adapter logging */
   logger?: Logger;
+}
+
+interface OpenRouterCompletionRequest {
+  openai: OpenAI;
+  completionParams: OpenAI.Chat.Completions.ChatCompletionCreateParams;
+}
+
+interface OpenRouterStreamChoiceState {
+  content: string;
+  reasoning: string;
+  reasoningDetails?: any;
+  finishReason: string | null;
+  logprobs: any[];
 }
 
 /**
@@ -93,122 +106,7 @@ export class OpenRouterClientAdapter implements ILLMClientAdapter {
     options?: AdapterRequestOptions
   ): Promise<LLMResponse | LLMFailureResponse> {
     try {
-      // Initialize OpenAI client with OpenRouter base URL and custom headers
-      const openai = new OpenAI({
-        apiKey,
-        maxRetries: 0, // retries are owned by the unified LLMService retry layer
-        baseURL: this.baseURL,
-        defaultHeaders: {
-          ...(this.httpReferer && { 'HTTP-Referer': this.httpReferer }),
-          ...(this.siteTitle && { 'X-Title': this.siteTitle }),
-        },
-      });
-
-      // Format messages for OpenAI-compatible API
-      const messages = this.formatMessages(request);
-
-      // Prepare API call parameters
-      const completionParams: OpenAI.Chat.Completions.ChatCompletionCreateParams = {
-        model: request.modelId,
-        messages: messages,
-        temperature: request.settings.temperature,
-        max_tokens: request.settings.maxTokens,
-        top_p: request.settings.topP,
-        ...(request.settings.stopSequences.length > 0 && {
-          stop: request.settings.stopSequences,
-        }),
-        ...(request.settings.frequencyPenalty !== 0 && {
-          frequency_penalty: request.settings.frequencyPenalty,
-        }),
-        ...(request.settings.presencePenalty !== 0 && {
-          presence_penalty: request.settings.presencePenalty,
-        }),
-        ...(request.settings.seed !== undefined && {
-          seed: request.settings.seed,
-        }),
-        // OpenRouter pass-through sampling params (not in the OpenAI SDK types;
-        // sent as-is — OpenRouter ignores them for models that don't support them)
-        ...(request.settings.topK !== undefined && {
-          top_k: request.settings.topK,
-        }),
-        ...(request.settings.minP !== undefined && {
-          min_p: request.settings.minP,
-        }),
-        ...(request.settings.repeatPenalty !== undefined && {
-          repetition_penalty: request.settings.repeatPenalty,
-        }),
-        ...(request.settings.logprobs === true && {
-          logprobs: true,
-          ...(request.settings.topLogprobs !== undefined && {
-            top_logprobs: request.settings.topLogprobs,
-          }),
-        }),
-      } as OpenAI.Chat.Completions.ChatCompletionCreateParams;
-
-      // Add OpenRouter-specific provider routing if configured
-      const providerSettings = request.settings.openRouterProvider;
-      if (providerSettings) {
-        const provider: Record<string, any> = {};
-
-        if (providerSettings.order) {
-          provider.order = providerSettings.order;
-        }
-        if (providerSettings.ignore) {
-          provider.ignore = providerSettings.ignore;
-        }
-        if (providerSettings.allow) {
-          provider.allow = providerSettings.allow;
-        }
-        if (providerSettings.dataCollection) {
-          provider.data_collection = providerSettings.dataCollection;
-        }
-        if (providerSettings.requireParameters !== undefined) {
-          provider.require_parameters = providerSettings.requireParameters;
-        }
-
-        if (Object.keys(provider).length > 0) {
-          (completionParams as any).provider = provider;
-        }
-      }
-
-      // Handle structured output configuration for OpenRouter
-      // Passthrough to underlying provider using OpenAI-style format
-      if (request.settings.structuredOutput?.schema && request.settings.structuredOutput.enabled !== false) {
-        const so = request.settings.structuredOutput;
-        (completionParams as any).response_format = {
-          type: 'json_schema',
-          json_schema: {
-            name: so.name,
-            strict: so.strict !== false,
-            schema: so.schema,
-          }
-        };
-      }
-
-      // Map unified reasoning settings to OpenRouter's reasoning body param.
-      // effort and max_tokens are mutually exclusive on OpenRouter; max_tokens wins
-      // when both are set (matching the Anthropic adapter's precedence). OpenRouter
-      // silently ignores the param for models without reasoning support.
-      const reasoningSettings = request.settings.reasoning;
-      if (
-        reasoningSettings &&
-        (reasoningSettings.enabled === true ||
-          reasoningSettings.effort !== undefined ||
-          reasoningSettings.maxTokens !== undefined)
-      ) {
-        const reasoning: Record<string, any> = {};
-        if (reasoningSettings.maxTokens !== undefined) {
-          reasoning.max_tokens = reasoningSettings.maxTokens;
-        } else if (reasoningSettings.effort) {
-          reasoning.effort = reasoningSettings.effort;
-        } else {
-          reasoning.enabled = true;
-        }
-        if (reasoningSettings.exclude === true) {
-          reasoning.exclude = true;
-        }
-        (completionParams as any).reasoning = reasoning;
-      }
+      const { openai, completionParams } = this.prepareCompletionRequest(request, apiKey);
 
       this.logger.debug(`OpenRouter API parameters:`, {
         baseURL: this.baseURL,
@@ -242,6 +140,306 @@ export class OpenRouterClientAdapter implements ILLMClientAdapter {
       this.logger.error("OpenRouter API error:", error);
       return this.createErrorResponse(error, request);
     }
+  }
+
+  async *streamMessage(
+    request: InternalLLMChatRequest,
+    apiKey: string,
+    options?: AdapterRequestOptions
+  ): AsyncIterable<LLMStreamEvent> {
+    const choiceStates = new Map<number, OpenRouterStreamChoiceState>();
+    let responseId = "";
+    let responseModel = request.modelId;
+    let created = Math.floor(Date.now() / 1000);
+    let usage: OpenAI.Completions.CompletionUsage | undefined;
+
+    try {
+      const { openai, completionParams } = this.prepareCompletionRequest(request, apiKey);
+      const streamParams = {
+        ...completionParams,
+        stream: true,
+        stream_options: { include_usage: true },
+      } as OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming;
+      const transportOptions = this.createTransportOptions(options);
+      const stream =
+        Object.keys(transportOptions).length > 0
+          ? await openai.chat.completions.create(streamParams, transportOptions)
+          : await openai.chat.completions.create(streamParams);
+
+      let started = false;
+      for await (const chunk of stream) {
+        responseId = chunk.id || responseId;
+        responseModel = chunk.model || responseModel;
+        created = chunk.created || created;
+
+        if (!started) {
+          started = true;
+          yield {
+            type: "start",
+            provider: request.providerId,
+            model: responseModel,
+            id: responseId,
+            created,
+          };
+        }
+
+        if (chunk.usage) {
+          usage = chunk.usage;
+          yield {
+            type: "usage",
+            usage: {
+              prompt_tokens: chunk.usage.prompt_tokens,
+              completion_tokens: chunk.usage.completion_tokens,
+              total_tokens: chunk.usage.total_tokens,
+            },
+          };
+        }
+
+        for (const choice of chunk.choices || []) {
+          const state = this.getStreamChoiceState(choiceStates, choice.index);
+          state.finishReason = choice.finish_reason ?? state.finishReason;
+          const delta = choice.delta as any;
+
+          const reasoningDelta = delta?.reasoning ?? delta?.reasoning_content;
+          if (typeof reasoningDelta === "string" && reasoningDelta.length > 0) {
+            state.reasoning += reasoningDelta;
+            if (request.settings.reasoning?.exclude !== true) {
+              yield {
+                type: "reasoning_delta",
+                delta: reasoningDelta,
+                index: choice.index,
+              };
+            }
+          }
+
+          if (delta?.reasoning_details) {
+            state.reasoningDetails = delta.reasoning_details;
+          }
+
+          if (typeof delta?.content === "string" && delta.content.length > 0) {
+            state.content += delta.content;
+            yield {
+              type: "content_delta",
+              delta: delta.content,
+              index: choice.index,
+            };
+          }
+
+          const mappedLogprobs = mapOpenAIChatLogprobs(choice.logprobs);
+          if (mappedLogprobs) {
+            state.logprobs.push(...((choice.logprobs as any)?.content || []));
+          }
+        }
+      }
+
+      const response = this.createSuccessResponse(
+        this.createSyntheticCompletion(
+          request,
+          responseId,
+          responseModel,
+          created,
+          choiceStates,
+          usage
+        ),
+        request
+      );
+
+      yield { type: "complete", response };
+    } catch (error) {
+      this.logger.error("OpenRouter streaming API error:", error);
+      const errorResponse = this.createErrorResponse(error, request);
+      if (choiceStates.size > 0) {
+        const partial = this.createSuccessResponse(
+          this.createSyntheticCompletion(
+            request,
+            responseId,
+            responseModel,
+            created,
+            choiceStates,
+            usage
+          ),
+          request
+        );
+        errorResponse.partialResponse = {
+          id: partial.id,
+          provider: partial.provider,
+          model: partial.model,
+          created: partial.created,
+          choices: partial.choices,
+          usage: partial.usage,
+        };
+      }
+      yield { type: "error", error: errorResponse };
+    }
+  }
+
+  private prepareCompletionRequest(
+    request: InternalLLMChatRequest,
+    apiKey: string
+  ): OpenRouterCompletionRequest {
+    const openai = new OpenAI({
+      apiKey,
+      maxRetries: 0, // retries are owned by the unified LLMService retry layer
+      baseURL: this.baseURL,
+      defaultHeaders: {
+        ...(this.httpReferer && { 'HTTP-Referer': this.httpReferer }),
+        ...(this.siteTitle && { 'X-Title': this.siteTitle }),
+      },
+    });
+
+    const messages = this.formatMessages(request);
+    const completionParams: OpenAI.Chat.Completions.ChatCompletionCreateParams = {
+      model: request.modelId,
+      messages,
+      temperature: request.settings.temperature,
+      max_tokens: request.settings.maxTokens,
+      top_p: request.settings.topP,
+      ...(request.settings.stopSequences.length > 0 && {
+        stop: request.settings.stopSequences,
+      }),
+      ...(request.settings.frequencyPenalty !== 0 && {
+        frequency_penalty: request.settings.frequencyPenalty,
+      }),
+      ...(request.settings.presencePenalty !== 0 && {
+        presence_penalty: request.settings.presencePenalty,
+      }),
+      ...(request.settings.seed !== undefined && {
+        seed: request.settings.seed,
+      }),
+      ...(request.settings.topK !== undefined && {
+        top_k: request.settings.topK,
+      }),
+      ...(request.settings.minP !== undefined && {
+        min_p: request.settings.minP,
+      }),
+      ...(request.settings.repeatPenalty !== undefined && {
+        repetition_penalty: request.settings.repeatPenalty,
+      }),
+      ...(request.settings.logprobs === true && {
+        logprobs: true,
+        ...(request.settings.topLogprobs !== undefined && {
+          top_logprobs: request.settings.topLogprobs,
+        }),
+      }),
+    } as OpenAI.Chat.Completions.ChatCompletionCreateParams;
+
+    const providerSettings = request.settings.openRouterProvider;
+    if (providerSettings) {
+      const provider: Record<string, any> = {};
+      if (providerSettings.order) {
+        provider.order = providerSettings.order;
+      }
+      if (providerSettings.ignore) {
+        provider.ignore = providerSettings.ignore;
+      }
+      if (providerSettings.allow) {
+        provider.allow = providerSettings.allow;
+      }
+      if (providerSettings.dataCollection) {
+        provider.data_collection = providerSettings.dataCollection;
+      }
+      if (providerSettings.requireParameters !== undefined) {
+        provider.require_parameters = providerSettings.requireParameters;
+      }
+      if (Object.keys(provider).length > 0) {
+        (completionParams as any).provider = provider;
+      }
+    }
+
+    if (request.settings.structuredOutput?.schema && request.settings.structuredOutput.enabled !== false) {
+      const so = request.settings.structuredOutput;
+      (completionParams as any).response_format = {
+        type: 'json_schema',
+        json_schema: {
+          name: so.name,
+          strict: so.strict !== false,
+          schema: so.schema,
+        }
+      };
+    }
+
+    const reasoningSettings = request.settings.reasoning;
+    if (
+      reasoningSettings &&
+      (reasoningSettings.enabled === true ||
+        reasoningSettings.effort !== undefined ||
+        reasoningSettings.maxTokens !== undefined)
+    ) {
+      const reasoning: Record<string, any> = {};
+      if (reasoningSettings.maxTokens !== undefined) {
+        reasoning.max_tokens = reasoningSettings.maxTokens;
+      } else if (reasoningSettings.effort) {
+        reasoning.effort = reasoningSettings.effort;
+      } else {
+        reasoning.enabled = true;
+      }
+      if (reasoningSettings.exclude === true) {
+        reasoning.exclude = true;
+      }
+      (completionParams as any).reasoning = reasoning;
+    }
+
+    return { openai, completionParams };
+  }
+
+  private createTransportOptions(options?: AdapterRequestOptions) {
+    return {
+      ...(options?.signal && { signal: options.signal }),
+      ...(options?.timeoutMs !== undefined && { timeout: options.timeoutMs }),
+    };
+  }
+
+  private getStreamChoiceState(
+    states: Map<number, OpenRouterStreamChoiceState>,
+    index: number
+  ): OpenRouterStreamChoiceState {
+    let state = states.get(index);
+    if (!state) {
+      state = {
+        content: "",
+        reasoning: "",
+        finishReason: null,
+        logprobs: [],
+      };
+      states.set(index, state);
+    }
+    return state;
+  }
+
+  private createSyntheticCompletion(
+    request: InternalLLMChatRequest,
+    id: string,
+    model: string,
+    created: number,
+    choiceStates: Map<number, OpenRouterStreamChoiceState>,
+    usage?: OpenAI.Completions.CompletionUsage
+  ): OpenAI.Chat.Completions.ChatCompletion {
+    const choices = Array.from(choiceStates.entries())
+      .sort(([a], [b]) => a - b)
+      .map(([index, state]) => ({
+        index,
+        message: {
+          role: "assistant" as const,
+          content: state.content,
+          ...(state.reasoning && { reasoning: state.reasoning }),
+          ...(state.reasoningDetails && {
+            reasoning_details: state.reasoningDetails,
+          }),
+        },
+        finish_reason: state.finishReason,
+        ...(state.logprobs.length > 0 && {
+          logprobs: { content: state.logprobs },
+        }),
+      }));
+
+    return {
+      id: id || `openrouter-stream-${Date.now()}`,
+      object: "chat.completion",
+      created,
+      model: model || request.modelId,
+      choices: choices as any,
+      ...(usage && { usage }),
+    };
   }
 
   /**

@@ -5,6 +5,7 @@ import type { LLMResponse, LLMFailureResponse } from '../types';
 
 // Mock complete function
 let mockComplete: jest.Mock;
+let mockStream: jest.Mock;
 
 // Mock the entire '@mistralai/mistralai' module
 jest.mock('@mistralai/mistralai', () => {
@@ -12,6 +13,7 @@ jest.mock('@mistralai/mistralai', () => {
     Mistral: jest.fn().mockImplementation(() => ({
       chat: {
         complete: (...args: any[]) => mockComplete(...args),
+        stream: (...args: any[]) => mockStream(...args),
       },
     })),
   };
@@ -29,6 +31,7 @@ describe('MistralClientAdapter', () => {
     // Reset mocks before each test
     MockMistral.mockClear();
     mockComplete = jest.fn();
+    mockStream = jest.fn();
 
     adapter = new MistralClientAdapter();
     basicRequest = {
@@ -68,6 +71,15 @@ describe('MistralClientAdapter', () => {
       }
     };
   });
+
+  const streamFrom = async function* (events: any[], error?: Error) {
+    for (const event of events) {
+      yield event;
+    }
+    if (error) {
+      throw error;
+    }
+  };
 
   describe('sendMessage', () => {
     it('should format the request correctly and call the Mistral API', async () => {
@@ -468,6 +480,189 @@ describe('MistralClientAdapter', () => {
         expect(errorResponse.error.code).toBe(ADAPTER_ERROR_CODES.UNKNOWN_ERROR);
         expect(errorResponse.error.message).toContain('Unknown error');
       });
+    });
+  });
+
+  describe('streamMessage', () => {
+    const collectEvents = async (request: InternalLLMChatRequest = basicRequest, options?: Parameters<MistralClientAdapter['streamMessage']>[2]) => {
+      const events = [];
+      for await (const event of adapter.streamMessage(request, 'test-api-key-12345678901234567890', options)) {
+        events.push(event);
+      }
+      return events;
+    };
+
+    const eventChunk = (content: any, finishReason: string | null = null, extra?: Record<string, any>) => ({
+      data: {
+        id: 'mistral-stream',
+        object: 'chat.completion.chunk',
+        created: 1234567890,
+        model: 'mistral-small-latest',
+        choices: [{
+          index: 0,
+          delta: { content },
+          finishReason,
+        }],
+        ...extra,
+      }
+    });
+
+    it('should stream content deltas and emit a final normalized response', async () => {
+      const controller = new AbortController();
+      mockStream.mockResolvedValueOnce(streamFrom([
+        eventChunk('Hello '),
+        eventChunk('Mistral', 'stop', {
+          usage: { promptTokens: 2, completionTokens: 3, totalTokens: 5 }
+        })
+      ]));
+
+      const events = await collectEvents(basicRequest, {
+        signal: controller.signal,
+        timeoutMs: 5000,
+      });
+
+      expect(mockStream).toHaveBeenCalledWith({
+        model: 'mistral-small-latest',
+        messages: [{ role: 'user', content: 'Hello' }],
+        temperature: 0.7,
+        maxTokens: 100,
+        topP: 1,
+        stream: true
+      }, expect.objectContaining({
+        signal: expect.any(AbortSignal),
+      }));
+      expect(events[0]).toMatchObject({
+        type: 'start',
+        provider: 'mistral',
+        model: 'mistral-small-latest',
+        id: 'mistral-stream'
+      });
+      expect(events.filter((event) => event.type === 'content_delta').map((event) => event.delta).join(''))
+        .toBe('Hello Mistral');
+      expect(events.find((event) => event.type === 'usage')).toMatchObject({
+        type: 'usage',
+        usage: { prompt_tokens: 2, completion_tokens: 3, total_tokens: 5 }
+      });
+
+      const complete = events.find((event) => event.type === 'complete');
+      expect(complete).toBeDefined();
+      if (complete?.type === 'complete') {
+        expect(complete.response.id).toBe('mistral-stream');
+        expect(complete.response.choices[0].message.content).toBe('Hello Mistral');
+        expect(complete.response.choices[0].finish_reason).toBe('stop');
+        expect(complete.response.usage?.total_tokens).toBe(5);
+      }
+    });
+
+    it('should preserve stream request params and timeout-only transport options', async () => {
+      mockStream.mockResolvedValueOnce(streamFrom([
+        eventChunk('{}', 'stop')
+      ]));
+      basicRequest.settings.seed = 77;
+      basicRequest.settings.stopSequences = ['END'];
+      basicRequest.settings.structuredOutput = {
+        name: 'result',
+        schema: { type: 'object' }
+      } as any;
+
+      await collectEvents(basicRequest, { timeoutMs: 9000 });
+
+      expect(mockStream).toHaveBeenCalledWith(expect.objectContaining({
+        stream: true,
+        randomSeed: 77,
+        stop: ['END'],
+        responseFormat: { type: 'json_object' },
+      }), {
+        timeoutMs: 9000,
+      });
+    });
+
+    it('should emit reasoning deltas from thinking content chunks', async () => {
+      basicRequest.settings.reasoning = {
+        enabled: true,
+        effort: undefined as any,
+        maxTokens: undefined as any,
+        exclude: false
+      };
+      mockStream.mockResolvedValueOnce(streamFrom([
+        eventChunk([
+          { type: 'thinking', thinking: [{ type: 'text', text: 'thinking ' }] },
+          { type: 'text', text: 'answer' }
+        ], 'stop')
+      ]));
+
+      const events = await collectEvents();
+
+      expect(events.find((event) => event.type === 'reasoning_delta')).toMatchObject({
+        type: 'reasoning_delta',
+        delta: 'thinking ',
+        index: 0
+      });
+      const complete = events.find((event) => event.type === 'complete');
+      if (complete?.type === 'complete') {
+        expect(complete.response.choices[0].reasoning).toBe('thinking ');
+        expect(complete.response.choices[0].message.content).toBe('answer');
+      }
+    });
+
+    it('should not emit or return reasoning when reasoning.exclude is true', async () => {
+      basicRequest.settings.reasoning = {
+        enabled: true,
+        effort: undefined as any,
+        maxTokens: 1024,
+        exclude: true
+      };
+      mockStream.mockResolvedValueOnce(streamFrom([
+        eventChunk([
+          { type: 'thinking', thinking: [{ type: 'text', text: 'hidden thought' }] },
+          { type: 'text', text: 'visible answer' }
+        ], 'stop')
+      ]));
+
+      const events = await collectEvents();
+
+      expect(events.find((event) => event.type === 'reasoning_delta')).toBeUndefined();
+      const complete = events.find((event) => event.type === 'complete');
+      if (complete?.type === 'complete') {
+        expect(complete.response.choices[0].reasoning).toBeUndefined();
+        expect(complete.response.choices[0].message.content).toBe('visible answer');
+      }
+    });
+
+    it('should map stream creation errors', async () => {
+      const apiError = new Error('Rate limit exceeded');
+      (apiError as any).statusCode = 429;
+      mockStream.mockRejectedValueOnce(apiError);
+
+      const events = await collectEvents();
+
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({
+        type: 'error',
+        error: {
+          provider: 'mistral',
+          model: 'mistral-small-latest',
+          error: {
+            code: ADAPTER_ERROR_CODES.RATE_LIMIT_EXCEEDED,
+            type: 'rate_limit_error'
+          }
+        }
+      });
+    });
+
+    it('should include a partial response when a stream fails after deltas', async () => {
+      mockStream.mockResolvedValueOnce(streamFrom([
+        eventChunk('Partial')
+      ], new Error('stream interrupted')));
+
+      const events = await collectEvents();
+      const error = events.find((event) => event.type === 'error');
+
+      expect(error).toBeDefined();
+      if (error?.type === 'error') {
+        expect(error.error.partialResponse?.id).toBe('mistral-stream');
+        expect(error.error.partialResponse?.choices[0].message.content).toBe('Partial');
+      }
     });
   });
 

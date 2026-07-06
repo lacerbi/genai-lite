@@ -6,6 +6,7 @@ import type {
   LLMResponse,
   LLMFailureResponse,
   LLMSettings,
+  LLMStreamEvent,
 } from "../types";
 
 /**
@@ -56,6 +57,19 @@ export interface ILLMClientAdapter {
     apiKey: string,
     options?: AdapterRequestOptions
   ): Promise<LLMResponse | LLMFailureResponse>;
+
+  /**
+   * Streams a chat message from the LLM provider.
+   *
+   * Adapters that implement this should yield provider-normalized deltas and a
+   * final complete/error event. Adapters that do not implement it will be
+   * reported by LLMService as unsupported for streaming.
+   */
+  streamMessage?(
+    request: InternalLLMChatRequest,
+    apiKey: string,
+    options?: AdapterRequestOptions
+  ): AsyncIterable<LLMStreamEvent>;
 
   /**
    * Optional method to validate API key format before making requests
