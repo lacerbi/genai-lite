@@ -80,6 +80,7 @@ Complete reference of all supported AI providers and models in genai-lite.
 **Notes:**
 - Supports `response_format` for JSON mode
 - Specific tool/function calling format
+- Supports `LLMService.streamMessage()` for content deltas, usage events, final normalized responses, and reasoning deltas if the API emits them
 - Sampling parameters: supports `seed` (beta; ignored by reasoning models such as GPT-5 and o4-mini) and `logprobs`/`topLogprobs`. Does not support `topK`, `minP`, `repeatPenalty`, or `frequencyPenalty` (silently stripped)
 
 ---
@@ -114,6 +115,7 @@ Complete reference of all supported AI providers and models in genai-lite.
 - Gemma 3 and Gemma 4 are open-weight and **free** via the Gemini API (no API costs)
 - **Gemma 3 does not support system instructions** - genai-lite automatically prepends system content to the first user message (see [System Message Fallback](llm-service.md#system-message-fallback)). **Gemma 4 does support a native system role** (unlike Gemma 3)
 - **Gemma models do not support structured output (JSON mode)** via Google's API - use OpenRouter instead for JSON output. Reasoning/thinking is not exposed for Gemma on the Gemini API
+- Supports `LLMService.streamMessage()` via `generateContentStream()`; thought parts are emitted as `reasoning_delta` when reasoning output is included
 - Sampling parameters: supports `topK` and `seed`. Does not support `minP`, `repeatPenalty`, or `logprobs`/`topLogprobs` (Gemini's log-probability mechanism has a different shape and is not mapped)
 
 ---

@@ -206,11 +206,11 @@ describe('LLMService', () => {
     });
 
     it('should yield an error when an adapter does not support streaming', async () => {
-      mockApiKeyProvider.mockResolvedValueOnce('sk-test-key-12345678901234567890');
+      mockApiKeyProvider.mockResolvedValueOnce('sk-ant-test-key-12345678901234567890');
 
       const events = await collectEvents({
-        providerId: 'openai',
-        modelId: 'gpt-4.1',
+        providerId: 'anthropic',
+        modelId: 'claude-3-5-sonnet-20241022',
         messages: [{ role: 'user', content: 'Hello' }],
       });
 

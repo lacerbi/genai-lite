@@ -11,14 +11,15 @@ Status: COMPLETE
 - [x] Phase 4: OpenRouter streaming
 - [x] Phase 5: Documentation
 - [x] Phase 6: Build and test
+- [x] Follow-up: OpenAI and Gemini streaming
 - [x] Final doublecheck
 
 ## Summary
 Add a public text streaming API to `LLMService`, with llama.cpp as the primary target and OpenRouter as the first low-risk cloud/OpenAI-compatible adapter. The implementation should keep `sendMessage()` behavior stable, reuse the current validation/settings/API-key pipeline, and return a final normalized `LLMResponse` after streaming completes.
 
 ## Scope
-- **In scope**: `LLMService.streamMessage()`, shared stream event types, adapter contract extension, llama.cpp streaming, OpenRouter streaming, unit tests, and docs.
-- **Out of scope**: Anthropic/Gemini/Mistral/OpenAI streaming in this first pass, Electron UI/IPC implementation, and genai-electron server-manager changes.
+- **In scope**: `LLMService.streamMessage()`, shared stream event types, adapter contract extension, llama.cpp streaming, OpenRouter streaming, OpenAI streaming, Gemini streaming, unit tests, and docs.
+- **Out of scope**: Anthropic/Mistral streaming, Electron UI/IPC implementation, and genai-electron server-manager changes.
 - **Related but not blocking**: genai-electron auto-port ergonomics. `ServerInfo.port` is enough for callers to build `LLAMACPP_API_BASE_URL`, but a future `baseURL`/`getBaseURL()` helper would make that cleaner.
 
 ## Proposed Public API
@@ -220,5 +221,5 @@ npm test
 
 ## Decisions
 - Public method name: `streamMessage()`.
-- First implementation pass includes `llamacpp`, `openrouter`, and deterministic mock streaming for tests.
+- First implementation pass includes `llamacpp`, `openrouter`, `openai`, `gemini`, and deterministic mock streaming for tests.
 - Live marker-based reasoning splitting is deferred; provider-separated reasoning deltas stream live when available, and `complete.response` is normalized.
