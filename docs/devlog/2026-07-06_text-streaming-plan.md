@@ -1,7 +1,8 @@
 # Plan: llama.cpp and OpenRouter Text Streaming
 
 Created: 2026-07-06
-Status: COMPLETE
+Archived: 2026-07-06
+Status: ARCHIVED - COMPLETE
 
 ## Implementation Tracking
 - [x] Phase 1: Shared service plumbing
@@ -17,6 +18,24 @@ Status: COMPLETE
 
 ## Summary
 Add a public text streaming API to `LLMService`, with llama.cpp as the primary target and OpenRouter as the first low-risk cloud/OpenAI-compatible adapter. The implementation keeps `sendMessage()` behavior stable, reuses the current validation/settings/API-key pipeline, and returns a final normalized `LLMResponse` after streaming completes. Follow-up work completed streaming for every configured text adapter.
+
+## Final Outcome
+- Implemented `LLMService.streamMessage()` and shared streaming event types.
+- Implemented streaming for all configured text adapters: mock, llama.cpp, OpenRouter, OpenAI, Gemini, Anthropic, and Mistral.
+- Preserved normalized final responses through `complete.response`, including structured-output parsing and thinking-tag cleanup.
+- Preserved partial normalized responses on mid-stream adapter failures when deltas were already received.
+- Documented streaming in `README.md`, `genai-lite-docs/llm-service.md`, `genai-lite-docs/llamacpp-integration.md`, `genai-lite-docs/providers-and-models.md`, and `genai-lite-docs/typescript-reference.md`.
+- Committed implementation on `feat/streaming`:
+  - `7c03d95 feat: add text streaming`
+  - `b310919 feat: add openai and gemini streaming`
+  - `0347d84 feat: add remaining text streaming adapters`
+- Pushed branch: `origin/feat/streaming`.
+
+## Final Verification
+- `npm.cmd test -- LLMService.test.ts MockClientAdapter.test.ts LlamaCppClientAdapter.test.ts OpenRouterClientAdapter.test.ts`
+- `npm.cmd test -- AnthropicClientAdapter.test.ts MistralClientAdapter.test.ts LLMService.test.ts`
+- `npm.cmd run build`
+- `npm.cmd test` - 34 suites, 884 tests passed.
 
 ## Scope
 - **In scope**: `LLMService.streamMessage()`, shared stream event types, adapter contract extension, llama.cpp streaming, OpenRouter streaming, OpenAI streaming, Gemini streaming, Anthropic streaming, Mistral streaming, unit tests, and docs.

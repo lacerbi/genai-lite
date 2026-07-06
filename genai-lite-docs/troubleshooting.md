@@ -317,7 +317,7 @@ await llmService.sendMessage(request, { timeoutMs: 8000 }); // per-call override
 
 **Cause**: Aborting is client-side only — the provider may still process (and bill) a request that was already dispatched. Aborts return `REQUEST_ABORTED` / `abort_error` and are never retried.
 
-**Image generation**: `ImageService.generateImage(request, { signal })` supports the same cancellation (no automatic retries or `timeoutMs` option, though — adapters have their own fixed timeouts). For genai-electron, aborting also cancels the generation server-side (`DELETE /v1/images/generations/:id`), freeing the GPU; the same cleanup runs when the adapter's 120s poll timeout expires. See [Image Service - Cancellation](image-service.md#cancellation).
+**Image generation**: `ImageService.generateImage(request, { signal, timeoutMs, maxRetries })` supports cancellation, per-call timeouts, and retries for retry-safe providers. OpenAI Images can retry transient failures; genai-electron image generation is not retried because a blind retry could start a second GPU job. For genai-electron, aborting also cancels the generation server-side (`DELETE /v1/images/generations/:id`), freeing the GPU; the same cleanup runs when a poll timeout expires. See [Image Service - Cancellation](image-service.md#cancellation).
 
 **Tip**: Each retry attempt is logged at `warn` level. Enable `warn` (the default) or lower to see retry activity — look for `Retrying <provider>/<model> after failure (attempt N/M, waiting Xms)`.
 

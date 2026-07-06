@@ -342,7 +342,17 @@ Your Application → LLMService/ImageService → Provider Adapter → External A
 // LLM Adapter
 interface ILLMClientAdapter {
   readonly id: string;
-  sendMessage(request: NormalizedLLMRequest, apiKey: string | null): Promise<LLMResponse>;
+  sendMessage(
+    request: NormalizedLLMRequest,
+    apiKey: string | null,
+    options?: AdapterRequestOptions
+  ): Promise<LLMResponse | LLMFailureResponse>;
+
+  streamMessage?(
+    request: NormalizedLLMRequest,
+    apiKey: string | null,
+    options?: AdapterRequestOptions
+  ): AsyncIterable<LLMStreamEvent>;
 }
 
 // Image Adapter
