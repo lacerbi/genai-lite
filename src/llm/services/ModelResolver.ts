@@ -41,6 +41,18 @@ export interface ModelResolution {
 }
 
 /**
+ * Options controlling model resolution side effects.
+ */
+export interface ModelResolutionOptions {
+  /**
+   * Whether resolution may query local provider adapters for dynamic model
+   * capabilities. Defaults to true for sendMessage(), but public capability
+   * preflight uses false so it remains no-network/no-adapter.
+   */
+  detectLocalCapabilities?: boolean;
+}
+
+/**
  * Resolves model information from presets or direct provider/model IDs
  */
 export class ModelResolver {
@@ -60,7 +72,12 @@ export class ModelResolver {
    * @param options Options containing either presetId or providerId/modelId
    * @returns Resolved model info and settings or error response
    */
-  async resolve(options: ModelSelectionOptions): Promise<ModelResolution> {
+  async resolve(
+    options: ModelSelectionOptions,
+    resolutionOptions: ModelResolutionOptions = {}
+  ): Promise<ModelResolution> {
+    const detectLocalCapabilities = resolutionOptions.detectLocalCapabilities !== false;
+
     // If presetId is provided, use it
     if (options.presetId) {
       const preset = this.presetManager.resolvePreset(options.presetId);
@@ -97,7 +114,7 @@ export class ModelResolver {
 
       // Overlay detected GGUF capabilities for llama.cpp presets (the server decides
       // which model is actually loaded, regardless of the preset's modelId)
-      if (preset.providerId === 'llamacpp') {
+      if (preset.providerId === 'llamacpp' && detectLocalCapabilities) {
         const detected = await this.detectLlamaCppCapabilities();
         if (detected) {
           modelInfo = { ...modelInfo, ...detected };
@@ -158,7 +175,7 @@ export class ModelResolver {
     // decides which model is actually loaded, so detected capabilities and vendor
     // default settings must overlay whatever the registry says.
     let detectedCapabilities: Partial<ModelInfo> | undefined;
-    if (options.providerId === 'llamacpp') {
+    if (options.providerId === 'llamacpp' && detectLocalCapabilities) {
       detectedCapabilities = await this.detectLlamaCppCapabilities();
     }
 

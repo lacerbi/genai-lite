@@ -136,6 +136,42 @@ export interface ModelStructuredOutputCapabilities {
 }
 
 /**
+ * Capability support status for provider/model features.
+ *
+ * `unknown` means genai-lite does not have explicit metadata for the feature.
+ * Callers should decide whether to allow, reject, or fall back for unknown
+ * capabilities.
+ */
+export type CapabilityStatus = "supported" | "unsupported" | "unknown";
+
+/**
+ * Source of a capability decision.
+ */
+export type CapabilitySource = "registry" | "detected" | "fallback";
+
+/**
+ * Structured-output support status for a provider/model pair.
+ */
+export interface StructuredOutputSupport {
+  /** Whether structured output is known supported, known unsupported, or unknown */
+  status: CapabilityStatus;
+  /** Whether strict provider-side schema enforcement is supported, when known */
+  strictMode?: boolean;
+  /** Additional notes from model metadata */
+  notes?: string;
+  /** Where the capability decision came from */
+  source: CapabilitySource;
+}
+
+/**
+ * Capability summary for a provider/model pair.
+ */
+export interface ModelCapabilities {
+  /** Structured-output support status */
+  structuredOutput: StructuredOutputSupport;
+}
+
+/**
  * Message roles supported by LLM APIs
  */
 export type LLMMessageRole = 'user' | 'assistant' | 'system';
@@ -477,6 +513,37 @@ export interface LLMChatRequestWithPreset extends Omit<LLMChatRequest, 'provider
 }
 
 /**
+ * Request used by LLMService.validateRequestCapabilities().
+ *
+ * This intentionally does not require messages: callers often need to validate
+ * provider/model/settings compatibility during configuration, before the final
+ * prompt messages exist.
+ */
+export interface LLMRequestCapabilityPreflight {
+  /** Provider ID (required if not using presetId) */
+  providerId?: ApiProviderId;
+  /** Model ID (required if not using presetId) */
+  modelId?: string;
+  /** Preset ID (alternative to providerId/modelId) */
+  presetId?: string;
+  /** Settings whose provider/model capability requirements should be checked */
+  settings?: LLMSettings;
+}
+
+/**
+ * Result of LLMService.getModelCapabilities().
+ */
+export interface ModelCapabilitiesResult {
+  object: "model.capabilities";
+  provider: ApiProviderId;
+  model: string;
+  /** Resolved model metadata used to derive the capability summary */
+  modelInfo: ModelInfo;
+  /** Structured-output support status for this provider/model pair */
+  structuredOutput: StructuredOutputSupport;
+}
+
+/**
  * Individual choice in an LLM response
  */
 export interface LLMChoice {
@@ -549,6 +616,35 @@ export interface LLMFailureResponse {
   /** The partial response that was generated before the error occurred (if available) */
   partialResponse?: Omit<LLMResponse, 'object'>;
 }
+
+/**
+ * Successful result of LLMService.validateRequestCapabilities().
+ */
+export interface LLMRequestCapabilityValidationSuccess {
+  object: "capability.validation";
+  valid: true;
+  provider: ApiProviderId;
+  model: string;
+  capabilities: ModelCapabilities;
+}
+
+/**
+ * Failure result of LLMService.validateRequestCapabilities().
+ *
+ * The base error envelope intentionally matches LLMFailureResponse so callers
+ * can use the same diagnostic handling as sendMessage().
+ */
+export type LLMRequestCapabilityValidationFailure = LLMFailureResponse & {
+  valid: false;
+  capabilities?: ModelCapabilities;
+};
+
+/**
+ * Result of LLMService.validateRequestCapabilities().
+ */
+export type LLMRequestCapabilityValidationResult =
+  | LLMRequestCapabilityValidationSuccess
+  | LLMRequestCapabilityValidationFailure;
 
 /**
  * Streaming event emitted by LLMService.streamMessage().

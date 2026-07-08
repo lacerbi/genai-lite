@@ -81,6 +81,13 @@ import type {
   StructuredOutputSchema,
   StructuredOutputSchemaProperty,
   ModelStructuredOutputCapabilities,
+  CapabilityStatus,
+  CapabilitySource,
+  StructuredOutputSupport,
+  ModelCapabilities,
+  ModelCapabilitiesResult,
+  LLMRequestCapabilityPreflight,
+  LLMRequestCapabilityValidationResult,
   ModelPreset,
   LLMServiceOptions,
   SendMessageOptions,
@@ -236,6 +243,54 @@ type LLMStreamEvent =
   | { type: 'error'; error: LLMFailureResponse };
 ```
 
+### Capability Types
+
+```typescript
+type CapabilityStatus = 'supported' | 'unsupported' | 'unknown';
+type CapabilitySource = 'registry' | 'detected' | 'fallback';
+
+interface StructuredOutputSupport {
+  status: CapabilityStatus;
+  strictMode?: boolean;
+  notes?: string;
+  source: CapabilitySource;
+}
+
+interface ModelCapabilities {
+  structuredOutput: StructuredOutputSupport;
+}
+
+interface ModelCapabilitiesResult {
+  object: 'model.capabilities';
+  provider: string;
+  model: string;
+  modelInfo: ModelInfo;
+  structuredOutput: StructuredOutputSupport;
+}
+
+interface LLMRequestCapabilityPreflight {
+  providerId?: string;
+  modelId?: string;
+  presetId?: string;
+  settings?: LLMSettings;
+}
+
+type LLMRequestCapabilityValidationResult =
+  | {
+      object: 'capability.validation';
+      valid: true;
+      provider: string;
+      model: string;
+      capabilities: ModelCapabilities;
+    }
+  | (LLMFailureResponse & {
+      valid: false;
+      capabilities?: ModelCapabilities;
+    });
+```
+
+`unknown` means genai-lite has no explicit metadata for that capability. It is not automatically rejected by `validateRequestCapabilities()`; callers decide policy.
+
 ### Settings Types
 
 ```typescript
@@ -388,6 +443,23 @@ interface SendMessageOptions {
 interface StreamMessageOptions {
   signal?: AbortSignal;   // Client-side cancel (provider may still process/bill)
   timeoutMs?: number;     // Overrides the service-level timeoutMs
+}
+
+// Capability methods on LLMService
+class LLMService {
+  getModelCapabilities(
+    providerId: string,
+    modelId: string
+  ): Promise<ModelCapabilitiesResult | LLMFailureResponse>;
+
+  supportsStructuredOutput(
+    providerId: string,
+    modelId: string
+  ): Promise<StructuredOutputSupport | LLMFailureResponse>;
+
+  validateRequestCapabilities(
+    request: LLMRequestCapabilityPreflight
+  ): Promise<LLMRequestCapabilityValidationResult>;
 }
 
 interface RetryPolicy {
