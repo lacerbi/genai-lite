@@ -5,6 +5,7 @@ Complete reference of all supported AI providers and models in genai-lite.
 ## Contents
 
 - [Overview](#overview)
+- [Capability Lookup Semantics](#capability-lookup-semantics)
 - [LLM Providers](#llm-providers)
 - [Image Generation Providers](#image-generation-providers)
 - [Models with Reasoning Support](#models-with-reasoning-support)
@@ -24,6 +25,19 @@ Complete reference of all supported AI providers and models in genai-lite.
 - genai-electron (local diffusion models)
 
 **Note:** Model IDs include version dates for precise model selection. Always use the exact model ID as shown below.
+
+## Capability Lookup Semantics
+
+`LLMService.getModelCapabilities()` and `LLMService.validateRequestCapabilities()` provide static, no-network capability checks for provider/model selections.
+
+Structured-output capability status is interpreted as:
+- `supported`: the model registry explicitly marks structured output as supported.
+- `unsupported`: the model registry explicitly marks structured output as unsupported.
+- `unknown`: no explicit structured-output metadata is available. This is not automatically rejected by genai-lite; callers decide whether to allow it, reject it, or use a fallback.
+
+Unknown/unregistered models follow the same fallback model policy used by request preparation, but optional capabilities such as structured output are reported as `unknown`.
+
+For llama.cpp, capability preflight does not query the running local server. Runtime requests can still use detected GGUF capabilities, but static preflight reports only registry/fallback information so it remains free of adapter calls and network I/O.
 
 ## LLM Providers
 
@@ -115,7 +129,7 @@ Complete reference of all supported AI providers and models in genai-lite.
 - Gemini models support multimodal (text, images, audio, video)
 - Gemma 3 and Gemma 4 are open-weight and **free** via the Gemini API (no API costs)
 - **Gemma 3 does not support system instructions** - genai-lite automatically prepends system content to the first user message (see [System Message Fallback](llm-service.md#system-message-fallback)). **Gemma 4 does support a native system role** (unlike Gemma 3)
-- **Gemma models do not support structured output (JSON mode)** via Google's API - use OpenRouter instead for JSON output. Reasoning/thinking is not exposed for Gemma on the Gemini API
+- **Gemma models do not support structured output (JSON mode)** via Google's API - capability preflight reports `unsupported`; use OpenRouter instead for JSON output. Reasoning/thinking is not exposed for Gemma on the Gemini API
 - Supports `LLMService.streamMessage()` via `generateContentStream()`; thought parts are emitted as `reasoning_delta` when reasoning output is included
 - Sampling parameters: supports `topK` and `seed`. Does not support `minP`, `repeatPenalty`, or `logprobs`/`topLogprobs` (Gemini's log-probability mechanism has a different shape and is not mapped)
 
@@ -179,6 +193,7 @@ Detected models also receive vendor-recommended sampling defaults automatically.
 - Supports `LLMService.streamMessage()` for content deltas, usage events, and final normalized responses
 - Reasoning on/off for hybrid models is driven by `settings.reasoning.enabled` (requires llama-server `--jinja`); see [Reasoning on/off for Hybrid Models](llamacpp-integration.md#reasoning-onoff-for-hybrid-models)
 - Sampling parameters: supports `topK`, `minP`, `repeatPenalty`, `seed`, and `logprobs`/`topLogprobs`; plus llama.cpp-only `grammar` and `chatTemplateKwargs` via the `llamacpp` namespace
+- Capability preflight is static and does not query `/v1/models`; runtime requests may still apply detected GGUF capabilities
 - Default base URL is `http://127.0.0.1:8080` (not `localhost`) to avoid a Windows IPv6-fallback stall
 - See [llama.cpp Integration](llamacpp-integration.md) for setup
 

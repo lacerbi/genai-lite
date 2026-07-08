@@ -16,6 +16,12 @@ import type {
   ModelContext,
   LLMMessage,
   LLMStreamEvent,
+  LLMRequestCapabilityPreflight,
+  LLMRequestCapabilityValidationResult,
+  ModelCapabilities,
+  ModelCapabilitiesResult,
+  StructuredOutputSupport,
+  CapabilitySource,
 } from "./types";
 import type {
   ILLMClientAdapter,
@@ -28,6 +34,7 @@ import {
   ADAPTER_CONSTRUCTORS,
   ADAPTER_CONFIGS,
   getProviderById,
+  getModelById,
   getModelsByProvider
 } from "./config";
 import { renderTemplate } from "../prompting/template";
@@ -124,6 +131,15 @@ interface PreparedLLMRequest {
   adapterOptions: AdapterRequestOptions;
 }
 
+interface CapabilityValidationContext {
+  providerId: ApiProviderId;
+  modelId: string;
+  modelInfo: ModelInfo;
+  resolvedRequest: LLMChatRequest;
+  finalSettings: Required<LLMSettings>;
+  capabilities: ModelCapabilities;
+}
+
 /**
  * Main process service for LLM operations
  *
@@ -200,6 +216,117 @@ export class LLMService {
 
     this.logger.debug(`Found ${models.length} models for provider: ${providerId}`);
     return [...models]; // Return a copy to prevent external modification
+  }
+
+  /**
+   * Gets static capability metadata for a provider/model pair without retrieving
+   * API keys, calling provider adapters, or performing network I/O.
+   *
+   * Unknown or unregistered models use the same fallback model resolution policy
+   * as sendMessage(), but their optional capabilities are reported as unknown.
+   */
+  async getModelCapabilities(
+    providerId: ApiProviderId,
+    modelId: string
+  ): Promise<ModelCapabilitiesResult | LLMFailureResponse> {
+    this.logger.debug(
+      `LLMService.getModelCapabilities called for provider: ${providerId}, model: ${modelId}`
+    );
+
+    const resolved = await this.modelResolver.resolve(
+      { providerId, modelId },
+      { detectLocalCapabilities: false }
+    );
+    if (resolved.error) {
+      return resolved.error;
+    }
+
+    const resolvedProviderId = resolved.providerId! as ApiProviderId;
+    const resolvedModelId = resolved.modelId!;
+    const modelInfo = resolved.modelInfo!;
+    const source = this.getCapabilitySource(resolvedProviderId, resolvedModelId);
+
+    return {
+      object: "model.capabilities",
+      provider: resolvedProviderId,
+      model: resolvedModelId,
+      modelInfo: { ...modelInfo },
+      structuredOutput: this.getStructuredOutputSupport(modelInfo, source),
+    };
+  }
+
+  /**
+   * Convenience wrapper for checking structured-output support.
+   *
+   * Returns `unknown` when genai-lite has no explicit capability metadata. Callers
+   * should decide whether unknown is acceptable for their use case.
+   */
+  async supportsStructuredOutput(
+    providerId: ApiProviderId,
+    modelId: string
+  ): Promise<StructuredOutputSupport | LLMFailureResponse> {
+    const capabilities = await this.getModelCapabilities(providerId, modelId);
+    if (capabilities.object === "error") {
+      return capabilities;
+    }
+    return capabilities.structuredOutput;
+  }
+
+  /**
+   * Preflights provider/model capability requirements for a request without
+   * retrieving API keys, calling provider adapters, or performing network I/O.
+   *
+   * This checks the effective settings after preset and model defaults are
+   * applied. Unknown/unspecified capabilities are reported as unknown and remain
+   * valid; explicitly unsupported capabilities return the same validation error
+   * shape as sendMessage() where possible.
+   */
+  async validateRequestCapabilities(
+    request: LLMRequestCapabilityPreflight
+  ): Promise<LLMRequestCapabilityValidationResult> {
+    this.logger.debug(
+      `LLMService.validateRequestCapabilities called with presetId: ${request.presetId}, provider: ${request.providerId}, model: ${request.modelId}`
+    );
+
+    try {
+      const validation = await this.resolveAndValidateCapabilities(request, {
+        validateStructure: false,
+        detectLocalCapabilities: false,
+      });
+
+      if ("error" in validation) {
+        return {
+          ...validation.error,
+          valid: false,
+          ...(validation.capabilities && { capabilities: validation.capabilities }),
+        };
+      }
+
+      return {
+        object: "capability.validation",
+        valid: true,
+        provider: validation.context.providerId,
+        model: validation.context.modelId,
+        capabilities: validation.context.capabilities,
+      };
+    } catch (error) {
+      this.logger.error("Error in LLMService.validateRequestCapabilities:", error);
+      return {
+        provider: request.providerId || request.presetId || 'unknown',
+        model: request.modelId || request.presetId || 'unknown',
+        error: {
+          message:
+            error instanceof Error
+              ? error.message
+              : "Unexpected error during capability preflight",
+          code: "UNKNOWN_ERROR",
+          type: "server_error",
+          providerError: error,
+        },
+        object: "error",
+        valid: false,
+      };
+    }
   }
 
   /**
@@ -413,79 +540,162 @@ export class LLMService {
     }
   }
 
-  private async prepareRequest(
-    request: LLMChatRequest | LLMChatRequestWithPreset,
-    callOptions?: StreamMessageOptions
-  ): Promise<{ prepared: PreparedLLMRequest } | { error: LLMFailureResponse }> {
-    // Resolve model information from preset or direct IDs
-    const resolved = await this.modelResolver.resolve(request);
+  private async resolveAndValidateCapabilities(
+    request: LLMChatRequest | LLMChatRequestWithPreset | LLMRequestCapabilityPreflight,
+    options: {
+      validateStructure: boolean;
+      detectLocalCapabilities: boolean;
+    }
+  ): Promise<
+    { context: CapabilityValidationContext } |
+    { error: LLMFailureResponse; capabilities?: ModelCapabilities }
+  > {
+    const resolved = await this.modelResolver.resolve(request, {
+      detectLocalCapabilities: options.detectLocalCapabilities,
+    });
     if (resolved.error) {
       return { error: resolved.error };
     }
 
-    const { providerId, modelId, modelInfo, settings: resolvedSettings } = resolved;
+    const providerId = resolved.providerId! as ApiProviderId;
+    const modelId = resolved.modelId!;
+    const modelInfo = resolved.modelInfo!;
+    const source = this.getCapabilitySource(providerId, modelId);
+    const capabilities = this.buildModelCapabilities(modelInfo, source);
 
-    // Create a proper LLMChatRequest with resolved values
     const resolvedRequest: LLMChatRequest = {
-      ...request,
-      providerId: providerId!,
-      modelId: modelId!,
+      ...(request as Partial<LLMChatRequest>),
+      providerId,
+      modelId,
+      messages: "messages" in request && Array.isArray(request.messages)
+        ? request.messages
+        : [],
     };
 
-    // Validate basic request structure
-    const structureValidationResult = this.requestValidator.validateRequestStructure(resolvedRequest);
-    if (structureValidationResult) {
-      return { error: structureValidationResult };
-    }
-
-    // Validate settings if provided
-    const combinedSettings = { ...resolvedSettings, ...request.settings };
-    if (combinedSettings) {
-      const settingsValidation = this.requestValidator.validateSettings(
-        combinedSettings,
-        providerId!,
-        modelId!
-      );
-      if (settingsValidation) {
-        return { error: settingsValidation };
+    if (options.validateStructure) {
+      const structureValidationResult = this.requestValidator.validateRequestStructure(resolvedRequest);
+      if (structureValidationResult) {
+        return { error: structureValidationResult, capabilities };
       }
     }
 
-    // Apply model-specific defaults and merge with user settings
+    const combinedSettings = {
+      ...(resolved.settings || {}),
+      ...(request.settings || {}),
+    };
+
+    const settingsValidation = this.requestValidator.validateSettings(
+      combinedSettings,
+      providerId,
+      modelId
+    );
+    if (settingsValidation) {
+      return { error: settingsValidation, capabilities };
+    }
+
     const finalSettings = this.settingsManager.mergeSettingsForModel(
-      modelId!,
-      providerId!,
+      modelId,
+      providerId,
       combinedSettings,
       modelInfo
     );
 
-    // Validate reasoning settings for model capabilities
     const reasoningValidation = this.requestValidator.validateReasoningSettings(
-      modelInfo!,
+      modelInfo,
       finalSettings.reasoning,
       resolvedRequest
     );
     if (reasoningValidation) {
-      return { error: reasoningValidation };
+      return { error: reasoningValidation, capabilities };
     }
 
-    // Validate structured output settings for model capabilities
     const structuredOutputValidation = this.requestValidator.validateStructuredOutputSettings(
-      modelInfo!,
+      modelInfo,
       finalSettings.structuredOutput,
       resolvedRequest
     );
     if (structuredOutputValidation) {
-      return { error: structuredOutputValidation };
+      return { error: structuredOutputValidation, capabilities };
     }
 
+    return {
+      context: {
+        providerId,
+        modelId,
+        modelInfo,
+        resolvedRequest,
+        finalSettings,
+        capabilities,
+      },
+    };
+  }
+
+  private buildModelCapabilities(
+    modelInfo: ModelInfo,
+    source: CapabilitySource
+  ): ModelCapabilities {
+    return {
+      structuredOutput: this.getStructuredOutputSupport(modelInfo, source),
+    };
+  }
+
+  private getStructuredOutputSupport(
+    modelInfo: ModelInfo,
+    source: CapabilitySource
+  ): StructuredOutputSupport {
+    if (modelInfo.structuredOutput === undefined) {
+      return {
+        status: "unknown",
+        source,
+      };
+    }
+
+    return {
+      status: modelInfo.structuredOutput.supported ? "supported" : "unsupported",
+      ...(modelInfo.structuredOutput.strictMode !== undefined && {
+        strictMode: modelInfo.structuredOutput.strictMode,
+      }),
+      ...(modelInfo.structuredOutput.notes && {
+        notes: modelInfo.structuredOutput.notes,
+      }),
+      source,
+    };
+  }
+
+  private getCapabilitySource(
+    providerId: ApiProviderId,
+    modelId: string
+  ): CapabilitySource {
+    return getModelById(modelId, providerId) ? "registry" : "fallback";
+  }
+
+  private async prepareRequest(
+    request: LLMChatRequest | LLMChatRequestWithPreset,
+    callOptions?: StreamMessageOptions
+  ): Promise<{ prepared: PreparedLLMRequest } | { error: LLMFailureResponse }> {
+    const validation = await this.resolveAndValidateCapabilities(request, {
+      validateStructure: true,
+      detectLocalCapabilities: true,
+    });
+    if ("error" in validation) {
+      return { error: validation.error };
+    }
+
+    const {
+      providerId,
+      modelId,
+      modelInfo,
+      resolvedRequest,
+      finalSettings,
+    } = validation.context;
+
     // Get provider info for parameter filtering
-    const providerInfo = getProviderById(providerId!);
+    const providerInfo = getProviderById(providerId);
     if (!providerInfo) {
       return {
         error: {
-          provider: providerId!,
-          model: modelId!,
+          provider: providerId,
+          model: modelId,
           error: {
             message: `Provider information not found: ${providerId}`,
             code: "PROVIDER_ERROR",
@@ -499,7 +709,7 @@ export class LLMService {
     // Filter out unsupported parameters
     const filteredSettings = this.settingsManager.filterUnsupportedParameters(
       finalSettings,
-      modelInfo!,
+      modelInfo,
       providerInfo
     );
 
@@ -519,15 +729,15 @@ export class LLMService {
     );
 
     // Get client adapter
-    const clientAdapter = this.adapterRegistry.getAdapter(providerId!);
+    const clientAdapter = this.adapterRegistry.getAdapter(providerId);
 
     try {
-      const apiKey = await this.getApiKey(providerId!);
+      const apiKey = await this.getApiKey(providerId);
       if (!apiKey) {
         return {
           error: {
-            provider: providerId!,
-            model: modelId!,
+            provider: providerId,
+            model: modelId,
             error: {
               message: `API key for provider '${providerId}' could not be retrieved. Ensure your ApiKeyProvider is configured correctly.`,
               code: "API_KEY_ERROR",
@@ -542,8 +752,8 @@ export class LLMService {
       if (clientAdapter.validateApiKey && !clientAdapter.validateApiKey(apiKey)) {
         return {
           error: {
-            provider: providerId!,
-            model: modelId!,
+            provider: providerId,
+            model: modelId,
             error: {
               message: `Invalid API key format for provider '${providerId}'. Please check your API key.`,
               code: "INVALID_API_KEY",
@@ -563,9 +773,9 @@ export class LLMService {
 
       return {
         prepared: {
-          providerId: providerId!,
-          modelId: modelId!,
-          modelInfo: modelInfo!,
+          providerId,
+          modelId,
+          modelInfo,
           resolvedRequest,
           internalRequest,
           clientAdapter,

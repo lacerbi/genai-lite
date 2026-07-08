@@ -6,6 +6,7 @@ Complete guide to text generation and chat completions using genai-lite's LLMSer
 
 - [Overview](#overview) - When to use LLMService
 - [Basic Usage](#basic-usage) - Simple message sending
+- [Capability Preflight](#capability-preflight) - Check provider/model support before sending
 - [Streaming Text](#streaming-text) - Token deltas from streaming-capable providers
 - [Structured Output](#structured-output) - Guaranteed JSON responses with schema validation
 - [Reasoning Mode](#reasoning-mode) - Advanced problem-solving with native reasoning
@@ -93,6 +94,54 @@ const presets = llmService.getPresets();
 ```
 
 See [Providers & Models](providers-and-models.md) for all supported providers and models.
+
+---
+
+## Capability Preflight
+
+Use capability APIs when you need to validate a provider/model choice before retrieving an API key or calling a provider adapter.
+
+```typescript
+const capabilities = await llmService.getModelCapabilities(
+  'gemini',
+  'gemma-4-31b-it'
+);
+
+if (capabilities.object !== 'error') {
+  console.log(capabilities.structuredOutput.status); // 'unsupported'
+}
+```
+
+For actual request settings, use `validateRequestCapabilities()`:
+
+```typescript
+const preflight = await llmService.validateRequestCapabilities({
+  providerId: 'gemini',
+  modelId: 'gemma-4-31b-it',
+  settings: {
+    structuredOutput: {
+      name: 'prompt_response',
+      schema: { type: 'object', properties: { answer: { type: 'string' } } }
+    }
+  }
+});
+
+if (preflight.object === 'error') {
+  console.error(preflight.error.code); // 'structured_output_not_supported'
+}
+```
+
+Capability calls are static and side-effect free:
+- no API key lookup
+- no provider adapter call
+- no network I/O
+
+Structured-output support is reported as:
+- `supported`: genai-lite has metadata that native structured output is available.
+- `unsupported`: genai-lite has metadata that native structured output is unavailable.
+- `unknown`: genai-lite has no explicit metadata. This is not treated as failure by default; callers decide whether to allow it, reject it, or use a prompt-text fallback.
+
+`validateRequestCapabilities()` returns the same validation diagnostic shape as `sendMessage()` where possible. For example, Gemini-hosted Gemma models return `type: 'validation_error'` and `code: 'structured_output_not_supported'` when structured output is requested.
 
 ---
 
