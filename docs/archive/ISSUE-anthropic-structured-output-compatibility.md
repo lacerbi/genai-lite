@@ -240,4 +240,8 @@ The issue is complete only when the stable request contract, capability behavior
       dependency, not introduced or touched by this patch — see Resolution.)
 - [x] `genai-lite@0.13.1` is published and Palimpsest can refresh to it without
       provider-specific code changes. (Published 2026-07-26; `latest` → 0.13.1.
-      Palimpsest-side refresh not yet done — see "Downstream pickup" below.)
+      **Superseded the same day by 0.14.0** — refresh straight to that instead;
+      it carries the shared schema walker and the `refusal` → `content_filter`
+      finish-reason change. Palimpsest-side refresh still not done — see
+      "Downstream pickup" below, and note the `finish_reason` change is worth
+      checking there if it switches on that field.)

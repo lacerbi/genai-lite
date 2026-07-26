@@ -1,7 +1,7 @@
 # ISSUE: Post-v0.9.2 TODO — deferred follow-ups
 
 Created: 2026-07-03
-Updated: 2026-07-26 (v0.14.0 staged; items 13, 14, 17 resolved; items 16, 18 open)
+Updated: 2026-07-26 (v0.14.0 released + published; items 13, 14, 17 resolved; items 16, 18 open)
 Status: OPEN
 Package: genai-lite
 
@@ -309,20 +309,34 @@ output against the live API), 18 (TypeScript 7, blocked on ts-jest). Items 13,
 #91 precedent — `@anthropic-ai/sdk` → ^0.115.0, `@types/node` → 26.1.1
 (lockfile only; the `>=` dev range needs no change), and `actions/checkout` +
 `actions/setup-node` v6 → v7, whose upgrade was exercised by that PR's own green
-CI run. #100 is closed (item 18). #95 remains open on purpose as the landing
-spot for item 12.
+CI run. #100 is closed (item 18). **#95 is the only open PR** and is left open on
+purpose as the landing spot for item 12 (Dependabot has since retargeted it from
+2.4.1 to 2.5.0; the ESM-only blocker is unchanged).
 
-**Resume here (2026-07-26, post-v0.13.1 cleanup):** everything actionable
-without credits is done. The next decision is **item 16** — add credits to the
-Anthropic account and run
-`npm run test:e2e -- structured-output.e2e.test.ts` to confirm the shipped
-`output_config.format` request shape against the real API. Two paid runs are now
-pending and can share one top-up: item 16 (structured output) and the item 14
-reasoning run (`npm run test:e2e:reasoning`).
+**Resume here (2026-07-26, post-v0.14.0):** v0.14.0 is released and published,
+and everything actionable without Anthropic credits is done. The next decision is
+**item 16** — add credits to the Anthropic account and run
 
-**v0.14.0 is staged but not released.** `package.json` is bumped and the commit
-is on main; the tag and `npm publish` are still pending. Contents: the item 14 /
-17 fixes plus the shared schema walker (`src/shared/adapters/schemaUtils.ts`).
+```bash
+npm run test:e2e -- structured-output.e2e.test.ts   # needs E2E_ANTHROPIC_API_KEY
+```
+
+to confirm the shipped `output_config.format` request shape against the real API.
+That is still the one claim in 0.13.1/0.14.0 backed only by docs, SDK types, and
+mocks — never a live 200. Two paid runs are pending and can share one top-up:
+item 16 (structured output) and the item 14 reasoning run
+(`npm run test:e2e:reasoning`).
+
+After that, the largest remaining piece of work is **item 12** (dual ESM/CJS
+packaging), which unblocks PR #95 and wants a design decision up front —
+tsup/tshy dual build vs. ESM-only with an engines bump — so it suits its own
+session. Items 15 and 18 need nothing from us; they unblock when jest moves to
+`glob@11` and when `ts-jest` widens its TypeScript peer range.
+
+**v0.14.0 release state**: merged via PR #105 + #106, tag `v0.14.0` on
+`7d5860f`, **published to npm on 2026-07-26** (`npm view genai-lite version` →
+0.14.0). Contents: the item 14 / 17 fixes plus the shared schema walker
+(`src/shared/adapters/schemaUtils.ts`).
 
 Minor rather than patch because two changes are observable to consumers:
 
@@ -335,16 +349,21 @@ Minor rather than patch because two changes are observable to consumers:
 Neither is a bug fix from a caller's point of view, which is why 0.13.2 would
 have been the wrong signal.
 
-Dependabot: 6 open PRs (#93, #95, #98, #100, #101, #102). **#101**
-(`@anthropic-ai/sdk` 0.110.0 → 0.115.0) was **verified safe on 2026-07-26** —
-`JSONOutputFormat` and `OutputConfig` are byte-identical to 0.110.0,
-`output_config` is still on `MessageCreateParams`, the error classes
-`errorUtils` matches by constructor name all survive, and the full suite passes
-against it; it is 2 commits behind main so it needs a rebase before merge.
-**#95** is the Mistral 2.x ESM-only bump that item 12 blocks. **#100** is a
-TypeScript 5.9 → 7.0 major and deserves its own verification pass. The stale
-`dependabot/.../google/genai-2.11.0` branch is superseded — v0.13.1 already took
-`@google/genai` to 2.13.0.
+**Known, accepted drift: published 0.14.0 declares an older Anthropic SDK
+floor.** 0.14.0 was published from `7d5860f`, before PR #107 merged, so the
+published `package.json` declares `@anthropic-ai/sdk: ^0.110.0` while main now
+says `^0.115.0`. Because the caret locks the *minor* below 1.0.0, `^0.110.0`
+resolves to `0.110.x` — consumers of 0.14.0 do **not** get the 0.115 line.
+
+Verified 2026-07-26 that this is the *only* shipped difference: a fresh build of
+main diffs byte-identical against the published `dist/`, and nothing under `src/`
+changed after the tag (only `ci.yml`, two markdown files, and the lockfile, none
+of which are in the tarball). Functionally it costs nothing — 0.110.0 is what
+0.13.1 shipped against and what all the structured-output work was verified
+against, and 0.115.0's relevant types are byte-identical. **Decision: accepted,
+no patch release; the `^0.115.0` floor rides along with the next release.**
+Do not treat the tag/registry as mismatched — `v0.14.0`, the registry, and the
+published code all agree on `7d5860f`.
 
 **v0.11.0 release state**: items 2, 3 (as deferred+fixes), 4, 5, 8, 9, 10, 11
 shipped via PR #92, merged to main (`800a9c8`), CI green, tagged `v0.11.0`,
