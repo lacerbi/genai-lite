@@ -1,7 +1,7 @@
 # ISSUE: Post-v0.9.2 TODO — deferred follow-ups
 
 Created: 2026-07-03
-Updated: 2026-07-26 (v0.13.1 shipped: item 13 resolved; items 16, 17 filed)
+Updated: 2026-07-26 (v0.13.1 shipped; items 13, 14, 17 resolved; item 16 open)
 Status: OPEN
 Package: genai-lite
 
@@ -158,21 +158,41 @@ Note: all "latest" package versions below were checked via `npm view` on
     fail if it regresses; the E2E test no longer converts an incompatibility
     into a pass. See `docs/archive/ISSUE-anthropic-structured-output-compatibility.md`.
     The schema walker's `$defs`/`anyOf` gap was split out to
-    `ISSUE-structured-output-schema-traversal.md`. **Shipped**: merged as
+    `docs/archive/ISSUE-structured-output-schema-traversal.md`. **Shipped**: merged as
     PR #103 (`438db55`), tagged `v0.13.1`, published to npm on 2026-07-26
     (`npm view genai-lite version` → 0.13.1; the published `dist/` was verified
     to contain `output_config` and zero occurrences of `output_format` /
     `anthropic-beta`). The live-API confirmation is **still open** — see item 16.
 
-14. **Anthropic reasoning-path response parsing** (pre-existing, found in the
-    item 4 review). `createSuccessResponse` reads `completion.thinking_content`
-    / `completion.reasoning_details`, which are not Anthropic response fields —
-    thinking arrives as `content` blocks of `type: "thinking"` — and it assumes
-    `content[0].type === 'text'` (throws "Invalid completion structure"
-    otherwise). With `reasoning.enabled` the first block is a thinking block,
-    so the extended-thinking path likely misbehaves. Verify with a paid e2e
-    reasoning run (`npm run test:e2e:reasoning`) and fix the parsing to walk
-    content blocks.
+14. ~~**Anthropic reasoning-path response parsing**~~ **RESOLVED (2026-07-26).**
+    This item was half stale when re-examined: the `content[0].type === 'text'`
+    assumption had already been fixed by the streaming work —
+    `createSuccessResponse` filters *all* text blocks and joins them, throwing
+    only when there are zero, so a thinking-first response was already handled.
+
+    What was still real: `completion.thinking_content` and
+    `completion.reasoning_details` were being read, and neither is an Anthropic
+    response field. Verified against the SDK — `Message` is exactly
+    `id | container | content | model | role | stop_details | stop_reason |
+    stop_sequence | type | usage`, and neither string appears anywhere in the
+    SDK types. `reasoning_details` is an **OpenRouter** concept that was
+    copy-pasted here, where it could never fire. Both dead branches removed;
+    reasoning now comes solely from `thinking` content blocks, covered by mock
+    tests including one asserting those two bogus fields are ignored.
+
+    Adjacent bug fixed in the same function: `mapAnthropicStopReason` had a
+    `content_filter` key that Anthropic never emits (that is OpenAI's
+    vocabulary) and was **missing** two real members of Anthropic's
+    `StopReason` union, so both silently became `"other"`. Now `refusal` maps to
+    `content_filter` (so callers detect a policy-blocked completion with the
+    same check they use for OpenAI and Gemini) and `pause_turn` maps to
+    `"other"` explicitly rather than by fallthrough. ⚠️ **Review the `refusal`
+    mapping** — it changes observable `finish_reason` output for consumers who
+    switch on it. The full union is now covered by tests.
+
+    Still outstanding: the paid reasoning e2e run
+    (`npm run test:e2e:reasoning`) has not been done; the fix above rests on SDK
+    types and mocks.
 
 15. **Dev-only `brace-expansion` advisory, blocked on jest** (2026-07-26,
     v0.13.1). GHSA-mh99-v99m-4gvg (`brace-expansion` OOM DoS) is fixed only in
@@ -236,34 +256,57 @@ Note: all "latest" package versions below were checked via `npm view` on
 
     This is the same silent-skip anti-pattern that v0.13.1 removed from the
     Anthropic block, and it is what let the `output_format` drift hide. It
-    inflates the green count and would mask a real regression. Fix by gating on
-    availability with a real skip (`it.skip` / `describe.skip`, or an
-    `describe.each`-style guard resolved in `beforeAll`) so the pass count only
-    ever reflects assertions that actually ran. Audit the other `e2e-tests/`
-    files for the same helper shape while in there.
+    inflates the green count and would mask a real regression.
+
+    **RESOLVED (2026-07-26).** A `beforeAll` gate is not enough — Jest needs the
+    availability decision *before* it registers tests. New
+    `e2e-tests/globalSetup.js` (wired via `jest.e2e.config.js`) probes
+    llama-server once and publishes `E2E_LLAMACPP_AVAILABLE`, so suites gate with
+    `(AVAILABLE ? describe : describe.skip)` — the same idiom the key-gated blocks
+    already use. `providers.e2e.test.ts` had the identical defect and got the same
+    treatment; `reasoning.e2e.test.ts` had a dead unused copy of the probe helper,
+    now deleted. The auto-parse block resolves its provider inside the test bodies,
+    because `describe.skip` still executes its callback to register test names.
+
+    Verified both directions: with no keys and no server the whole e2e suite now
+    reports **19 skipped, 0 passed** (was 4 vacuous passes), and with
+    `E2E_LLAMACPP_AVAILABLE=true` forced against no server those same 4 tests
+    **fail** instead of passing — proving they actually execute. `globalSetup`
+    honors a pre-set value as an override, which is what makes that check
+    possible. Probe default also moved `localhost` → `127.0.0.1` to match the
+    adapter and avoid the Windows IPv6-fallback stall.
 
 ## Pickup point
 
-Open items: 12 (dual packaging — unblocks Mistral 2.x), 14 (Anthropic
-pre-existing reasoning-path parsing; needs paid e2e verification), 15
-(dev-only audit advisory, blocked on jest upstream), 16 (confirm Anthropic GA
-structured output against the live API), 17 (e2e vacuous passes).
+Open items: 12 (dual packaging — unblocks Mistral 2.x), 15 (dev-only audit
+advisory, blocked on jest upstream), 16 (confirm Anthropic GA structured output
+against the live API). Items 13, 14, and 17 are resolved.
 
-**Resume here (2026-07-26, after v0.13.1 was published):** the next decision is
-item 16 — add credits to the Anthropic account and run
+**Resume here (2026-07-26, post-v0.13.1 cleanup):** everything actionable
+without credits is done. The next decision is **item 16** — add credits to the
+Anthropic account and run
 `npm run test:e2e -- structured-output.e2e.test.ts` to confirm the shipped
-`output_config.format` request shape against the real API. That is the only
-thing gating a clean close of item 13; everything else in 0.13.1 is merged,
-tagged, published, and verified in the published tarball. Item 17 is a small
-independent test-hygiene fix that needs no credits and can be done first.
+`output_config.format` request shape against the real API. Two paid runs are now
+pending and can share one top-up: item 16 (structured output) and the item 14
+reasoning run (`npm run test:e2e:reasoning`).
 
-Also open, unrelated to this work: 6 Dependabot PRs (#93, #95, #98, #100, #101,
-#102). Two are worth a look before the next release — **#101** bumps
-`@anthropic-ai/sdk` 0.110.0 → 0.115.0, and the GA structured-output types were
-verified against 0.110.0, so re-check `MessageCreateParams.output_config` and
-`JSONOutputFormat` survive that jump; **#95** is the Mistral 2.x ESM-only bump
-that item 12 blocks. The stale `dependabot/.../google/genai-2.11.0` branch is
-superseded — v0.13.1 already took `@google/genai` to 2.13.0.
+Unreleased on main since v0.13.1: the item 14 / 17 fixes plus the shared schema
+walker (`src/shared/adapters/schemaUtils.ts`). Two of these change observable
+behavior and want a version bump when next released — the `refusal` →
+`content_filter` finish-reason mapping, and `$defs`/`anyOf` branches now
+receiving `additionalProperties: false` on **both** the Anthropic and OpenAI
+paths.
+
+Dependabot: 6 open PRs (#93, #95, #98, #100, #101, #102). **#101**
+(`@anthropic-ai/sdk` 0.110.0 → 0.115.0) was **verified safe on 2026-07-26** —
+`JSONOutputFormat` and `OutputConfig` are byte-identical to 0.110.0,
+`output_config` is still on `MessageCreateParams`, the error classes
+`errorUtils` matches by constructor name all survive, and the full suite passes
+against it; it is 2 commits behind main so it needs a rebase before merge.
+**#95** is the Mistral 2.x ESM-only bump that item 12 blocks. **#100** is a
+TypeScript 5.9 → 7.0 major and deserves its own verification pass. The stale
+`dependabot/.../google/genai-2.11.0` branch is superseded — v0.13.1 already took
+`@google/genai` to 2.13.0.
 
 **v0.11.0 release state**: items 2, 3 (as deferred+fixes), 4, 5, 8, 9, 10, 11
 shipped via PR #92, merged to main (`800a9c8`), CI green, tagged `v0.11.0`,

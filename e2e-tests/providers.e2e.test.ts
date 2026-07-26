@@ -2,35 +2,16 @@ import { LLMService, fromEnvironment } from '../src/index';
 import type { ApiKeyProvider } from '../src/types';
 import type { LLMResponse } from '../src/llm/types';
 
-const LLAMACPP_BASE_URL = process.env.LLAMACPP_API_BASE_URL || 'http://localhost:8080';
-
-// Track llama-server availability
-let llamaServerAvailable: boolean | null = null;
-
 /**
- * Check if llama-server is running locally
+ * Whether llama-server answered its health check, probed once in globalSetup
+ * (see e2e-tests/globalSetup.js).
+ *
+ * Read at module scope so the suite can gate with `describe.skip`. Do NOT
+ * reintroduce a runtime `if (!available) return;` inside a test body: Jest
+ * scores an assertion-free function as **passed**, which reports green tests
+ * that verified nothing.
  */
-async function isLlamaServerRunning(): Promise<boolean> {
-  if (llamaServerAvailable !== null) {
-    return llamaServerAvailable;
-  }
-
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 2000);
-
-    const response = await fetch(`${LLAMACPP_BASE_URL}/health`, {
-      signal: controller.signal
-    });
-
-    clearTimeout(timeout);
-    llamaServerAvailable = response.ok;
-    return llamaServerAvailable;
-  } catch {
-    llamaServerAvailable = false;
-    return false;
-  }
-}
+const LLAMACPP_AVAILABLE = process.env.E2E_LLAMACPP_AVAILABLE === 'true';
 
 // Test-specific API key provider that looks for E2E-prefixed env vars
 const e2eKeyProvider: ApiKeyProvider = async (providerId: string) => {
@@ -118,21 +99,8 @@ const geminiApiKey = process.env.E2E_GEMINI_API_KEY;
 });
 
 // --- llama.cpp Tests (FREE - Local Server) ---
-describe('llama.cpp E2E (local, free)', () => {
-  beforeAll(async () => {
-    const available = await isLlamaServerRunning();
-    console.log(`llama-server available: ${available ? 'YES (tests will run)' : 'NO (tests will skip)'}`);
-  });
-
-  const runIfAvailable = (testFn: () => Promise<void>) => async () => {
-    if (!(await isLlamaServerRunning())) {
-      console.log('Skipping - llama-server not running');
-      return;
-    }
-    await testFn();
-  };
-
-  it('should receive a valid response from local llama-server', runIfAvailable(async () => {
+(LLAMACPP_AVAILABLE ? describe : describe.skip)('llama.cpp E2E (local, free)', () => {
+  it('should receive a valid response from local llama-server', async () => {
     const response = await llmService.sendMessage({
       providerId: 'llamacpp',
       modelId: 'local-model',
@@ -146,9 +114,9 @@ describe('llama.cpp E2E (local, free)', () => {
       expect(content).toBeDefined();
       expect(content).toContain('10');
     }
-  }), 60000);
+  }, 60000);
 
-  it('should handle system messages correctly', runIfAvailable(async () => {
+  it('should handle system messages correctly', async () => {
     const response = await llmService.sendMessage({
       providerId: 'llamacpp',
       modelId: 'local-model',
@@ -165,5 +133,5 @@ describe('llama.cpp E2E (local, free)', () => {
       expect(content).toBeDefined();
       expect(content).toContain('56');
     }
-  }), 60000);
+  }, 60000);
 });

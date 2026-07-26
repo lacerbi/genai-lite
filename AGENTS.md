@@ -104,6 +104,7 @@ genai-lite is a lightweight, standalone Node.js/TypeScript library providing a u
 - **PresetManager<TPreset>** - Generic preset management (extend/replace modes) used by both LLM and Image services
 - **AdapterRegistry<TAdapter, TProviderId>** - Generic adapter registration and management
 - **errorUtils** - Shared error mapping and normalization for all adapters
+- **schemaUtils** - `applyStrictSchemaConstraints()`: injects `additionalProperties: false` into every object schema for providers whose strict structured-output mode requires it (Anthropic and OpenAI). Traverses `properties`, `items` (single and tuple form), `prefixItems`, `$defs`, `definitions`, `anyOf`/`oneOf`/`allOf`, and `not`; never mutates its input; safe against cyclic JS object graphs. `$ref` pointers are deliberately **not** resolved — targets are constrained where defined. OpenAI's extra requirement that `required` list every property is behind the `requireAllProperties` option, which Anthropic must not pass
 - Located in `src/shared/services/` and `src/shared/adapters/`
 - Eliminates ~390 lines of duplicate code between LLM and Image implementations
 
@@ -233,7 +234,8 @@ src/
 │   │   ├── PresetManager.ts      # Generic preset management
 │   │   └── AdapterRegistry.ts    # Generic adapter registration
 │   └── adapters/                 # Shared adapter utilities
-│       └── errorUtils.ts         # Error mapping/normalization
+│       ├── errorUtils.ts         # Error mapping/normalization
+│       └── schemaUtils.ts        # Strict JSON Schema preparation (Anthropic, OpenAI)
 ├── logging/                      # Logging system
 │   ├── types.ts                  # Logger, LogLevel, LoggingConfig interfaces
 │   ├── defaultLogger.ts          # Console logger with level filtering
@@ -265,6 +267,7 @@ src/
   - **Use sparingly** - only when modifying provider adapters or LLMService
   - Costs real money - uses cheapest models but still incurs API charges
   - Not run in CI by default to avoid costs
+  - **Gate unavailable providers with `describe.skip`, never with an early `return`.** A test body that returns without asserting is scored by Jest as **passed**, so `if (!available) return;` reports green tests that verified nothing — this is how an Anthropic request-shape drift stayed hidden. API keys gate at module scope (`(KEY ? describe : describe.skip)`). llama-server needs an async probe, which cannot run at registration time, so `e2e-tests/globalSetup.js` probes it once and publishes `E2E_LLAMACPP_AVAILABLE` for suites to gate on the same way. Set that variable explicitly to force a suite on or off without a live server. Note `describe.skip` still *executes* its callback to register test names, so resolve provider details inside the test bodies, not at describe scope
 
 **Quick Testing with chat-demo:**
 The `examples/chat-demo` application provides a quick way to test library changes interactively. Run `cd examples/chat-demo && npm install && npm run dev` to start the demo server and test features across all providers.

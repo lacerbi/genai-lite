@@ -26,35 +26,31 @@ const GEMINI_API_KEY = process.env.E2E_GEMINI_API_KEY;
 const ANTHROPIC_API_KEY = process.env.E2E_ANTHROPIC_API_KEY;
 const MISTRAL_API_KEY = process.env.E2E_MISTRAL_API_KEY;
 const OPENROUTER_API_KEY = process.env.E2E_OPENROUTER_API_KEY;
-const LLAMACPP_BASE_URL = process.env.LLAMACPP_API_BASE_URL || 'http://localhost:8080';
-
-// Track llama-server availability
-let llamaServerAvailable: boolean | null = null;
+const LLAMACPP_BASE_URL = process.env.LLAMACPP_API_BASE_URL || 'http://127.0.0.1:8080';
 
 /**
- * Check if llama-server is running locally
+ * Whether llama-server answered its health check, probed once in globalSetup
+ * (see e2e-tests/globalSetup.js).
+ *
+ * This is read at module scope so suites can gate with `describe.skip`. Do NOT
+ * reintroduce a runtime `if (!available) return;` inside a test body: Jest scores
+ * an assertion-free function as **passed**, so that pattern reports green tests
+ * that verified nothing.
  */
-async function isLlamaServerRunning(): Promise<boolean> {
-  if (llamaServerAvailable !== null) {
-    return llamaServerAvailable;
-  }
+const LLAMACPP_AVAILABLE = process.env.E2E_LLAMACPP_AVAILABLE === 'true';
 
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 2000);
+/** The cheapest cloud provider available, or null if none is configured. */
+const FALLBACK_CLOUD_PROVIDER: { providerId: string; modelId: string } | null =
+  OPENAI_API_KEY ? { providerId: 'openai', modelId: 'gpt-4.1-mini' }
+  : GEMINI_API_KEY ? { providerId: 'gemini', modelId: 'gemini-2.0-flash' }
+  : MISTRAL_API_KEY ? { providerId: 'mistral', modelId: 'mistral-small-latest' }
+  : null;
 
-    const response = await fetch(`${LLAMACPP_BASE_URL}/health`, {
-      signal: controller.signal
-    });
-
-    clearTimeout(timeout);
-    llamaServerAvailable = response.ok;
-    return llamaServerAvailable;
-  } catch {
-    llamaServerAvailable = false;
-    return false;
-  }
-}
+/** Any provider at all that can serve the provider-agnostic behaviour tests. */
+const ANY_PROVIDER: { providerId: string; modelId: string } | null =
+  LLAMACPP_AVAILABLE
+    ? { providerId: 'llamacpp', modelId: 'local-model' }
+    : FALLBACK_CLOUD_PROVIDER;
 
 // Common test schema for extracting person info
 const personSchema: StructuredOutputSettings = {
@@ -87,9 +83,7 @@ describe('Structured Output E2E Tests', () => {
   let llmService: LLMService;
 
   beforeAll(async () => {
-    // Check llama-server availability upfront
-    const llamaAvailable = await isLlamaServerRunning();
-    console.log(`llama-server available: ${llamaAvailable ? 'YES (free tests will run)' : 'NO'}`);
+    console.log(`llama-server available: ${LLAMACPP_AVAILABLE ? 'YES (free tests will run)' : 'NO (llama.cpp suites skipped)'}`);
     console.log(`OpenAI API key: ${OPENAI_API_KEY ? 'YES' : 'NO'}`);
     console.log(`Gemini API key: ${GEMINI_API_KEY ? 'YES' : 'NO'}`);
     console.log(`Anthropic API key: ${ANTHROPIC_API_KEY ? 'YES' : 'NO'}`);
@@ -116,22 +110,8 @@ describe('Structured Output E2E Tests', () => {
   // ============================================
   // llama.cpp (FREE - Local Server)
   // ============================================
-  describe('llama.cpp (local, free)', () => {
-    beforeEach(async () => {
-      const available = await isLlamaServerRunning();
-      if (!available) {
-        console.log('Skipping llama.cpp tests - server not running');
-      }
-    });
-
-    const runIfAvailable = (testFn: () => Promise<void>) => async () => {
-      if (!(await isLlamaServerRunning())) {
-        return; // Skip silently
-      }
-      await testFn();
-    };
-
-    it('should return structured JSON with person schema', runIfAvailable(async () => {
+  (LLAMACPP_AVAILABLE ? describe : describe.skip)('llama.cpp (local, free)', () => {
+    it('should return structured JSON with person schema', async () => {
       const response = await llmService.sendMessage({
         providerId: 'llamacpp',
         modelId: 'local-model',
@@ -153,9 +133,9 @@ describe('Structured Output E2E Tests', () => {
       const parsed = result.choices[0].parsedContent as { name: string; age: number };
       expect(parsed.name).toContain('John');
       expect(typeof parsed.age).toBe('number');
-    }), API_TIMEOUT);
+    }, API_TIMEOUT);
 
-    it('should handle color extraction schema', runIfAvailable(async () => {
+    it('should handle color extraction schema', async () => {
       const response = await llmService.sendMessage({
         providerId: 'llamacpp',
         modelId: 'local-model',
@@ -175,7 +155,7 @@ describe('Structured Output E2E Tests', () => {
 
       const parsed = result.choices[0].parsedContent as { color: string };
       expect(typeof parsed.color).toBe('string');
-    }), API_TIMEOUT);
+    }, API_TIMEOUT);
   });
 
   // ============================================
@@ -399,71 +379,53 @@ describe('Structured Output E2E Tests', () => {
   // ============================================
   // Auto-parse behavior tests
   // ============================================
-  describe('Auto-parse behavior', () => {
-    const runWithAnyProvider = async (testFn: (providerId: string, modelId: string) => Promise<void>) => {
-      // Try llama-server first (free)
-      if (await isLlamaServerRunning()) {
-        await testFn('llamacpp', 'local-model');
-        return;
-      }
-      // Fall back to cheapest available provider
-      if (OPENAI_API_KEY) {
-        await testFn('openai', 'gpt-4.1-mini');
-        return;
-      }
-      if (GEMINI_API_KEY) {
-        await testFn('gemini', 'gemini-2.0-flash');
-        return;
-      }
-      if (MISTRAL_API_KEY) {
-        await testFn('mistral', 'mistral-small-latest');
-        return;
-      }
-      console.log('Skipping test - no provider available');
-    };
-
+  // Provider-agnostic behaviour: runs against llama-server when available,
+  // otherwise the cheapest configured cloud provider. Skipped outright when
+  // neither exists, so these never report as passing without asserting.
+  (ANY_PROVIDER ? describe : describe.skip)('Auto-parse behavior', () => {
+    // Resolved inside the test bodies, not here: `describe.skip` still runs its
+    // callback to register test names, so a non-null assertion at this scope
+    // would throw even when the whole block is skipped.
     it('should auto-parse JSON by default', async () => {
-      await runWithAnyProvider(async (providerId, modelId) => {
-        const response = await llmService.sendMessage({
-          providerId,
-          modelId,
-          messages: [{ role: 'user', content: 'Return {"test": true}' }],
-          settings: {
-            structuredOutput: {
-              name: 'test',
-              schema: { type: 'object', properties: { test: { type: 'boolean' } } }
-            },
-            maxTokens: 50
-          }
-        });
-
-        expect(response.object).toBe('chat.completion');
-        const result = response as LLMResponse;
-        expect(result.choices[0].parsedContent).toBeDefined();
+      const { providerId, modelId } = ANY_PROVIDER!;
+      const response = await llmService.sendMessage({
+        providerId,
+        modelId,
+        messages: [{ role: 'user', content: 'Return {"test": true}' }],
+        settings: {
+          structuredOutput: {
+            name: 'test',
+            schema: { type: 'object', properties: { test: { type: 'boolean' } } }
+          },
+          maxTokens: 50
+        }
       });
+
+      expect(response.object).toBe('chat.completion');
+      const result = response as LLMResponse;
+      expect(result.choices[0].parsedContent).toBeDefined();
     }, API_TIMEOUT);
 
     it('should skip auto-parse when autoParse=false', async () => {
-      await runWithAnyProvider(async (providerId, modelId) => {
-        const response = await llmService.sendMessage({
-          providerId,
-          modelId,
-          messages: [{ role: 'user', content: 'Return {"test": true}' }],
-          settings: {
-            structuredOutput: {
-              name: 'test',
-              schema: { type: 'object', properties: { test: { type: 'boolean' } } },
-              autoParse: false
-            },
-            maxTokens: 50
-          }
-        });
-
-        expect(response.object).toBe('chat.completion');
-        const result = response as LLMResponse;
-        // parsedContent should not be set when autoParse is false
-        expect(result.choices[0].parsedContent).toBeUndefined();
+      const { providerId, modelId } = ANY_PROVIDER!;
+      const response = await llmService.sendMessage({
+        providerId,
+        modelId,
+        messages: [{ role: 'user', content: 'Return {"test": true}' }],
+        settings: {
+          structuredOutput: {
+            name: 'test',
+            schema: { type: 'object', properties: { test: { type: 'boolean' } } },
+            autoParse: false
+          },
+          maxTokens: 50
+        }
       });
+
+      expect(response.object).toBe('chat.completion');
+      const result = response as LLMResponse;
+      // parsedContent should not be set when autoParse is false
+      expect(result.choices[0].parsedContent).toBeUndefined();
     }, API_TIMEOUT);
   });
 });

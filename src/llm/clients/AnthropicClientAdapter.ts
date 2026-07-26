@@ -11,6 +11,7 @@ import type {
 } from "./types";
 import { ADAPTER_ERROR_CODES } from "./types";
 import { getCommonMappedErrorDetails } from "../../shared/adapters/errorUtils";
+import { applyStrictSchemaConstraints } from "../../shared/adapters/schemaUtils";
 import {
   collectSystemContent,
   prependSystemToFirstUserMessage,
@@ -334,7 +335,7 @@ export class AnthropicClientAdapter implements ILLMClientAdapter {
       // Anthropic requires additionalProperties: false on all object schemas
       const processedSchema: Record<string, unknown> =
         so.strict !== false
-          ? this.addAdditionalPropertiesFalse(so.schema)
+          ? applyStrictSchemaConstraints({ ...so.schema })
           : { ...so.schema };
       messageParams.output_config = {
         format: {
@@ -444,41 +445,6 @@ export class AnthropicClientAdapter implements ILLMClientAdapter {
       stop_sequence: null,
       usage: accumulator.usage,
     } as any;
-  }
-
-  /**
-   * Recursively adds additionalProperties: false to all object schemas
-   * Required by Anthropic's strict mode for structured outputs
-   *
-   * @param schema - The JSON schema to process
-   * @returns A new schema with additionalProperties: false on all objects
-   */
-  private addAdditionalPropertiesFalse(schema: any): any {
-    if (!schema || typeof schema !== 'object') {
-      return schema;
-    }
-
-    const processed: any = { ...schema };
-
-    // If this is an object type, add additionalProperties: false
-    if (processed.type === 'object') {
-      processed.additionalProperties = false;
-
-      // Process nested properties
-      if (processed.properties) {
-        processed.properties = {};
-        for (const [key, value] of Object.entries(schema.properties)) {
-          processed.properties[key] = this.addAdditionalPropertiesFalse(value);
-        }
-      }
-    }
-
-    // Process array items
-    if (processed.items) {
-      processed.items = this.addAdditionalPropertiesFalse(schema.items);
-    }
-
-    return processed;
   }
 
   /**
@@ -629,27 +595,15 @@ export class AnthropicClientAdapter implements ILLMClientAdapter {
       throw new Error("Invalid completion structure from Anthropic API");
     }
 
-    // Extract thinking/reasoning content if available
-    let reasoning: string | undefined;
-    let reasoning_details: any | undefined;
-    
-    // Check for thinking content in the response
-    if ((completion as any).thinking_content) {
-      reasoning = (completion as any).thinking_content;
-    }
-
+    // Extract reasoning from thinking content blocks. This is the only place
+    // Anthropic exposes it: `Message` has no `thinking_content` or
+    // `reasoning_details` field (the latter is an OpenRouter concept, handled in
+    // OpenRouterClientAdapter), so branches reading those could never fire.
     const thinkingContent = completion.content
       .filter((block: any) => block.type === "thinking" && typeof block.thinking === "string")
       .map((block: any) => block.thinking)
       .join("");
-    if (!reasoning && thinkingContent) {
-      reasoning = thinkingContent;
-    }
-    
-    // Check for reasoning details that need to be preserved
-    if ((completion as any).reasoning_details) {
-      reasoning_details = (completion as any).reasoning_details;
-    }
+    const reasoning: string | undefined = thinkingContent || undefined;
 
     // Map Anthropic's stop reason to our standard format
     const finishReason = this.mapAnthropicStopReason(completion.stop_reason);
@@ -666,11 +620,6 @@ export class AnthropicClientAdapter implements ILLMClientAdapter {
     // Include reasoning if available and not excluded
     if (reasoning && request.settings.reasoning && !request.settings.reasoning.exclude) {
       choice.reasoning = reasoning;
-    }
-    
-    // Always include reasoning_details if present (for tool use continuation)
-    if (reasoning_details) {
-      choice.reasoning_details = reasoning_details;
     }
 
     return {
@@ -702,12 +651,22 @@ export class AnthropicClientAdapter implements ILLMClientAdapter {
   ): string | null {
     if (!anthropicReason) return null;
 
+    // Anthropic's StopReason union is exactly:
+    //   end_turn | max_tokens | stop_sequence | tool_use | pause_turn | refusal
+    // Note there is no `content_filter` - that is OpenAI's vocabulary. A model
+    // that declines on policy grounds reports `refusal`, which we normalize to
+    // `content_filter` so callers can detect a blocked completion with the same
+    // check they already use for OpenAI and Gemini.
     const reasonMap: Record<string, string> = {
       end_turn: "stop",
       max_tokens: "length",
       stop_sequence: "stop",
-      content_filter: "content_filter",
       tool_use: "tool_calls",
+      refusal: "content_filter",
+      // Anthropic-specific: a long-running turn was paused and the caller is
+      // expected to continue it. No equivalent in the normalized vocabulary, so
+      // it maps to "other" deliberately rather than by falling through.
+      pause_turn: "other",
     };
 
     return reasonMap[anthropicReason] || "other";
