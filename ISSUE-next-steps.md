@@ -1,7 +1,7 @@
 # ISSUE: Post-v0.9.2 TODO — deferred follow-ups
 
 Created: 2026-07-03
-Updated: 2026-07-26 (v0.13.1 shipped; items 13, 14, 17 resolved; item 16 open)
+Updated: 2026-07-26 (v0.14.0 staged; items 13, 14, 17 resolved; items 16, 18 open)
 Status: OPEN
 Package: genai-lite
 
@@ -276,11 +276,41 @@ Note: all "latest" package versions below were checked via `npm view` on
     possible. Probe default also moved `localhost` → `127.0.0.1` to match the
     adapter and avoid the Windows IPv6-fallback stall.
 
+18. **TypeScript 7 blocked by `ts-jest`** (verified 2026-07-26; Dependabot #100
+    closed). **Our source is already TS 7 clean** — `tsc --noEmit -p
+    tsconfig.json` passes with 7.0.2, no errors. The blocker is entirely
+    `ts-jest`, which peer-depends on `typescript: ">=4.3 <7"` — still the range
+    in the latest release (29.4.12), not just our pinned 29.4.11.
+
+    The cap is not cosmetic. Forcing 7.0.2 in makes **every** suite fail to run
+    with `TypeError: Cannot read properties of undefined (reading 'fileExists')`:
+    `ts-jest` calls into the TypeScript compiler API directly and TS 7's native
+    rewrite changed/removed the internals it uses. No config or override works
+    around a missing API.
+
+    Side note worth knowing: because dev deps use `>=`, a fresh `npm install`
+    resolves TypeScript to **6.0.3** (npm peer resolution caps it below 7), not
+    5.9.3. We are pinned to 5.9.3 only by the lockfile, not by intent.
+
+    Recheck when `ts-jest` widens its peer range; the bump should then be
+    trivial. An alternative if it stalls: swap the Jest transform to
+    `@swc/jest` or `babel-jest`, which do not consume the TS compiler API — but
+    that trades away type-checking during tests, so it is not obviously better.
+
 ## Pickup point
 
-Open items: 12 (dual packaging — unblocks Mistral 2.x), 15 (dev-only audit
-advisory, blocked on jest upstream), 16 (confirm Anthropic GA structured output
-against the live API). Items 13, 14, and 17 are resolved.
+Open items: 12 (dual packaging — unblocks Mistral 2.x / PR #95), 15 (dev-only
+audit advisory, blocked on jest upstream), 16 (confirm Anthropic GA structured
+output against the live API), 18 (TypeScript 7, blocked on ts-jest). Items 13,
+14, and 17 are resolved.
+
+**Dependabot queue is clear except for blocked items** (2026-07-26): #93, #98,
+#101, #102 were consolidated into PR #107 and merged (`6e0e3e3`) following the
+#91 precedent — `@anthropic-ai/sdk` → ^0.115.0, `@types/node` → 26.1.1
+(lockfile only; the `>=` dev range needs no change), and `actions/checkout` +
+`actions/setup-node` v6 → v7, whose upgrade was exercised by that PR's own green
+CI run. #100 is closed (item 18). #95 remains open on purpose as the landing
+spot for item 12.
 
 **Resume here (2026-07-26, post-v0.13.1 cleanup):** everything actionable
 without credits is done. The next decision is **item 16** — add credits to the
