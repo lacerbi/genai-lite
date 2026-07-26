@@ -11,6 +11,7 @@ import type {
 import { ADAPTER_ERROR_CODES } from "./types";
 import { getCommonMappedErrorDetails } from "../../shared/adapters/errorUtils";
 import { mapOpenAIChatLogprobs } from "../../shared/adapters/logprobsUtils";
+import { applyStrictSchemaConstraints } from "../../shared/adapters/schemaUtils";
 import {
   collectSystemContent,
   prependSystemToFirstUserMessage,
@@ -304,8 +305,10 @@ export class OpenAIClientAdapter implements ILLMClientAdapter {
 
     if (request.settings.structuredOutput?.schema && request.settings.structuredOutput.enabled !== false) {
       const so = request.settings.structuredOutput;
+      // OpenAI strict mode additionally requires `required` to list every
+      // property of each object schema.
       const processedSchema = so.strict !== false
-        ? this.addAdditionalPropertiesFalse(so.schema)
+        ? applyStrictSchemaConstraints({ ...so.schema }, { requireAllProperties: true })
         : so.schema;
       completionParams.response_format = {
         type: 'json_schema',
@@ -375,44 +378,6 @@ export class OpenAIClientAdapter implements ILLMClientAdapter {
       choices: choices as any,
       ...(usage && { usage }),
     };
-  }
-
-  /**
-   * Recursively adds additionalProperties: false to all object schemas
-   * Required by OpenAI's strict mode for structured outputs
-   *
-   * @param schema - The JSON schema to process
-   * @returns A new schema with additionalProperties: false on all objects
-   */
-  private addAdditionalPropertiesFalse(schema: any): any {
-    if (!schema || typeof schema !== 'object') {
-      return schema;
-    }
-
-    const processed: any = { ...schema };
-
-    // If this is an object type, add additionalProperties: false and ensure required includes all properties
-    if (processed.type === 'object') {
-      processed.additionalProperties = false;
-
-      // Process nested properties
-      if (processed.properties) {
-        const propertyKeys = Object.keys(schema.properties);
-        processed.properties = {};
-        for (const [key, value] of Object.entries(schema.properties)) {
-          processed.properties[key] = this.addAdditionalPropertiesFalse(value);
-        }
-        // OpenAI strict mode requires 'required' to include ALL properties
-        processed.required = propertyKeys;
-      }
-    }
-
-    // Process array items
-    if (processed.items) {
-      processed.items = this.addAdditionalPropertiesFalse(schema.items);
-    }
-
-    return processed;
   }
 
   /**

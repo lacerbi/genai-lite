@@ -1,9 +1,42 @@
 # ISSUE: Structured-output schema preparation does not traverse `$defs` or `anyOf`/`oneOf`/`allOf`
 
 Created: 2026-07-26
-Status: OPEN
+Status: RESOLVED (2026-07-26)
 Package: genai-lite
 Split out of: `docs/archive/ISSUE-anthropic-structured-output-compatibility.md` (item 3)
+
+## Resolution
+
+Extracted to a shared utility and hardened. `applyStrictSchemaConstraints` in
+`src/shared/adapters/schemaUtils.ts` now traverses `properties`, `items` (single
+and tuple form), `prefixItems`, `$defs`, `definitions`, `anyOf`, `oneOf`,
+`allOf`, and `not`, setting `additionalProperties: false` on every object schema
+it reaches. It never mutates its input.
+
+Answering the scope note: the walker **is** now shared. The near-duplicate
+private `addAdditionalPropertiesFalse` methods in `AnthropicClientAdapter` and
+`OpenAIClientAdapter` were both deleted and both adapters call the shared
+function. OpenAI's extra strictness — `required` must list every property of an
+object — is preserved behind the `requireAllProperties` option, which Anthropic
+does not pass (a regression test asserts Anthropic leaves a partial `required`
+alone). Gemini is unaffected because it converts schemas separately via
+`convertToGeminiSchema`; OpenRouter and llama.cpp forward the raw schema.
+
+Note this also fixes the same untraversed-branch bug on the **OpenAI** path,
+which had the identical limitation.
+
+On `$ref` cycles: the walker deliberately does not resolve `$ref` pointers, so
+a JSON-level `$ref` cycle cannot cause infinite recursion — referenced schemas
+are constrained where they are *defined* (typically under `$defs`), which is
+what the providers validate. The real hazard is a cyclic *JavaScript* object
+graph, which is handled by a `Map` of input node to output copy: each node is
+copied once, revisits reuse that copy, and shared subschemas stay shared.
+Covered by tests for both a self-referencing schema and a subschema referenced
+from two places.
+
+`schemaUtils.test.ts` covers every keyword above plus non-object input and both
+`requireAllProperties` modes; the Anthropic adapter test that used to pin the
+*absence* of traversal now asserts it happens.
 
 ## Summary
 
@@ -60,9 +93,12 @@ they do, the walker belongs in a shared utility rather than in
 
 ## Acceptance criteria
 
-- [ ] Object schemas nested under `$defs` and composition keywords receive
+- [x] Object schemas nested under `$defs` and composition keywords receive
       `additionalProperties: false` in strict mode.
-- [ ] A self-referencing `$ref` does not cause unbounded recursion.
-- [ ] The pinning test in `AnthropicClientAdapter.test.ts` is replaced with a
+- [x] A self-referencing `$ref` does not cause unbounded recursion (refs are
+      never resolved; cyclic JS object graphs are guarded by a copy map).
+- [x] The pinning test in `AnthropicClientAdapter.test.ts` is replaced with a
       positive traversal assertion.
-- [ ] A decision is recorded on whether the walker becomes shared across adapters.
+- [x] A decision is recorded on whether the walker becomes shared across
+      adapters: yes, it is now `src/shared/adapters/schemaUtils.ts`, used by both
+      the Anthropic and OpenAI adapters.

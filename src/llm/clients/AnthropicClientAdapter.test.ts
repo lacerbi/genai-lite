@@ -233,10 +233,15 @@ describe('AnthropicClientAdapter', () => {
     });
 
     it('should map stop_reason correctly', async () => {
+      // Covers Anthropic's full StopReason union - end_turn | max_tokens |
+      // stop_sequence | tool_use | pause_turn | refusal - plus an unknown value.
       const stopReasons = [
         { anthropic: 'end_turn', expected: 'stop' },
         { anthropic: 'max_tokens', expected: 'length' },
         { anthropic: 'stop_sequence', expected: 'stop' },
+        { anthropic: 'tool_use', expected: 'tool_calls' },
+        { anthropic: 'refusal', expected: 'content_filter' },
+        { anthropic: 'pause_turn', expected: 'other' },
         { anthropic: 'unknown_reason', expected: 'other' }
       ];
 
@@ -532,6 +537,106 @@ describe('AnthropicClientAdapter', () => {
     });
   });
 
+  describe('reasoning extraction from thinking blocks', () => {
+    // Anthropic exposes reasoning only as content blocks of type "thinking".
+    // `Message` has no `thinking_content` or `reasoning_details` field, so the
+    // adapter must not depend on either.
+    const withReasoning = (): InternalLLMChatRequest => ({
+      ...basicRequest,
+      settings: {
+        ...basicRequest.settings,
+        reasoning: { enabled: true, effort: undefined as any, maxTokens: undefined as any, exclude: false }
+      }
+    });
+
+    it('should extract reasoning from thinking content blocks', async () => {
+      mockCreate.mockResolvedValueOnce({
+        id: 'msg_think',
+        type: 'message',
+        role: 'assistant',
+        model: 'claude-3-5-sonnet-20241022',
+        content: [
+          { type: 'thinking', thinking: 'step one ', signature: 'sig' },
+          { type: 'thinking', thinking: 'step two', signature: 'sig' },
+          { type: 'text', text: 'the answer' }
+        ],
+        stop_reason: 'end_turn',
+        usage: { input_tokens: 10, output_tokens: 20 }
+      });
+
+      const response = await adapter.sendMessage(withReasoning(), 'test-api-key');
+
+      const success = response as LLMResponse;
+      expect(success.choices[0].reasoning).toBe('step one step two');
+      expect(success.choices[0].message.content).toBe('the answer');
+    });
+
+    it('should not treat a thinking-first response as an invalid structure', async () => {
+      mockCreate.mockResolvedValueOnce({
+        id: 'msg_think_first',
+        type: 'message',
+        role: 'assistant',
+        model: 'claude-3-5-sonnet-20241022',
+        content: [
+          { type: 'thinking', thinking: 'reasoning', signature: 'sig' },
+          { type: 'text', text: 'answer' }
+        ],
+        stop_reason: 'end_turn',
+        usage: { input_tokens: 10, output_tokens: 20 }
+      });
+
+      const response = await adapter.sendMessage(withReasoning(), 'test-api-key');
+
+      expect(response.object).toBe('chat.completion');
+      expect((response as LLMResponse).choices[0].message.content).toBe('answer');
+    });
+
+    it('should ignore non-Anthropic thinking_content and reasoning_details fields', async () => {
+      mockCreate.mockResolvedValueOnce({
+        id: 'msg_bogus_fields',
+        type: 'message',
+        role: 'assistant',
+        model: 'claude-3-5-sonnet-20241022',
+        content: [{ type: 'text', text: 'answer' }],
+        // Neither of these is an Anthropic response field. thinking_content is
+        // invented; reasoning_details is OpenRouter's. Both must be ignored.
+        thinking_content: 'should not surface',
+        reasoning_details: [{ type: 'reasoning.text', text: 'should not surface' }],
+        stop_reason: 'end_turn',
+        usage: { input_tokens: 10, output_tokens: 20 }
+      });
+
+      const response = await adapter.sendMessage(withReasoning(), 'test-api-key');
+
+      const choice = (response as LLMResponse).choices[0] as any;
+      expect(choice.reasoning).toBeUndefined();
+      expect(choice.reasoning_details).toBeUndefined();
+    });
+
+    it('should omit reasoning when reasoning.exclude is true', async () => {
+      mockCreate.mockResolvedValueOnce({
+        id: 'msg_excluded',
+        type: 'message',
+        role: 'assistant',
+        model: 'claude-3-5-sonnet-20241022',
+        content: [
+          { type: 'thinking', thinking: 'hidden', signature: 'sig' },
+          { type: 'text', text: 'answer' }
+        ],
+        stop_reason: 'end_turn',
+        usage: { input_tokens: 10, output_tokens: 20 }
+      });
+
+      const request = withReasoning();
+      request.settings.reasoning!.exclude = true;
+
+      const response = await adapter.sendMessage(request, 'test-api-key');
+
+      expect((response as LLMResponse).choices[0].reasoning).toBeUndefined();
+      expect((response as LLMResponse).choices[0].message.content).toBe('answer');
+    });
+  });
+
   describe('structured output', () => {
     // Anthropic's structured outputs are GA: the request carries
     // output_config.format, with no `anthropic-beta` header, no schema `name`,
@@ -737,10 +842,10 @@ describe('AnthropicClientAdapter', () => {
         expect(schema).not.toHaveProperty('additionalProperties');
       });
 
-      it('documents that $defs and anyOf branches are NOT traversed', async () => {
-        // Known limitation, tracked separately: the schema preparer walks
-        // `properties` and `items` only. `StructuredOutputSchema` cannot express
-        // these keywords, so they are only reachable via untyped schemas.
+      it('traverses $defs and anyOf branches', async () => {
+        // Previously untraversed - see ISSUE-structured-output-schema-traversal.md.
+        // Full keyword coverage lives in shared/adapters/schemaUtils.test.ts; this
+        // asserts the adapter actually routes through it.
         mockCreate.mockResolvedValueOnce(jsonResponse('{}'));
 
         const compositeSchema = {
@@ -762,8 +867,27 @@ describe('AnthropicClientAdapter', () => {
 
         const schema = mockCreate.mock.calls[0][0].output_config.format.schema;
         expect(schema.additionalProperties).toBe(false);
-        expect(schema.$defs.Address).not.toHaveProperty('additionalProperties');
-        expect(schema.properties.choice.anyOf[0]).not.toHaveProperty('additionalProperties');
+        expect(schema.$defs.Address.additionalProperties).toBe(false);
+        expect(schema.properties.choice.anyOf[0].additionalProperties).toBe(false);
+      });
+
+      it('should not add `required` for Anthropic (that is OpenAI-only strictness)', async () => {
+        mockCreate.mockResolvedValueOnce(jsonResponse('{}'));
+
+        await adapter.sendMessage(
+          withStructuredOutput({
+            name: 'partial_required',
+            schema: {
+              type: 'object',
+              properties: { name: { type: 'string' }, age: { type: 'integer' } },
+              required: ['name']
+            }
+          }),
+          'test-api-key'
+        );
+
+        const schema = mockCreate.mock.calls[0][0].output_config.format.schema;
+        expect(schema.required).toEqual(['name']);
       });
     });
   });

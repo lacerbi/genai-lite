@@ -30,7 +30,7 @@ matching was added.
 Schema preparation is unchanged in behaviour and now pinned by tests: nested
 object properties and array items are traversed, and `$defs` / `anyOf` are
 explicitly documented as *not* traversed. That hardening was split out to
-`ISSUE-structured-output-schema-traversal.md` rather than claimed here.
+`docs/archive/ISSUE-structured-output-schema-traversal.md` rather than claimed here.
 
 Test additions: adapter tests asserting `output_config.format` exactly plus the
 absence of `output_format` and any beta header (non-streaming and streaming),

@@ -2,35 +2,9 @@ import { LLMService } from '../src/index';
 import type { ApiKeyProvider } from '../src/types';
 import type { LLMResponse } from '../src/llm/types';
 
-const LLAMACPP_BASE_URL = process.env.LLAMACPP_API_BASE_URL || 'http://localhost:8080';
-
-// Track llama-server availability
-let llamaServerAvailable: boolean | null = null;
-
-/**
- * Check if llama-server is running locally
- */
-async function isLlamaServerRunning(): Promise<boolean> {
-  if (llamaServerAvailable !== null) {
-    return llamaServerAvailable;
-  }
-
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 2000);
-
-    const response = await fetch(`${LLAMACPP_BASE_URL}/health`, {
-      signal: controller.signal
-    });
-
-    clearTimeout(timeout);
-    llamaServerAvailable = response.ok;
-    return llamaServerAvailable;
-  } catch {
-    llamaServerAvailable = false;
-    return false;
-  }
-}
+// This suite has no llama.cpp block; llama-server availability is probed once in
+// e2e-tests/globalSetup.js and exposed as E2E_LLAMACPP_AVAILABLE for the suites
+// that need it.
 
 // Test-specific API key provider that looks for E2E-prefixed env vars
 const e2eKeyProvider: ApiKeyProvider = async (providerId: string) => {
