@@ -525,6 +525,40 @@ describe('LLM Config', () => {
       expect(model?.structuredOutput?.strictMode).toBe(false);
       expect(model?.structuredOutput?.notes).toContain('JSON mode only');
     });
+
+    // Anthropic made structured outputs generally available for Claude 4.5 and
+    // later models only, so the registry must distinguish the two generations.
+    it.each([
+      'claude-opus-4-5-20251101',
+      'claude-sonnet-4-5-20250929',
+      'claude-haiku-4-5-20251001'
+    ])('should report structuredOutput support on %s', (modelId) => {
+      const model = getModelById(modelId, 'anthropic');
+      expect(model?.structuredOutput).toBeDefined();
+      expect(model?.structuredOutput?.supported).toBe(true);
+      expect(model?.structuredOutput?.strictMode).toBe(true);
+    });
+
+    it.each([
+      'claude-sonnet-4-20250514',
+      'claude-opus-4-20250514',
+      'claude-3-7-sonnet-20250219',
+      'claude-3-5-sonnet-20241022',
+      'claude-3-5-haiku-20241022'
+    ])('should report structuredOutput as unsupported on %s', (modelId) => {
+      const model = getModelById(modelId, 'anthropic');
+      expect(model?.structuredOutput).toBeDefined();
+      expect(model?.structuredOutput?.supported).toBe(false);
+      expect(model?.structuredOutput?.notes).toContain('Claude 4.5 or later');
+    });
+
+    it('should declare structuredOutput on every registered Anthropic model', () => {
+      const anthropicModels = getModelsByProvider('anthropic');
+      expect(anthropicModels.length).toBeGreaterThan(0);
+      for (const model of anthropicModels) {
+        expect(model.structuredOutput).toBeDefined();
+      }
+    });
   });
 
   describe('detectGgufCapabilities', () => {

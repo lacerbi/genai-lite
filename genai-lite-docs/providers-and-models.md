@@ -67,6 +67,7 @@ For llama.cpp, capability preflight does not query the running local server. Run
 - System messages handled differently than OpenAI
 - Supports `LLMService.streamMessage()` via Anthropic Messages streaming; text blocks emit `content_delta`, and thinking blocks emit `reasoning_delta` when reasoning output is included
 - Sampling parameters: supports `topK`. Does not support `seed`, `minP`, `repeatPenalty`, or `logprobs`/`topLogprobs` (silently stripped)
+- **Structured output requires Claude 4.5 or later.** The three Claude 4.5 models report `supported` with strict mode; Claude 4, 3.7, and 3.5 report `unsupported`, so capability preflight rejects the request with `structured_output_not_supported` before an API call is made. The request uses the generally-available `output_config.format` field — no beta header. The `structuredOutput.name` and `strict` settings are not sent to Anthropic (`strict` still controls whether genai-lite injects `additionalProperties: false` into object schemas)
 
 ---
 

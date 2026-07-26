@@ -90,6 +90,66 @@ describe("LLMService capability preflight", () => {
   });
 
   it("reports known models without structuredOutput metadata as unknown without failing preflight", async () => {
+    // o4-mini is registered but carries no structuredOutput metadata, so the
+    // capability stays unknown and preflight lets the request through.
+    const capabilities = await service.getModelCapabilities("openai", "o4-mini");
+
+    expect(capabilities).toMatchObject({
+      object: "model.capabilities",
+      provider: "openai",
+      model: "o4-mini",
+      structuredOutput: {
+        status: "unknown",
+        source: "registry",
+      },
+    });
+
+    const result = await service.validateRequestCapabilities({
+      providerId: "openai",
+      modelId: "o4-mini",
+      settings: { structuredOutput },
+    });
+
+    expect(result).toMatchObject({
+      object: "capability.validation",
+      valid: true,
+      capabilities: {
+        structuredOutput: {
+          status: "unknown",
+          source: "registry",
+        },
+      },
+    });
+    expect(mockApiKeyProvider).not.toHaveBeenCalled();
+  });
+
+  it("reports anthropic:claude-sonnet-4-5-20250929 structured output as supported and valid", async () => {
+    const result = await service.validateRequestCapabilities({
+      providerId: "anthropic",
+      modelId: "claude-sonnet-4-5-20250929",
+      settings: { structuredOutput },
+    });
+
+    expect(result).toMatchObject({
+      object: "capability.validation",
+      valid: true,
+      provider: "anthropic",
+      model: "claude-sonnet-4-5-20250929",
+      capabilities: {
+        structuredOutput: {
+          status: "supported",
+          source: "registry",
+          strictMode: true,
+        },
+      },
+    });
+    expect(mockApiKeyProvider).not.toHaveBeenCalled();
+  });
+
+  it("reports pre-4.5 Anthropic models as unsupported and fails preflight", async () => {
+    // Structured outputs went GA for Claude 4.5 and later only, so these models
+    // are explicitly unsupported rather than unknown - the request is rejected
+    // before an API call is spent.
     const capabilities = await service.getModelCapabilities(
       "anthropic",
       "claude-3-5-sonnet-20241022"
@@ -100,7 +160,7 @@ describe("LLMService capability preflight", () => {
       provider: "anthropic",
       model: "claude-3-5-sonnet-20241022",
       structuredOutput: {
-        status: "unknown",
+        status: "unsupported",
         source: "registry",
       },
     });
@@ -112,11 +172,15 @@ describe("LLMService capability preflight", () => {
     });
 
     expect(result).toMatchObject({
-      object: "capability.validation",
-      valid: true,
+      object: "error",
+      valid: false,
+      error: {
+        code: "structured_output_not_supported",
+        type: "validation_error",
+      },
       capabilities: {
         structuredOutput: {
-          status: "unknown",
+          status: "unsupported",
           source: "registry",
         },
       },

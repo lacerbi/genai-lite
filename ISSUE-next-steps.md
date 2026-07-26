@@ -10,7 +10,7 @@ nonexistent `gemma-4-4b-it` removed, context windows fixed) and v0.9.2 (Gemini
 timeout/abort classification; genai-electron `'cancelled'` terminal status) were
 released, published to npm, and tagged. The five stale Dependabot PRs (#82–#85,
 #87) were consolidated in #91 and merged. Resolved issue files are archived
-under `docs/` (`ISSUE-gemini-timeout-classification.md`,
+under `docs/archive/` (`ISSUE-gemini-timeout-classification.md`,
 `ISSUE-cancelled-generation-status.md`); this file tracks what was deliberately
 deferred.
 
@@ -19,7 +19,7 @@ failure envelopes now propagate adapter `code`/`type`/`status` instead of always
 `PROVIDER_ERROR`/`server_error`, guarded so non-adapter errors — e.g. a failing
 `ApiKeyProvider` with `.code = 'ENOENT'` — keep the generic fallback; the
 genai-electron default base URL changed `localhost` → `127.0.0.1`; new
-`src/image/ImageService.test.ts`). See `docs/PLAN-image-cancellation-error-fixes.md`
+`src/image/ImageService.test.ts`). See `docs/archive/PLAN-image-cancellation-error-fixes.md`
 (or git history) for the full change record.
 
 **v0.10.0 release state**: commit `440410a` on main, CI green, tag `v0.10.0`
@@ -90,7 +90,7 @@ Note: all "latest" package versions below were checked via `npm view` on
    undici's generic "fetch failed". Gemini network failures now map to
    `NETWORK_ERROR`/`connection_error` and are retried like every other
    provider. The old flattening wrapper documented in
-   `docs/ISSUE-gemini-timeout-classification.md` (verified against 1.34/1.37)
+   `docs/archive/ISSUE-gemini-timeout-classification.md` (verified against 1.34/1.37)
    no longer exists.
 
 6. ~~**Request-side image cancellation.**~~ **RESOLVED (v0.10.0, 2026-07-03)** —
@@ -147,13 +147,19 @@ Note: all "latest" package versions below were checked via `npm view` on
     ESM-only deps — likely `moduleNameMapper` stubs or vm-modules) as part of
     this. Filed 2026-07-03.
 
-13. **Anthropic structured-output param drift** (pre-existing, found in the
-    item 4 review). `AnthropicClientAdapter` sends `output_format` via
-    `(messageParams as any)`, but the SDK/API renamed the param to
-    `output_config` at SDK v0.72.0. Because it bypasses SDK typing, nothing
-    fails loudly — verify against the live API (does `output_format` still
-    work? does structured output work at all?) and migrate. Needs a paid e2e
-    check (`npm run test:e2e` structured-output suite).
+13. ~~**Anthropic structured-output param drift**~~ **RESOLVED (2026-07-26,
+    v0.13.1).** `AnthropicClientAdapter` now sends the generally-available
+    `output_config.format` through SDK typing, with no `as any` and no
+    `anthropic-beta: structured-outputs-2025-11-13` header, on both
+    `sendMessage()` and `streamMessage()`. Anthropic model entries declare
+    `structuredOutput` capabilities (Claude 4.5 supported/strict; Claude 4,
+    3.7, 3.5 unsupported), so capability preflight rejects pre-4.5 models
+    before spending a request. Unit tests assert the outbound request shape and
+    fail if it regresses; the E2E test no longer converts an incompatibility
+    into a pass. See `docs/archive/ISSUE-anthropic-structured-output-compatibility.md`.
+    The schema walker's `$defs`/`anyOf` gap was split out to
+    `ISSUE-structured-output-schema-traversal.md`. The paid e2e check
+    (`npm run test:e2e -- structured-output.e2e.test.ts`) is still outstanding.
 
 14. **Anthropic reasoning-path response parsing** (pre-existing, found in the
     item 4 review). `createSuccessResponse` reads `completion.thinking_content`
@@ -165,10 +171,29 @@ Note: all "latest" package versions below were checked via `npm view` on
     reasoning run (`npm run test:e2e:reasoning`) and fix the parsing to walk
     content blocks.
 
+15. **Dev-only `brace-expansion` advisory, blocked on jest** (2026-07-26,
+    v0.13.1). GHSA-mh99-v99m-4gvg (`brace-expansion` OOM DoS) is fixed only in
+    `brace-expansion@5.0.8`, which is a **breaking API change** — 5.x replaced
+    the callable default export (`module.exports = fn`) with a named
+    `exports.expand` and sets `__esModule: true`. `minimatch@3.1.5`
+    (`require('brace-expansion')(…)`) and `minimatch@9.0.9`
+    (`__importDefault(…).default(…)`) both break under an override, so forcing
+    5.0.8 is not viable. Clearing it needs upstream: `@jest/reporters` (latest
+    30.4.1) pins `glob: ^10.5.0` → `minimatch ^9` → `brace-expansion 2.x`, and
+    `babel-plugin-istanbul` → `test-exclude@6` → `minimatch@3`. `glob@11` /
+    `test-exclude@8` use `minimatch ^10.2.x` → `brace-expansion ^5`, so the fix
+    arrives when jest moves. **Production deps are clean** (0 vulnerabilities)
+    after `gaxios` 7.1.3 → 7.3.0, which dropped `rimraf` and with it the whole
+    `glob`/`minimatch`/`brace-expansion` chain. The CI Security Audit job now
+    gates on `npm audit --omit=dev --audit-level=high` and runs the full-tree
+    audit `continue-on-error`. Re-check when jest ships a glob@11 bump; if the
+    full-tree audit goes quiet, consider restoring the single blocking gate.
+
 ## Pickup point
 
-Open items: 12 (dual packaging — unblocks Mistral 2.x), 13–14 (Anthropic
-pre-existing issues; both need paid e2e verification before/with the fix).
+Open items: 12 (dual packaging — unblocks Mistral 2.x), 14 (Anthropic
+pre-existing reasoning-path parsing; needs paid e2e verification), 15
+(dev-only audit advisory, blocked on jest upstream).
 
 **v0.11.0 release state**: items 2, 3 (as deferred+fixes), 4, 5, 8, 9, 10, 11
 shipped via PR #92, merged to main (`800a9c8`), CI green, tagged `v0.11.0`,

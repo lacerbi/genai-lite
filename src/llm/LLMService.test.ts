@@ -1116,6 +1116,70 @@ describe('LLMService', () => {
       expect(successResponse.choices[0].parseError).toBeUndefined();
     });
 
+    describe('Anthropic capability preflight', () => {
+      const anthropicRequest = (modelId: string): LLMChatRequest => ({
+        providerId: 'anthropic',
+        modelId,
+        messages: [{ role: 'user', content: 'Extract: "Carol is 35."' }],
+        settings: {
+          structuredOutput: {
+            name: 'person_info',
+            schema: {
+              type: 'object',
+              properties: { name: { type: 'string' }, age: { type: 'integer' } },
+              required: ['name', 'age']
+            }
+          }
+        }
+      });
+
+      it('rejects a structured-output request for Claude 4 without calling the adapter', async () => {
+        mockApiKeyProvider.mockResolvedValue('sk-ant-test-key-12345678901234567890');
+        const spy = jest.spyOn(AnthropicClientAdapter.prototype, 'sendMessage');
+
+        const response = await service.sendMessage(anthropicRequest('claude-sonnet-4-20250514'));
+
+        expect(response.object).toBe('error');
+        const failure = response as LLMFailureResponse;
+        expect(failure.error.code).toBe('structured_output_not_supported');
+        expect(failure.error.type).toBe('validation_error');
+        expect(failure.error.message).toContain('Claude 4.5 or later');
+        // The whole point of the preflight: no API request is spent.
+        expect(spy).not.toHaveBeenCalled();
+
+        spy.mockRestore();
+      });
+
+      it('lets a structured-output request for Claude 4.5 reach the adapter', async () => {
+        mockApiKeyProvider.mockResolvedValue('sk-ant-test-key-12345678901234567890');
+        const spy = jest
+          .spyOn(AnthropicClientAdapter.prototype, 'sendMessage')
+          .mockResolvedValue({
+            id: 'msg_ok',
+            provider: 'anthropic',
+            model: 'claude-sonnet-4-5-20250929',
+            created: 0,
+            choices: [{
+              message: { role: 'assistant', content: '{"name":"Carol","age":35}' },
+              finish_reason: 'stop',
+              index: 0
+            }],
+            object: 'chat.completion'
+          } as LLMResponse);
+
+        const response = await service.sendMessage(anthropicRequest('claude-sonnet-4-5-20250929'));
+
+        expect(response.object).toBe('chat.completion');
+        expect(spy).toHaveBeenCalledTimes(1);
+        expect((response as LLMResponse).choices[0].parsedContent).toEqual({
+          name: 'Carol',
+          age: 35
+        });
+
+        spy.mockRestore();
+      });
+    });
+
     it('should not auto-parse when structuredOutput is disabled', async () => {
       const request: LLMChatRequest = {
         providerId: 'mock',

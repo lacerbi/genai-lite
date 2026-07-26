@@ -95,29 +95,20 @@ export class AnthropicClientAdapter implements ILLMClientAdapter {
         useStructuredOutput,
       });
 
-      // Make the API call - use beta endpoint for structured output
-      let completion;
-      if (useStructuredOutput) {
-        // For structured output, we need to use the beta messages endpoint with proper headers
-        completion = await anthropic.messages.create(messageParams, {
-          headers: {
-            'anthropic-beta': 'structured-outputs-2025-11-13',
-          },
-          ...requestTransportOptions,
-        } as any);
-      } else {
-        completion =
-          Object.keys(requestTransportOptions).length > 0
-            ? await anthropic.messages.create(messageParams, requestTransportOptions)
-            : await anthropic.messages.create(messageParams);
-      }
+      // Structured and unstructured requests take the same endpoint - structured
+      // output is GA, so there is no beta header or beta endpoint involved.
+      const completion =
+        Object.keys(requestTransportOptions).length > 0
+          ? await anthropic.messages.create(messageParams, requestTransportOptions)
+          : await anthropic.messages.create(messageParams);
 
       this.logger.info(
         `Anthropic API call successful, response ID: ${(completion as any).id}`
       );
 
-      // Convert to standardized response format
-      // Cast to any to handle beta response type differences
+      // Convert to standardized response format. `create` is typed against the
+      // streaming/non-streaming param union; we never set `stream`, so this is
+      // always a Message.
       return this.createSuccessResponse(completion as any, request);
     } catch (error) {
       this.logger.error("Anthropic API error:", error);
@@ -149,18 +140,13 @@ export class AnthropicClientAdapter implements ILLMClientAdapter {
         useStructuredOutput,
       } = this.prepareMessageRequest(request, apiKey, options);
 
-      this.logger.info(`Making Anthropic streaming API call for model: ${request.modelId}`);
-      const streamOptions = useStructuredOutput
-        ? {
-            headers: {
-              "anthropic-beta": "structured-outputs-2025-11-13",
-            },
-            ...requestTransportOptions,
-          }
-        : requestTransportOptions;
+      this.logger.info(`Making Anthropic streaming API call for model: ${request.modelId}`, {
+        useStructuredOutput,
+      });
+      // No beta header for structured output - output_config.format is GA.
       const stream =
-        Object.keys(streamOptions).length > 0
-          ? anthropic.messages.stream(messageParams as any, streamOptions as any)
+        Object.keys(requestTransportOptions).length > 0
+          ? anthropic.messages.stream(messageParams as any, requestTransportOptions as any)
           : anthropic.messages.stream(messageParams as any);
 
       for await (const event of stream as AsyncIterable<Anthropic.Messages.MessageStreamEvent>) {
@@ -338,20 +324,23 @@ export class AnthropicClientAdapter implements ILLMClientAdapter {
       }),
     };
 
-    // Handle structured output configuration for Anthropic
-    // Note: Structured output requires the beta API endpoint
+    // Handle structured output configuration for Anthropic.
+    // Structured outputs are generally available: the stable request field is
+    // output_config.format, with no beta header. The format object carries only
+    // `type` and `schema` - the generic StructuredOutputSettings `name` and
+    // `strict` fields exist for other providers and are not serialized here.
     if (useStructuredOutput) {
       const so = request.settings.structuredOutput!;
       // Anthropic requires additionalProperties: false on all object schemas
-      const processedSchema = so.strict !== false
-        ? this.addAdditionalPropertiesFalse(so.schema)
-        : so.schema;
-      // Anthropic's format: output_format.schema is the schema directly
-      (messageParams as any).output_format = {
-        type: 'json_schema',
-        name: so.name,
-        schema: processedSchema,
-        strict: so.strict !== false,
+      const processedSchema: Record<string, unknown> =
+        so.strict !== false
+          ? this.addAdditionalPropertiesFalse(so.schema)
+          : { ...so.schema };
+      messageParams.output_config = {
+        format: {
+          type: "json_schema",
+          schema: processedSchema,
+        },
       };
     }
 

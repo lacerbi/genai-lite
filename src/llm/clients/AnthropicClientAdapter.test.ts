@@ -2,7 +2,12 @@ import Anthropic from '@anthropic-ai/sdk';
 import { AnthropicClientAdapter } from './AnthropicClientAdapter';
 import { ADAPTER_ERROR_CODES } from './types';
 import type { InternalLLMChatRequest } from './types';
-import type { LLMResponse, LLMFailureResponse } from '../types';
+import type {
+  LLMResponse,
+  LLMFailureResponse,
+  StructuredOutputSchema,
+  StructuredOutputSettings
+} from '../types';
 
 // Mock the entire '@anthropic-ai/sdk' module
 jest.mock('@anthropic-ai/sdk');
@@ -524,6 +529,242 @@ describe('AnthropicClientAdapter', () => {
         expect(error.error.partialResponse?.id).toBe('msg_stream');
         expect(error.error.partialResponse?.choices[0].message.content).toBe('Partial');
       }
+    });
+  });
+
+  describe('structured output', () => {
+    // Anthropic's structured outputs are GA: the request carries
+    // output_config.format, with no `anthropic-beta` header, no schema `name`,
+    // and no format-level `strict`. These tests assert the outbound request so a
+    // regression to the transitional beta shape fails the suite.
+    const personSchema: StructuredOutputSchema = {
+      type: 'object',
+      properties: {
+        name: { type: 'string' },
+        age: { type: 'integer' }
+      },
+      required: ['name', 'age']
+    };
+
+    const withStructuredOutput = (
+      structuredOutput: StructuredOutputSettings
+    ): InternalLLMChatRequest => ({
+      ...basicRequest,
+      modelId: 'claude-sonnet-4-5-20250929',
+      settings: { ...basicRequest.settings, structuredOutput }
+    });
+
+    const jsonResponse = (text: string) => ({
+      id: 'msg_structured',
+      type: 'message',
+      role: 'assistant',
+      model: 'claude-sonnet-4-5-20250929',
+      content: [{ type: 'text', text }],
+      stop_reason: 'end_turn',
+      stop_sequence: null,
+      usage: { input_tokens: 10, output_tokens: 10 }
+    });
+
+    it('should send output_config.format on non-streaming requests', async () => {
+      mockCreate.mockResolvedValueOnce(jsonResponse('{"name":"Carol","age":35}'));
+
+      await adapter.sendMessage(
+        withStructuredOutput({ name: 'person_info', schema: personSchema, strict: true }),
+        'test-api-key'
+      );
+
+      const [params] = mockCreate.mock.calls[0];
+      expect(params.output_config).toEqual({
+        format: {
+          type: 'json_schema',
+          schema: {
+            type: 'object',
+            properties: {
+              name: { type: 'string' },
+              age: { type: 'integer' }
+            },
+            required: ['name', 'age'],
+            additionalProperties: false
+          }
+        }
+      });
+      // The GA format object carries only `type` and `schema`.
+      expect(Object.keys(params.output_config.format).sort()).toEqual(['schema', 'type']);
+      expect(params.output_config.format).not.toHaveProperty('name');
+      expect(params.output_config.format).not.toHaveProperty('strict');
+    });
+
+    it('should not send the legacy output_format field or beta header', async () => {
+      mockCreate.mockResolvedValueOnce(jsonResponse('{"name":"Carol","age":35}'));
+
+      await adapter.sendMessage(
+        withStructuredOutput({ name: 'person_info', schema: personSchema }),
+        'test-api-key'
+      );
+
+      const call = mockCreate.mock.calls[0];
+      expect(call[0]).not.toHaveProperty('output_format');
+      // With no transport options there is no request-options argument at all,
+      // so there is nowhere for a beta header to hide.
+      expect(call).toHaveLength(1);
+      expect(JSON.stringify(call)).not.toContain('anthropic-beta');
+      expect(JSON.stringify(call)).not.toContain('structured-outputs-2025-11-13');
+    });
+
+    it('should send output_config.format on streaming requests without a beta header', async () => {
+      mockStream.mockReturnValueOnce(streamFrom([
+        {
+          type: 'message_start',
+          message: {
+            id: 'msg_structured_stream',
+            type: 'message',
+            role: 'assistant',
+            model: 'claude-sonnet-4-5-20250929',
+            content: [],
+            stop_reason: null,
+            stop_sequence: null,
+            usage: { input_tokens: 5, output_tokens: 0 }
+          }
+        },
+        { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
+        { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: '{"name":"Carol","age":35}' } },
+        { type: 'message_delta', delta: { stop_reason: 'end_turn', stop_sequence: null }, usage: { input_tokens: 5, output_tokens: 9 } },
+        { type: 'message_stop' }
+      ]));
+
+      const request = withStructuredOutput({ name: 'person_info', schema: personSchema });
+      for await (const _event of adapter.streamMessage(request, 'test-api-key')) {
+        // drain
+      }
+
+      const call = mockStream.mock.calls[0];
+      expect(call[0].output_config).toEqual({
+        format: {
+          type: 'json_schema',
+          schema: expect.objectContaining({ type: 'object', additionalProperties: false })
+        }
+      });
+      expect(call[0]).not.toHaveProperty('output_format');
+      expect(call).toHaveLength(1);
+      expect(JSON.stringify(call)).not.toContain('anthropic-beta');
+    });
+
+    it('should send neither field when structuredOutput.enabled is false', async () => {
+      mockCreate.mockResolvedValueOnce(jsonResponse('plain text'));
+
+      await adapter.sendMessage(
+        withStructuredOutput({ enabled: false, name: 'person_info', schema: personSchema }),
+        'test-api-key'
+      );
+
+      const [params] = mockCreate.mock.calls[0];
+      expect(params).not.toHaveProperty('output_config');
+      expect(params).not.toHaveProperty('output_format');
+    });
+
+    it('should forward abort signal and timeout on structured requests', async () => {
+      mockCreate.mockResolvedValueOnce(jsonResponse('{"name":"Carol","age":35}'));
+      const controller = new AbortController();
+
+      await adapter.sendMessage(
+        withStructuredOutput({ name: 'person_info', schema: personSchema }),
+        'test-api-key',
+        { signal: controller.signal, timeoutMs: 7500 }
+      );
+
+      const call = mockCreate.mock.calls[0];
+      expect(call[0].output_config.format.type).toBe('json_schema');
+      // Exact equality: the options bag carries transport options only - no headers.
+      expect(call[1]).toEqual({ signal: controller.signal, timeout: 7500 });
+    });
+
+    describe('schema preparation', () => {
+      it('should add additionalProperties: false to nested objects and array items', async () => {
+        mockCreate.mockResolvedValueOnce(jsonResponse('{}'));
+
+        const nestedSchema: StructuredOutputSchema = {
+          type: 'object',
+          properties: {
+            person: {
+              type: 'object',
+              properties: { name: { type: 'string' } }
+            },
+            tags: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: { label: { type: 'string' } }
+              }
+            }
+          }
+        };
+
+        await adapter.sendMessage(
+          withStructuredOutput({ name: 'nested', schema: nestedSchema }),
+          'test-api-key'
+        );
+
+        const schema = mockCreate.mock.calls[0][0].output_config.format.schema;
+        expect(schema.additionalProperties).toBe(false);
+        expect(schema.properties.person.additionalProperties).toBe(false);
+        expect(schema.properties.tags.items.additionalProperties).toBe(false);
+        // Arrays themselves are not objects, so they get no additionalProperties.
+        expect(schema.properties.tags).not.toHaveProperty('additionalProperties');
+      });
+
+      it('should not mutate the caller-supplied schema', async () => {
+        mockCreate.mockResolvedValueOnce(jsonResponse('{}'));
+        const settings: StructuredOutputSettings = {
+          name: 'person_info',
+          schema: { type: 'object', properties: { name: { type: 'string' } } }
+        };
+
+        await adapter.sendMessage(withStructuredOutput(settings), 'test-api-key');
+
+        expect(settings.schema).not.toHaveProperty('additionalProperties');
+      });
+
+      it('should send the schema untouched when strict is false', async () => {
+        mockCreate.mockResolvedValueOnce(jsonResponse('{}'));
+
+        await adapter.sendMessage(
+          withStructuredOutput({ name: 'person_info', schema: personSchema, strict: false }),
+          'test-api-key'
+        );
+
+        const schema = mockCreate.mock.calls[0][0].output_config.format.schema;
+        expect(schema).toEqual(personSchema);
+        expect(schema).not.toHaveProperty('additionalProperties');
+      });
+
+      it('documents that $defs and anyOf branches are NOT traversed', async () => {
+        // Known limitation, tracked separately: the schema preparer walks
+        // `properties` and `items` only. `StructuredOutputSchema` cannot express
+        // these keywords, so they are only reachable via untyped schemas.
+        mockCreate.mockResolvedValueOnce(jsonResponse('{}'));
+
+        const compositeSchema = {
+          type: 'object',
+          properties: {
+            choice: {
+              anyOf: [{ type: 'object', properties: { a: { type: 'string' } } }]
+            }
+          },
+          $defs: {
+            Address: { type: 'object', properties: { city: { type: 'string' } } }
+          }
+        } as unknown as StructuredOutputSchema;
+
+        await adapter.sendMessage(
+          withStructuredOutput({ name: 'composite', schema: compositeSchema }),
+          'test-api-key'
+        );
+
+        const schema = mockCreate.mock.calls[0][0].output_config.format.schema;
+        expect(schema.additionalProperties).toBe(false);
+        expect(schema.$defs.Address).not.toHaveProperty('additionalProperties');
+        expect(schema.properties.choice.anyOf[0]).not.toHaveProperty('additionalProperties');
+      });
     });
   });
 

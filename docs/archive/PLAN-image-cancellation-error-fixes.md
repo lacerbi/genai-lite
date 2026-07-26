@@ -253,7 +253,7 @@ reflect reality.
 - [x] `CLAUDE.md`: genai-electron section — default URL (L347), polling description
   gains DELETE/cancel-on-timeout (L339-348), reliability section (L357-362)
   gains the image analog.
-- [x] `docs/ISSUE-cancelled-generation-status.md`: mark item 3 resolved (v0.10.0).
+- [x] `docs/archive/ISSUE-cancelled-generation-status.md`: mark item 3 resolved (v0.10.0).
 - [x] `ISSUE-next-steps.md`: mark items 1, 6, 7 resolved; add the deferred
   404-on-poll remap as a new entry; note the ImageService envelope fix and URL
   default change shipped with v0.10.0.
