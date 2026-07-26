@@ -290,12 +290,20 @@ Anthropic account and run
 pending and can share one top-up: item 16 (structured output) and the item 14
 reasoning run (`npm run test:e2e:reasoning`).
 
-Unreleased on main since v0.13.1: the item 14 / 17 fixes plus the shared schema
-walker (`src/shared/adapters/schemaUtils.ts`). Two of these change observable
-behavior and want a version bump when next released — the `refusal` →
-`content_filter` finish-reason mapping, and `$defs`/`anyOf` branches now
-receiving `additionalProperties: false` on **both** the Anthropic and OpenAI
-paths.
+**v0.14.0 is staged but not released.** `package.json` is bumped and the commit
+is on main; the tag and `npm publish` are still pending. Contents: the item 14 /
+17 fixes plus the shared schema walker (`src/shared/adapters/schemaUtils.ts`).
+
+Minor rather than patch because two changes are observable to consumers:
+
+- `refusal` → `content_filter` in the Anthropic finish-reason mapping (was
+  silently `"other"`).
+- `$defs` / `anyOf` / `oneOf` / `allOf` branches now receive
+  `additionalProperties: false` — on **both** the Anthropic and OpenAI paths, so
+  this reaches OpenAI users who never touched Anthropic.
+
+Neither is a bug fix from a caller's point of view, which is why 0.13.2 would
+have been the wrong signal.
 
 Dependabot: 6 open PRs (#93, #95, #98, #100, #101, #102). **#101**
 (`@anthropic-ai/sdk` 0.110.0 → 0.115.0) was **verified safe on 2026-07-26** —
