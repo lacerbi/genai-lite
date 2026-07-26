@@ -1,7 +1,7 @@
 # ISSUE: Post-v0.9.2 TODO — deferred follow-ups
 
 Created: 2026-07-03
-Updated: 2026-07-03 (v0.11.0 work: items 2, 5 resolved)
+Updated: 2026-07-26 (v0.13.1 shipped: item 13 resolved; items 16, 17 filed)
 Status: OPEN
 Package: genai-lite
 
@@ -158,8 +158,11 @@ Note: all "latest" package versions below were checked via `npm view` on
     fail if it regresses; the E2E test no longer converts an incompatibility
     into a pass. See `docs/archive/ISSUE-anthropic-structured-output-compatibility.md`.
     The schema walker's `$defs`/`anyOf` gap was split out to
-    `ISSUE-structured-output-schema-traversal.md`. The paid e2e check
-    (`npm run test:e2e -- structured-output.e2e.test.ts`) is still outstanding.
+    `ISSUE-structured-output-schema-traversal.md`. **Shipped**: merged as
+    PR #103 (`438db55`), tagged `v0.13.1`, published to npm on 2026-07-26
+    (`npm view genai-lite version` → 0.13.1; the published `dist/` was verified
+    to contain `output_config` and zero occurrences of `output_format` /
+    `anthropic-beta`). The live-API confirmation is **still open** — see item 16.
 
 14. **Anthropic reasoning-path response parsing** (pre-existing, found in the
     item 4 review). `createSuccessResponse` reads `completion.thinking_content`
@@ -189,11 +192,78 @@ Note: all "latest" package versions below were checked via `npm view` on
     audit `continue-on-error`. Re-check when jest ships a glob@11 bump; if the
     full-tree audit goes quiet, consider restoring the single blocking gate.
 
+16. **Confirm Anthropic GA structured output against the live API** (2026-07-26,
+    after v0.13.1). The `output_config.format` request shape has **never been
+    exercised against the real Anthropic API**. It rests on the live docs
+    ("generally available … for Claude 4.5 and later models") and on
+    `@anthropic-ai/sdk` 0.110.0's own types (`MessageCreateParams.output_config`,
+    `OutputConfig.format`, `JSONOutputFormat { type, schema }`) — strong evidence,
+    but not a 200.
+
+    What the 2026-07-26 run did establish, with `E2E_ANTHROPIC_API_KEY` set:
+
+    - ✅ **Capability preflight works live.** `should reject structured output
+      for a pre-4.5 model before calling the API` passed in **2 ms** — the
+      timing is the proof that no network round trip happened, so it costs
+      nothing and needs no credits.
+    - ❌ **The GA request itself is unconfirmed.** It failed with
+      `400 invalid_request_error: "Your credit balance is too low to access the
+      Anthropic API."` The credit check gates *ahead of* request-body
+      validation, so the API almost certainly never inspected the body. Do
+      **not** read "the error wasn't about `output_config`" as a pass — the run
+      is inconclusive, not green.
+
+    To close: add credits to the Anthropic account, then
+
+    ```bash
+    npm run test:e2e -- structured-output.e2e.test.ts   # needs E2E_ANTHROPIC_API_KEY
+    ```
+
+    One cheap Sonnet call. If it passes, tick the last box in
+    `docs/archive/ISSUE-anthropic-structured-output-compatibility.md` and close
+    this item. If it fails on the request shape, it is a 0.13.2 — and consumers
+    are no worse off than on 0.13.0, whose beta shape is itself deprecated and
+    on a transition clock.
+
+17. **E2E suite reports vacuous passes when providers are unavailable**
+    (found 2026-07-26 during the item 13 e2e run). In
+    `e2e-tests/structured-output.e2e.test.ts`, `runIfAvailable` does
+    `if (!available) return;` and `runWithAnyProvider` logs "Skipping test - no
+    provider available" and returns — both with **no assertions**, so Jest
+    counts the empty function as **passed**. With no llama-server and no keys,
+    two llama.cpp tests and two auto-parse tests report `√` while asserting
+    nothing; only the key-gated `describe.skip` blocks report as `skipped`.
+
+    This is the same silent-skip anti-pattern that v0.13.1 removed from the
+    Anthropic block, and it is what let the `output_format` drift hide. It
+    inflates the green count and would mask a real regression. Fix by gating on
+    availability with a real skip (`it.skip` / `describe.skip`, or an
+    `describe.each`-style guard resolved in `beforeAll`) so the pass count only
+    ever reflects assertions that actually ran. Audit the other `e2e-tests/`
+    files for the same helper shape while in there.
+
 ## Pickup point
 
 Open items: 12 (dual packaging — unblocks Mistral 2.x), 14 (Anthropic
 pre-existing reasoning-path parsing; needs paid e2e verification), 15
-(dev-only audit advisory, blocked on jest upstream).
+(dev-only audit advisory, blocked on jest upstream), 16 (confirm Anthropic GA
+structured output against the live API), 17 (e2e vacuous passes).
+
+**Resume here (2026-07-26, after v0.13.1 was published):** the next decision is
+item 16 — add credits to the Anthropic account and run
+`npm run test:e2e -- structured-output.e2e.test.ts` to confirm the shipped
+`output_config.format` request shape against the real API. That is the only
+thing gating a clean close of item 13; everything else in 0.13.1 is merged,
+tagged, published, and verified in the published tarball. Item 17 is a small
+independent test-hygiene fix that needs no credits and can be done first.
+
+Also open, unrelated to this work: 6 Dependabot PRs (#93, #95, #98, #100, #101,
+#102). Two are worth a look before the next release — **#101** bumps
+`@anthropic-ai/sdk` 0.110.0 → 0.115.0, and the GA structured-output types were
+verified against 0.110.0, so re-check `MessageCreateParams.output_config` and
+`JSONOutputFormat` survive that jump; **#95** is the Mistral 2.x ESM-only bump
+that item 12 blocks. The stale `dependabot/.../google/genai-2.11.0` branch is
+superseded — v0.13.1 already took `@google/genai` to 2.13.0.
 
 **v0.11.0 release state**: items 2, 3 (as deferred+fixes), 4, 5, 8, 9, 10, 11
 shipped via PR #92, merged to main (`800a9c8`), CI green, tagged `v0.11.0`,
@@ -202,8 +272,10 @@ Adapter transport behavior (network / timeout / abort classification) was
 live-verified without API keys against real SDK wire behavior for Gemini,
 Mistral, and Anthropic (refused port, hanging server, mid-flight abort).
 **Paid e2e wire smoke still pending** — owner will run a full
-`npm run test:e2e` (all providers) post-release; items 13–14 depend on that
-run too.
+`npm run test:e2e` (all providers) post-release; items 14 and 16 depend on that
+run too. (Partially attempted 2026-07-26 with an Anthropic key only; blocked by
+a zero credit balance — see item 16 for exactly what it did and did not
+establish.)
 
 Sister-repo follow-up: DONE (2026-07-03, genai-electron commit `36952da`) —
 pairing notes updated for 0.11 (per-request image timeouts; genai-electron is

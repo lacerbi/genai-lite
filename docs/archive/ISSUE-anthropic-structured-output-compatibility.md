@@ -53,9 +53,21 @@ and with it the whole `glob`/`minimatch`/`brace-expansion` chain, leaving
 see `ISSUE-next-steps.md` item 15. The CI Security Audit job now blocks on
 production dependencies and reports the full tree non-blocking.
 
-Outstanding: the paid Anthropic E2E smoke test
-(`npm run test:e2e -- structured-output.e2e.test.ts` with `E2E_ANTHROPIC_API_KEY`
-deliberately set) and publication of `genai-lite@0.13.1`.
+Shipped: merged as PR #103 (merge commit `438db55`), all 11 CI checks green
+(Node 20/22/24 × ubuntu/macos/windows, Package Validation, Security Audit),
+tagged `v0.13.1`, and published to npm on 2026-07-26. The published tarball was
+verified against the registry: `dist/llm/clients/AnthropicClientAdapter.js`
+contains `messageParams.output_config` and zero occurrences of `output_format`,
+`anthropic-beta`, or `structured-outputs-2025-11-13`, and the Claude 4.5
+capability notes are present in `dist/llm/config.js`.
+
+Outstanding: the paid Anthropic E2E smoke test. Attempted 2026-07-26 with
+`E2E_ANTHROPIC_API_KEY` set — the capability-preflight test passed live in 2 ms
+(no network round trip), but the GA request returned
+`400 invalid_request_error: "Your credit balance is too low"`. Because the credit
+check gates ahead of request-body validation, the API almost certainly never
+inspected the body, so **the GA request shape remains unconfirmed against the
+live API**. Tracked as item 16 in `ISSUE-next-steps.md`.
 
 ## Summary
 
@@ -226,5 +238,6 @@ The issue is complete only when the stable request contract, capability behavior
 - [x] Full tests, build, audit review, and package dry-run pass. (Audit
       reviewed: one pre-existing high in the transitive `brace-expansion`
       dependency, not introduced or touched by this patch — see Resolution.)
-- [ ] `genai-lite@0.13.1` is published and Palimpsest can refresh to it without
-      provider-specific code changes.
+- [x] `genai-lite@0.13.1` is published and Palimpsest can refresh to it without
+      provider-specific code changes. (Published 2026-07-26; `latest` → 0.13.1.
+      Palimpsest-side refresh not yet done — see "Downstream pickup" below.)
