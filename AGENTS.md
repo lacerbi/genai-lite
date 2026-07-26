@@ -33,6 +33,13 @@ node -e "const lib = require('./dist'); console.log('Exports:', Object.keys(lib)
 
 **Note**: The docs folder is portable and self-contained - designed to be copied into other projects for AI-assisted development.
 
+**Developer Documentation**: `docs/` holds internal working notes, not user-facing docs:
+- `docs/dev/` - contributor guides (e.g. [adding-models-and-providers.md](docs/dev/adding-models-and-providers.md))
+- `docs/devlog/` - dated development logs
+- `docs/archive/` - **resolved** issue and plan files (`ISSUE-*.md`, `PLAN-*.md`)
+
+**Issue file convention**: open issues and plans live at the repository root as `ISSUE-<slug>.md` / `PLAN-<slug>.md`. When one is finished, add a `## Resolution` section, change `Status:` to `RESOLVED`/`COMPLETE` with the date and release version, tick its acceptance criteria, then move the file to `docs/archive/` and update any references to its new path. `ISSUE-next-steps.md` stays at the root permanently as the running tracker of deferred work.
+
 ## Architecture Overview
 
 genai-lite is a lightweight, standalone Node.js/TypeScript library providing a unified interface for interacting with various Generative AI APIs, supporting both **Large Language Models (LLMs)** and **AI Image Generation**. The library has been successfully extracted from an Electron application (Athanor) and is now fully portable across different JavaScript environments.
@@ -270,7 +277,7 @@ The `examples/chat-demo` application provides a quick way to test library change
   - Audit issues - may need to update dependencies
 - **Before pushing changes**, run locally:
   - `npm test` - ensure all tests pass
-  - `npm audit --audit-level=high` - check for vulnerabilities
+  - `npm audit --omit=dev --audit-level=high` - check for vulnerabilities. This is the blocking CI gate: production deps only, since those are the only ones consumers inherit. CI also runs the full-tree audit non-blocking, because dev-only advisories are often unfixable from here (they sit behind pinned toolchain ranges — e.g. jest pins `glob@10`, which pulls a `brace-expansion` flagged by GHSA-mh99-v99m-4gvg)
   - `npm run build && npm pack --dry-run` - validate package
 - **Dependency updates**: Dependabot will create PRs weekly
 - **Note on versioning**: Production deps use `^`, dev deps use `>=`
@@ -424,7 +431,7 @@ All adapters should use `adapterErrorUtils.ts` patterns:
 
 **Running CI locally before pushing:**
 1. Run tests: `npm test`
-2. Check for vulnerabilities: `npm audit --audit-level=high`
+2. Check for vulnerabilities: `npm audit --omit=dev --audit-level=high` (the blocking gate; add a full-tree `npm audit --audit-level=high` for information)
 3. Validate package: `npm run build && npm pack --dry-run`
 
 **Publishing updates:**

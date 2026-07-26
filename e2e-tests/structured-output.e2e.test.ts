@@ -7,7 +7,7 @@
  * Environment variables:
  * - E2E_OPENAI_API_KEY: OpenAI API key
  * - E2E_GEMINI_API_KEY: Google Gemini API key
- * - E2E_ANTHROPIC_API_KEY: Anthropic API key
+ * - E2E_ANTHROPIC_API_KEY: Anthropic API key (Claude 4.5+ for structured output)
  * - E2E_MISTRAL_API_KEY: Mistral API key
  * - E2E_OPENROUTER_API_KEY: OpenRouter API key
  * - LLAMACPP_API_BASE_URL: llama-server URL (default: http://localhost:8080)
@@ -288,14 +288,17 @@ describe('Structured Output E2E Tests', () => {
   });
 
   // ============================================
-  // Anthropic (structured output is in beta - may not be available)
-  // Note: Requires Claude Sonnet 4.5+ and beta access
+  // Anthropic
+  // Structured outputs are generally available for Claude 4.5 and later models.
+  // The request carries `output_config.format` with no beta header. This test
+  // must fail — not skip — if the provider rejects that shape; a silent skip is
+  // exactly how the earlier `output_format` drift went unnoticed.
   // ============================================
   (ANTHROPIC_API_KEY ? describe : describe.skip)('Anthropic', () => {
-    it('should return structured JSON with claude-sonnet-4-5-latest', async () => {
+    it('should return structured JSON with claude-sonnet-4-5-20250929', async () => {
       const response = await llmService.sendMessage({
         providerId: 'anthropic',
-        modelId: 'claude-sonnet-4-5-latest',
+        modelId: 'claude-sonnet-4-5-20250929',
         messages: [{
           role: 'user',
           content: 'Extract person info from: "Carol is 35." Return JSON only.'
@@ -308,21 +311,32 @@ describe('Structured Output E2E Tests', () => {
 
       if (response.object === 'error') {
         const error = (response as LLMFailureResponse).error;
-        // Known issue: Anthropic structured output is in beta and may not be available
-        if (error.message?.includes('output_format') || error.message?.includes('not yet supported')) {
-          console.log('Anthropic structured output beta limitation:', error.message);
-          return; // Skip this test - beta feature not available
-        }
         throw new Error(`Anthropic error: ${error.message}`);
       }
 
       expect(response.object).toBe('chat.completion');
       const result = response as LLMResponse;
       expect(result.choices[0].parsedContent).toBeDefined();
+      expect(result.choices[0].parseError).toBeUndefined();
 
       const parsed = result.choices[0].parsedContent as { name: string; age: number };
       expect(parsed.name).toContain('Carol');
       expect(parsed.age).toBe(35);
+    }, API_TIMEOUT);
+
+    it('should reject structured output for a pre-4.5 model before calling the API', async () => {
+      const response = await llmService.sendMessage({
+        providerId: 'anthropic',
+        modelId: 'claude-sonnet-4-20250514',
+        messages: [{ role: 'user', content: 'Extract person info from: "Carol is 35."' }],
+        settings: {
+          structuredOutput: personSchema,
+          maxTokens: 100
+        }
+      });
+
+      expect(response.object).toBe('error');
+      expect((response as LLMFailureResponse).error.code).toBe('structured_output_not_supported');
     }, API_TIMEOUT);
   });
 

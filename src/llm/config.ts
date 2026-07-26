@@ -919,6 +919,10 @@ export const SUPPORTED_MODELS: ModelInfo[] = [
       outputType: 'summary',
       requiresStreamingAbove: 21333,
     },
+    structuredOutput: {
+      supported: true,
+      strictMode: true,
+    },
   },
   {
     id: "claude-sonnet-4-5-20250929",
@@ -942,6 +946,10 @@ export const SUPPORTED_MODELS: ModelInfo[] = [
       defaultBudget: 10000,
       outputType: 'summary',
       requiresStreamingAbove: 21333,
+    },
+    structuredOutput: {
+      supported: true,
+      strictMode: true,
     },
   },
   {
@@ -967,8 +975,14 @@ export const SUPPORTED_MODELS: ModelInfo[] = [
       outputType: 'summary',
       requiresStreamingAbove: 21333,
     },
+    structuredOutput: {
+      supported: true,
+      strictMode: true,
+    },
   },
   // Anthropic Models - Claude 4 Series
+  // Note: Anthropic's structured outputs are generally available for Claude 4.5
+  // and later models only, so the entries below declare it unsupported.
   {
     id: "claude-sonnet-4-20250514",
     name: "Claude Sonnet 4",
@@ -991,6 +1005,10 @@ export const SUPPORTED_MODELS: ModelInfo[] = [
       defaultBudget: 10000,
       outputType: 'summary',
       requiresStreamingAbove: 21333,
+    },
+    structuredOutput: {
+      supported: false,
+      notes: "Anthropic structured outputs require Claude 4.5 or later",
     },
   },
   {
@@ -1016,6 +1034,10 @@ export const SUPPORTED_MODELS: ModelInfo[] = [
       outputType: 'summary',
       requiresStreamingAbove: 21333,
     },
+    structuredOutput: {
+      supported: false,
+      notes: "Anthropic structured outputs require Claude 4.5 or later",
+    },
   },
   {
     id: "claude-3-7-sonnet-20250219",
@@ -1040,6 +1062,10 @@ export const SUPPORTED_MODELS: ModelInfo[] = [
       outputType: 'full',
       requiresStreamingAbove: 21333,
     },
+    structuredOutput: {
+      supported: false,
+      notes: "Anthropic structured outputs require Claude 4.5 or later",
+    },
   },
   {
     id: "claude-3-5-sonnet-20241022",
@@ -1054,6 +1080,10 @@ export const SUPPORTED_MODELS: ModelInfo[] = [
     supportsPromptCache: true,
     cacheWritesPrice: 3.75,
     cacheReadsPrice: 0.3,
+    structuredOutput: {
+      supported: false,
+      notes: "Anthropic structured outputs require Claude 4.5 or later",
+    },
   },
   {
     id: "claude-3-5-haiku-20241022",
@@ -1068,6 +1098,10 @@ export const SUPPORTED_MODELS: ModelInfo[] = [
     supportsPromptCache: true,
     cacheWritesPrice: 1.0,
     cacheReadsPrice: 0.08,
+    structuredOutput: {
+      supported: false,
+      notes: "Anthropic structured outputs require Claude 4.5 or later",
+    },
   },
 
   // Google Gemini Models - Gemini 3 Series (Preview)
