@@ -90,6 +90,21 @@ export class SettingsManager {
           : (undefined as any),
     };
 
+    if (providerId === "anthropic") {
+      const hasExplicitTemperature = requestSettings?.temperature !== undefined;
+      const hasExplicitTopP = requestSettings?.topP !== undefined;
+
+      // Anthropic models may reject requests containing both samplers. Preserve
+      // the caller-selected sampler; otherwise retain only the temperature
+      // default. Explicit conflicts are rejected earlier by RequestValidator,
+      // while this precedence keeps direct SettingsManager use transport-safe.
+      if (hasExplicitTopP && !hasExplicitTemperature) {
+        delete (mergedSettings as Partial<LLMSettings>).temperature;
+      } else {
+        delete (mergedSettings as Partial<LLMSettings>).topP;
+      }
+    }
+
     // Log the final settings for debugging
     this.logger.debug(`Merged settings for ${providerId}/${modelId}:`, {
       temperature: mergedSettings.temperature,

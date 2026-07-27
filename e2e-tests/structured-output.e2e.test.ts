@@ -275,10 +275,10 @@ describe('Structured Output E2E Tests', () => {
   // exactly how the earlier `output_format` drift went unnoticed.
   // ============================================
   (ANTHROPIC_API_KEY ? describe : describe.skip)('Anthropic', () => {
-    it('should return structured JSON with claude-sonnet-4-5-20250929', async () => {
+    it('should return structured JSON with claude-haiku-4-5-20251001', async () => {
       const response = await llmService.sendMessage({
         providerId: 'anthropic',
-        modelId: 'claude-sonnet-4-5-20250929',
+        modelId: 'claude-haiku-4-5-20251001',
         messages: [{
           role: 'user',
           content: 'Extract person info from: "Carol is 35." Return JSON only.'

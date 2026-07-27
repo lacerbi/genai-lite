@@ -98,6 +98,16 @@ export class RequestValidator {
     modelId: string
   ): LLMFailureResponse | null {
     const settingsValidationErrors = validateLLMSettings(settings);
+    if (
+      providerId === "anthropic" &&
+      settings.temperature !== undefined &&
+      settings.topP !== undefined
+    ) {
+      settingsValidationErrors.push(
+        "Anthropic requests cannot specify both temperature and topP; choose one sampler"
+      );
+    }
+
     if (settingsValidationErrors.length > 0) {
       return {
         provider: providerId as any,

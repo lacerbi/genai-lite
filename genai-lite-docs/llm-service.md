@@ -826,9 +826,8 @@ const response = await llmService.sendMessage({
   settings: {
     temperature: 0.7,           // Randomness (0.0-2.0, typically 0.0-1.0)
     maxTokens: 100,             // Maximum output tokens
-    topP: 0.9,                  // Nucleus sampling (0.0-1.0)
     stopSequences: ['\n\n'],    // Stop generation at these strings
-    // Provider-specific settings also available
+    // For Anthropic, set either temperature or topP, never both.
   }
 });
 ```
@@ -837,9 +836,9 @@ const response = await llmService.sendMessage({
 
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
-| `temperature` | number | 0.5 | Controls randomness (0=deterministic, 2=very random) |
+| `temperature` | number | 0.5 | Controls randomness (0=deterministic, 2=very random). Mutually exclusive with `topP` on Anthropic |
 | `maxTokens` | number | Model default | Maximum tokens to generate |
-| `topP` | number | 0.95 | Nucleus sampling threshold |
+| `topP` | number | 0.95 | Nucleus sampling threshold. Mutually exclusive with `temperature` on Anthropic |
 | `stopSequences` | string[] | `[]` | Stop generation at these sequences |
 | `topK` | number | - | Limit sampling to the K most likely tokens (integer ≥ 0; 0 disables). Anthropic, Gemini, llama.cpp, OpenRouter |
 | `minP` | number | - | Minimum probability relative to the top token (0.0-1.0; 0 disables). llama.cpp, OpenRouter |
@@ -853,6 +852,11 @@ const response = await llmService.sendMessage({
 | `llamacpp` | object | - | llama.cpp-only settings (`grammar`, `chatTemplateKwargs`); see [llama.cpp Integration](llamacpp-integration.md#advanced-features) |
 
 **Provider support:** Sampling parameters that the selected provider or model doesn't support are silently stripped before the request is sent (via the provider's `unsupportedParameters` list). For example, `topK` is dropped for OpenAI and Mistral, and `seed` is dropped for Anthropic and for OpenAI reasoning models. See [Providers & Models](providers-and-models.md#llm-providers) for the per-provider breakdown.
+
+For Anthropic, genai-lite sends at most one of `temperature` and `topP`. If you
+set neither, only the temperature default is applied. Setting both explicitly
+(including through presets or template metadata) returns `INVALID_SETTINGS`
+before API-key lookup or provider transport.
 
 ### System Messages
 
