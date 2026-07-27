@@ -119,6 +119,20 @@ describe('RequestValidator', () => {
 
       expect(result).toBeNull();
     });
+
+    it('should reject explicitly conflicting Anthropic samplers', () => {
+      const result = validator.validateSettings(
+        { temperature: 0.7, topP: 0.9 },
+        'anthropic',
+        'claude-haiku-4-5-20251001'
+      );
+
+      expect(result).not.toBeNull();
+      expect(result?.error.code).toBe('INVALID_SETTINGS');
+      expect(result?.error.type).toBe('validation_error');
+      expect(result?.error.message).toContain('temperature');
+      expect(result?.error.message).toContain('topP');
+    });
   });
 
   describe('validateReasoningSettings', () => {

@@ -109,6 +109,38 @@ describe('SettingsManager', () => {
       expect(result.temperature).toBe(0.3);
     });
 
+    it('should apply only the temperature default for Anthropic', () => {
+      const result = settingsManager.mergeSettingsForModel(
+        'claude-haiku-4-5-20251001',
+        'anthropic'
+      );
+
+      expect(result.temperature).toBe(0.7);
+      expect(result).not.toHaveProperty('topP');
+    });
+
+    it('should let explicit Anthropic temperature suppress the inherited topP default', () => {
+      const result = settingsManager.mergeSettingsForModel(
+        'claude-haiku-4-5-20251001',
+        'anthropic',
+        { temperature: 0.2 }
+      );
+
+      expect(result.temperature).toBe(0.2);
+      expect(result).not.toHaveProperty('topP');
+    });
+
+    it('should let explicit Anthropic topP suppress the inherited temperature default', () => {
+      const result = settingsManager.mergeSettingsForModel(
+        'claude-haiku-4-5-20251001',
+        'anthropic',
+        { topP: 0.8 }
+      );
+
+      expect(result.topP).toBe(0.8);
+      expect(result).not.toHaveProperty('temperature');
+    });
+
     it('should return default settings when no request settings provided', () => {
       const result = settingsManager.mergeSettingsForModel('gpt-4.1', 'openai');
 

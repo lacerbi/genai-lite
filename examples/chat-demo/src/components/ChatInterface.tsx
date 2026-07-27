@@ -26,7 +26,6 @@ const STORAGE_KEY = 'genai-lite-chat-demo-settings';
 const DEFAULT_SETTINGS: LLMSettings = {
   temperature: 0.7,
   maxTokens: undefined,
-  topP: 1,
   reasoning: { enabled: false },
   thinkingTagFallback: { enabled: true, enforce: false },
 };
@@ -246,6 +245,21 @@ export function ChatInterface() {
     }
   }, [selectedProviderId]);
 
+  // Older persisted demo settings included both samplers. Anthropic accepts
+  // only one, so retain temperature when switching into that provider.
+  useEffect(() => {
+    if (selectedProviderId === 'anthropic') {
+      setSettings((current) => {
+        if (current.temperature === undefined || current.topP === undefined) {
+          return current;
+        }
+        const next = { ...current };
+        delete next.topP;
+        return next;
+      });
+    }
+  }, [selectedProviderId]);
+
   // Persist settings to localStorage whenever they change
   useEffect(() => {
     savePersistedSettings({
@@ -439,6 +453,29 @@ export function ChatInterface() {
     setUserVariables({});
   };
 
+  const handleSettingsChange = (nextSettings: LLMSettings) => {
+    setSettings((current) => {
+      if (
+        selectedProviderId !== 'anthropic' ||
+        nextSettings.temperature === undefined ||
+        nextSettings.topP === undefined
+      ) {
+        return nextSettings;
+      }
+
+      const reconciled = { ...nextSettings };
+      const temperatureChanged = nextSettings.temperature !== current.temperature;
+      const topPChanged = nextSettings.topP !== current.topP;
+
+      if (topPChanged && !temperatureChanged) {
+        delete reconciled.temperature;
+      } else {
+        delete reconciled.topP;
+      }
+      return reconciled;
+    });
+  };
+
   const handleExportJSON = () => {
     if (messages.length === 0) {
       setError(createSimpleError('No messages to export'));
@@ -497,13 +534,20 @@ export function ChatInterface() {
     // Set variables
     setUserVariables(data.variables);
 
-    // Reset settings to defaults first to avoid conflicts
-    setSettings(DEFAULT_SETTINGS);
-
-    // Then apply template settings from META if provided
-    if (data.settings) {
-      setSettings(prev => ({ ...prev, ...data.settings }));
-    }
+    // Apply template settings over defaults. A single template-selected
+    // Anthropic sampler suppresses the other default; an explicit template
+    // conflict remains intact so LLMService can report INVALID_SETTINGS.
+    setSettings(() => {
+      const next = { ...DEFAULT_SETTINGS, ...data.settings };
+      if (
+        selectedProviderId === 'anthropic' &&
+        data.settings?.topP !== undefined &&
+        data.settings.temperature === undefined
+      ) {
+        delete next.temperature;
+      }
+      return next;
+    });
 
     // Clear existing chat
     setMessages([]);
@@ -583,7 +627,7 @@ export function ChatInterface() {
             {/* Settings Sidebar */}
             <SettingsPanel
               settings={settings}
-              onSettingsChange={setSettings}
+              onSettingsChange={handleSettingsChange}
               systemPrompt={systemPrompt}
               onSystemPromptChange={setSystemPrompt}
               onResetSettings={handleResetSettings}

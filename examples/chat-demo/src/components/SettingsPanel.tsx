@@ -208,7 +208,7 @@ export function SettingsPanel({
 
           <div className="setting-group">
             <label htmlFor="temperature">
-              Temperature: {settings.temperature?.toFixed(2) ?? '0.70'}
+              Temperature: {settings.temperature?.toFixed(2) ?? 'default'}
             </label>
             <input
               id="temperature"

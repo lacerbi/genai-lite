@@ -287,7 +287,15 @@ export class AnthropicClientAdapter implements ILLMClientAdapter {
     apiKey: string,
     options?: AdapterRequestOptions
   ): AnthropicPreparedRequest {
-    // Check if structured output is requested - need beta API
+    const hasTemperature = request.settings.temperature !== undefined;
+    const hasTopP = request.settings.topP !== undefined;
+    if (hasTemperature && hasTopP) {
+      throw new Error(
+        "Invalid Anthropic settings: temperature and topP cannot both be specified"
+      );
+    }
+
+    // Check if generally available structured output is requested.
     const useStructuredOutput = !!(
       request.settings.structuredOutput?.schema &&
       request.settings.structuredOutput.enabled !== false
@@ -314,8 +322,8 @@ export class AnthropicClientAdapter implements ILLMClientAdapter {
       model: request.modelId,
       messages: messages,
       max_tokens: request.settings.maxTokens,
-      temperature: request.settings.temperature,
-      top_p: request.settings.topP,
+      ...(hasTemperature && { temperature: request.settings.temperature }),
+      ...(hasTopP && { top_p: request.settings.topP }),
       ...(request.settings.topK !== undefined && {
         top_k: request.settings.topK,
       }),

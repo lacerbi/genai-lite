@@ -41,7 +41,7 @@ describe('AnthropicClientAdapter', () => {
       settings: {
         temperature: 0.7,
         maxTokens: 100,
-        topP: 1,
+        topP: undefined as any,
         frequencyPenalty: 0,
         presencePenalty: 0,
         topK: undefined as any,
@@ -115,8 +115,7 @@ describe('AnthropicClientAdapter', () => {
         model: 'claude-3-5-sonnet-20241022',
         messages: [{ role: 'user', content: 'Hello' }],
         max_tokens: 100,
-        temperature: 0.7,
-        top_p: 1
+        temperature: 0.7
       });
 
       // Verify the response
@@ -127,6 +126,36 @@ describe('AnthropicClientAdapter', () => {
       expect(successResponse.model).toBe('claude-3-5-sonnet-20241022');
       expect(successResponse.choices[0].message.content).toBe('Hello! How can I help you today?');
       expect(successResponse.usage?.total_tokens).toBe(30);
+    });
+
+    it('should serialize top_p only when temperature is omitted', async () => {
+      mockCreate.mockResolvedValueOnce({
+        id: 'msg_top_p',
+        type: 'message',
+        role: 'assistant',
+        model: 'claude-3-5-sonnet-20241022',
+        content: [{ type: 'text', text: 'Hello' }],
+        stop_reason: 'end_turn',
+        stop_sequence: null,
+        usage: { input_tokens: 1, output_tokens: 1 }
+      });
+      basicRequest.settings.temperature = undefined as any;
+      basicRequest.settings.topP = 0.8;
+
+      await adapter.sendMessage(basicRequest, 'test-api-key');
+
+      const params = mockCreate.mock.calls[0][0];
+      expect(params.top_p).toBe(0.8);
+      expect(params).not.toHaveProperty('temperature');
+    });
+
+    it('should reject a direct internal request with both samplers before SDK transport', async () => {
+      basicRequest.settings.topP = 0.8;
+
+      const response = await adapter.sendMessage(basicRequest, 'test-api-key');
+
+      expect(response.object).toBe('error');
+      expect(mockCreate).not.toHaveBeenCalled();
     });
 
     it('should map topK to top_k and never send seed', async () => {

@@ -227,6 +227,10 @@ const response = await llmService.sendMessage({
 });
 ```
 
+This example assumes a provider that accepts both sampling controls. Anthropic
+requires choosing either `temperature` or `topP`; an explicit conflict across
+request, preset, or template settings returns `INVALID_SETTINGS`.
+
 ## Error Handling
 
 genai-lite uses a consistent error envelope structure across all providers and services.

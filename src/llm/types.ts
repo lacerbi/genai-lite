@@ -353,11 +353,17 @@ export interface OpenRouterProviderSettings {
  * Configurable settings for LLM requests
  */
 export interface LLMSettings {
-  /** Controls randomness in the response (0.0 to 2.0, typically 0.0 to 1.0) */
+  /**
+   * Controls randomness in the response (0.0 to 2.0, typically 0.0 to 1.0).
+   * Mutually exclusive with topP for Anthropic requests.
+   */
   temperature?: number;
   /** Maximum number of tokens to generate in the response */
   maxTokens?: number;
-  /** Controls diversity via nucleus sampling (0.0 to 1.0) */
+  /**
+   * Controls diversity via nucleus sampling (0.0 to 1.0).
+   * Mutually exclusive with temperature for Anthropic requests.
+   */
   topP?: number;
   /** Sequences where the API will stop generating further tokens */
   stopSequences?: string[];

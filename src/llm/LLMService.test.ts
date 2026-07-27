@@ -585,6 +585,85 @@ describe('LLMService', () => {
         expect(errorResponse.error.message).toContain('topP must be a number between 0 and 1');
       });
 
+      it('should reject conflicting Anthropic samplers before API-key lookup or adapter transport', async () => {
+        const adapterSpy = jest.spyOn(AnthropicClientAdapter.prototype, 'sendMessage');
+
+        try {
+          const response = await service.sendMessage({
+            providerId: 'anthropic',
+            modelId: 'claude-haiku-4-5-20251001',
+            messages: [{ role: 'user', content: 'Hello' }],
+            settings: {
+              temperature: 0.2,
+              topP: 0.8,
+            },
+          });
+
+          expect(response.object).toBe('error');
+          expect((response as LLMFailureResponse).error).toMatchObject({
+            code: 'INVALID_SETTINGS',
+            type: 'validation_error',
+          });
+          expect(mockApiKeyProvider).not.toHaveBeenCalled();
+          expect(adapterSpy).not.toHaveBeenCalled();
+        } finally {
+          adapterSpy.mockRestore();
+        }
+      });
+
+      it('should detect Anthropic sampler conflicts across preset and request settings', async () => {
+        const presetService = new LLMService(mockApiKeyProvider, {
+          presets: [{
+            id: 'anthropic-temperature-preset',
+            displayName: 'Anthropic temperature preset',
+            providerId: 'anthropic',
+            modelId: 'claude-haiku-4-5-20251001',
+            settings: { temperature: 0.2 },
+          }],
+          presetMode: 'extend',
+        });
+        const adapterSpy = jest.spyOn(AnthropicClientAdapter.prototype, 'sendMessage');
+
+        try {
+          const response = await presetService.sendMessage({
+            presetId: 'anthropic-temperature-preset',
+            messages: [{ role: 'user', content: 'Hello' }],
+            settings: { topP: 0.8 },
+          });
+
+          expect(response.object).toBe('error');
+          expect((response as LLMFailureResponse).error.code).toBe('INVALID_SETTINGS');
+          expect(mockApiKeyProvider).not.toHaveBeenCalled();
+          expect(adapterSpy).not.toHaveBeenCalled();
+        } finally {
+          adapterSpy.mockRestore();
+        }
+      });
+
+      it('should reject conflicting Anthropic samplers returned from template metadata', async () => {
+        const created = await service.createMessages({
+          template: `<META>{"settings":{"temperature":0.2,"topP":0.8}}</META>
+<USER>Hello</USER>`,
+        });
+        const adapterSpy = jest.spyOn(AnthropicClientAdapter.prototype, 'sendMessage');
+
+        try {
+          const response = await service.sendMessage({
+            providerId: 'anthropic',
+            modelId: 'claude-haiku-4-5-20251001',
+            messages: created.messages,
+            settings: created.settings,
+          });
+
+          expect(response.object).toBe('error');
+          expect((response as LLMFailureResponse).error.code).toBe('INVALID_SETTINGS');
+          expect(mockApiKeyProvider).not.toHaveBeenCalled();
+          expect(adapterSpy).not.toHaveBeenCalled();
+        } finally {
+          adapterSpy.mockRestore();
+        }
+      });
+
       it('should reject reasoning settings for non-reasoning models', async () => {
         const request: LLMChatRequest = {
           providerId: 'openai',

@@ -1,7 +1,7 @@
 # ISSUE: Post-v0.9.2 TODO — deferred follow-ups
 
 Created: 2026-07-03
-Updated: 2026-07-26 (v0.14.0 released + published; items 13, 14, 17 resolved; items 16, 18 open)
+Updated: 2026-07-27 (item 16 resolved; item 19 added as upstream/low priority)
 Status: OPEN
 Package: genai-lite
 
@@ -212,38 +212,14 @@ Note: all "latest" package versions below were checked via `npm view` on
     audit `continue-on-error`. Re-check when jest ships a glob@11 bump; if the
     full-tree audit goes quiet, consider restoring the single blocking gate.
 
-16. **Confirm Anthropic GA structured output against the live API** (2026-07-26,
-    after v0.13.1). The `output_config.format` request shape has **never been
-    exercised against the real Anthropic API**. It rests on the live docs
-    ("generally available … for Claude 4.5 and later models") and on
-    `@anthropic-ai/sdk` 0.110.0's own types (`MessageCreateParams.output_config`,
-    `OutputConfig.format`, `JSONOutputFormat { type, schema }`) — strong evidence,
-    but not a 200.
-
-    What the 2026-07-26 run did establish, with `E2E_ANTHROPIC_API_KEY` set:
-
-    - ✅ **Capability preflight works live.** `should reject structured output
-      for a pre-4.5 model before calling the API` passed in **2 ms** — the
-      timing is the proof that no network round trip happened, so it costs
-      nothing and needs no credits.
-    - ❌ **The GA request itself is unconfirmed.** It failed with
-      `400 invalid_request_error: "Your credit balance is too low to access the
-      Anthropic API."` The credit check gates *ahead of* request-body
-      validation, so the API almost certainly never inspected the body. Do
-      **not** read "the error wasn't about `output_config`" as a pass — the run
-      is inconclusive, not green.
-
-    To close: add credits to the Anthropic account, then
-
-    ```bash
-    npm run test:e2e -- structured-output.e2e.test.ts   # needs E2E_ANTHROPIC_API_KEY
-    ```
-
-    One cheap Sonnet call. If it passes, tick the last box in
-    `docs/archive/ISSUE-anthropic-structured-output-compatibility.md` and close
-    this item. If it fails on the request shape, it is a 0.13.2 — and consumers
-    are no worse off than on 0.13.0, whose beta shape is itself deprecated and
-    on a transition clock.
+16. ~~**Confirm Anthropic GA structured output against the live API**~~
+    **RESOLVED (2026-07-27).** The focused Anthropic E2E suite passed both
+    tests: a live Claude Haiku 4.5 structured-output request returned valid
+    schema-constrained output, and the pre-4.5 capability rejection completed
+    locally before transport. This confirms the GA `output_config.format`
+    request shape against the real API. The live run first exposed an unrelated
+    two-sampler request bug, which was fixed and verified separately in
+    `docs/archive/ISSUE-anthropic-temperature-top-p-conflict.md`.
 
 17. **E2E suite reports vacuous passes when providers are unavailable**
     (found 2026-07-26 during the item 13 e2e run). In
@@ -297,12 +273,30 @@ Note: all "latest" package versions below were checked via `npm view` on
     `@swc/jest` or `babel-jest`, which do not consume the TS compiler API — but
     that trades away type-checking during tests, so it is not obviously better.
 
+19. **`node-domexception` install deprecation warning** (verified 2026-07-27;
+    upstream / low priority). `npm install` can report that
+    `node-domexception@1.0.0` is deprecated because Node 20 already provides a
+    native `DOMException`. This is a cosmetic deprecation notice, not a
+    vulnerability or installation failure.
+
+    The current latest chain is `@google/genai 2.13.0` →
+    `google-auth-library 10.9.1` → `gaxios 7.3.0` → `node-fetch 3.3.2` →
+    `fetch-blob 3.2.0` → `node-domexception 1.0.0`. The committed lockfile
+    already resolves those current versions. `fetch-blob` 4.0.0 still depends
+    on `node-domexception`, and npm only honors `overrides` in the installing
+    project's root package, so genai-lite cannot safely suppress the warning
+    for registry installations.
+
+    Recheck when `@google/genai`, `google-auth-library`, or `gaxios` removes the
+    `node-fetch` chain. Do not replace the official SDK, add an override, or pin
+    a test to this transitive graph solely to hide the warning.
+
 ## Pickup point
 
 Open items: 12 (dual packaging — unblocks Mistral 2.x / PR #95), 15 (dev-only
-audit advisory, blocked on jest upstream), 16 (confirm Anthropic GA structured
-output against the live API), 18 (TypeScript 7, blocked on ts-jest). Items 13,
-14, and 17 are resolved.
+audit advisory, blocked on jest upstream), 18 (TypeScript 7, blocked on
+ts-jest), 19 (`node-domexception` warning, blocked upstream). Items 13, 14, 16,
+and 17 are resolved.
 
 **Dependabot queue is clear except for blocked items** (2026-07-26): #93, #98,
 #101, #102 were consolidated into PR #107 and merged (`6e0e3e3`) following the
