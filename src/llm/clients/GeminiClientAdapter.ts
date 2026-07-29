@@ -6,21 +6,35 @@ import type {
   LLMResponse,
   LLMFailureResponse,
   GeminiSafetySetting,
-  LLMStreamEvent,
 } from "../types";
 import type {
   ILLMClientAdapter,
   InternalLLMChatRequest,
   AdapterRequestOptions,
+  AdapterLLMStreamEvent,
+  AdapterPreparationContext,
+  AdapterPreparationResult,
+  AdapterPreparedRequest,
 } from "./types";
 import { ADAPTER_ERROR_CODES } from "./types";
 import { getCommonMappedErrorDetails } from "../../shared/adapters/errorUtils";
+import {
+  mergeUsageRecords,
+  normalizeTermination,
+  normalizeUsage,
+} from "../../shared/adapters/usageUtils";
 import {
   collectSystemContent,
   prependSystemToFirstUserMessage,
 } from "../../shared/adapters/systemMessageUtils";
 import type { Logger } from "../../logging/types";
 import { createDefaultLogger } from "../../logging/defaultLogger";
+import {
+  applyPromptStructuredOutput,
+  createPreparedRequestView,
+  freezeProviderRequest,
+  toPreparedRequestValue,
+} from "./preparedAdapterUtils";
 
 interface GeminiTransportState {
   abortSignal?: AbortSignal;
@@ -38,14 +52,50 @@ interface GeminiPreparedRequest {
   contents: any[];
 }
 
+interface GeminiSemanticRequest {
+  params: any;
+  generationConfig: any;
+  safetySettings?: any[];
+  systemInstruction?: string;
+  contents: any[];
+}
+
+interface GeminiPreparedProviderRequest {
+  request: InternalLLMChatRequest;
+  params: any;
+}
+
+const GEMINI_ADAPTER_REVISION = "gemini-adapter-v1";
+const GEMINI_REQUEST_SHAPE_REVISION = "gemini-generate-content-v1";
+
 interface GeminiStreamAccumulator {
   responseId: string;
   created: number;
   model: string;
   contentParts: string[];
   thoughtParts: string[];
+  rawParts: Record<string, unknown>[];
   finishReason: string | null;
   usageMetadata?: any;
+}
+
+function getGeminiRawPartType(part: Record<string, unknown>): string {
+  if (part.thought === true) {
+    return "thought";
+  }
+  if (typeof part.text === "string") {
+    return "text";
+  }
+  const typedKeys = [
+    "functionCall",
+    "functionResponse",
+    "executableCode",
+    "codeExecutionResult",
+    "inlineData",
+    "fileData",
+    "videoMetadata",
+  ];
+  return typedKeys.find((key) => part[key] !== undefined) ?? "unknown";
 }
 
 /**
@@ -74,6 +124,97 @@ export class GeminiClientAdapter implements ILLMClientAdapter {
     this.logger = config?.logger ?? createDefaultLogger();
   }
 
+  async prepareRequest(
+    request: InternalLLMChatRequest,
+    context: AdapterPreparationContext
+  ): Promise<AdapterPreparationResult> {
+    try {
+      request = applyPromptStructuredOutput(request);
+      const semantic = this.prepareGenerateContentParams(request);
+      const providerRequest =
+        freezeProviderRequest<GeminiPreparedProviderRequest>({
+          request,
+          params: semantic.params,
+        });
+      return {
+        prepared: {
+          mode: context.mode,
+          providerRequest,
+          requestView: createPreparedRequestView({
+            operation:
+              context.mode === "stream"
+                ? "gemini.generateContentStream"
+                : "gemini.generateContent",
+            mode: context.mode,
+            payload: {
+              ...semantic.params,
+              systemInstruction: semantic.systemInstruction,
+              thinkingConfig: semantic.generationConfig.thinkingConfig,
+            },
+            messageField: "contents",
+            systemField: "systemInstruction",
+            reasoningField: "thinkingConfig",
+            structuredOutput: request.settings.structuredOutput,
+          }),
+          promptAccounting: { status: "unavailable" },
+          outputTokenLimit: context.outputTokenLimit,
+          bindings: {
+            adapterRevision: GEMINI_ADAPTER_REVISION,
+            requestShapeRevision: GEMINI_REQUEST_SHAPE_REVISION,
+          },
+        },
+      };
+    } catch (error) {
+      return { error: this.createErrorResponse(error, request) };
+    }
+  }
+
+  async sendPrepared(
+    prepared: AdapterPreparedRequest,
+    apiKey: string,
+    options?: AdapterRequestOptions
+  ): Promise<LLMResponse | LLMFailureResponse> {
+    const providerRequest =
+      prepared.providerRequest as GeminiPreparedProviderRequest;
+    const request = providerRequest.request;
+    let transportState: GeminiTransportState | undefined;
+    try {
+      transportState = this.createTransportState(options);
+      const params = this.addTransportToParams(
+        structuredClone(providerRequest.params),
+        options,
+        transportState
+      );
+      const genAI = new GoogleGenAI({ apiKey });
+      const result = await genAI.models.generateContent(params);
+      return this.createSuccessResponse(result, request);
+    } catch (error) {
+      this.logger.error("Gemini prepared API error:", error);
+      return this.createErrorResponse(
+        error,
+        request,
+        this.getTransportErrorContext(options, transportState)
+      );
+    } finally {
+      transportState?.cleanup();
+    }
+  }
+
+  async *streamPrepared(
+    prepared: AdapterPreparedRequest,
+    apiKey: string,
+    options?: AdapterRequestOptions
+  ): AsyncIterable<AdapterLLMStreamEvent> {
+    const providerRequest =
+      prepared.providerRequest as GeminiPreparedProviderRequest;
+    yield* this.streamContent(
+      providerRequest.request,
+      structuredClone(providerRequest.params),
+      apiKey,
+      options
+    );
+  }
+
   /**
    * Sends a chat message to Gemini's API
    *
@@ -86,6 +227,7 @@ export class GeminiClientAdapter implements ILLMClientAdapter {
     apiKey: string,
     options?: AdapterRequestOptions
   ): Promise<LLMResponse | LLMFailureResponse> {
+    request = applyPromptStructuredOutput(request);
     // The SDK enforces httpOptions.timeout by aborting the same internal controller
     // the caller's abortSignal funnels into, so timeout and caller abort surface as
     // identical AbortErrors and cannot be distinguished from the error object. The
@@ -131,13 +273,25 @@ export class GeminiClientAdapter implements ILLMClientAdapter {
     request: InternalLLMChatRequest,
     apiKey: string,
     options?: AdapterRequestOptions
-  ): AsyncIterable<LLMStreamEvent> {
+  ): AsyncIterable<AdapterLLMStreamEvent> {
+    request = applyPromptStructuredOutput(request);
+    const semantic = this.prepareGenerateContentParams(request);
+    yield* this.streamContent(request, semantic.params, apiKey, options);
+  }
+
+  private async *streamContent(
+    request: InternalLLMChatRequest,
+    semanticParams: any,
+    apiKey: string,
+    options?: AdapterRequestOptions
+  ): AsyncIterable<AdapterLLMStreamEvent> {
     const accumulator: GeminiStreamAccumulator = {
       responseId: this.generateResponseId(),
       created: Math.floor(Date.now() / 1000),
       model: request.modelId,
       contentParts: [],
       thoughtParts: [],
+      rawParts: [],
       finishReason: null,
     };
     let transportState: GeminiTransportState | undefined;
@@ -145,15 +299,31 @@ export class GeminiClientAdapter implements ILLMClientAdapter {
     let started = false;
 
     try {
-      const prepared = this.prepareGenerateContentRequest(request, apiKey, options);
-      transportState = prepared.transportState;
+      transportState = this.createTransportState(options);
+      const params = this.addTransportToParams(
+        semanticParams,
+        options,
+        transportState
+      );
+      const genAI = new GoogleGenAI({ apiKey });
 
       this.logger.info(`Making Gemini streaming API call for model: ${request.modelId}`);
-      const stream = await prepared.genAI.models.generateContentStream(prepared.params);
+      const stream = await genAI.models.generateContentStream(params);
 
       for await (const chunk of stream) {
         sawChunk = true;
         this.updateGeminiAccumulatorMetadata(accumulator, chunk);
+        const chunkEvents = this.processGeminiStreamChunk(
+          accumulator,
+          chunk,
+          request
+        );
+
+        for (const event of chunkEvents) {
+          if (event.type === "adapter_evidence") {
+            yield event;
+          }
+        }
 
         if (!started) {
           started = true;
@@ -166,8 +336,10 @@ export class GeminiClientAdapter implements ILLMClientAdapter {
           };
         }
 
-        for (const event of this.processGeminiStreamChunk(accumulator, chunk, request)) {
-          yield event;
+        for (const event of chunkEvents) {
+          if (event.type !== "adapter_evidence") {
+            yield event;
+          }
         }
       }
 
@@ -196,6 +368,7 @@ export class GeminiClientAdapter implements ILLMClientAdapter {
           created: partial.created,
           choices: partial.choices,
           usage: partial.usage,
+          usageEvidence: partial.usageEvidence,
         };
       }
 
@@ -238,13 +411,27 @@ export class GeminiClientAdapter implements ILLMClientAdapter {
   ): GeminiPreparedRequest {
     // The SDK's internal retry layer is opt-in via httpOptions.retryOptions and
     // must stay unset because LLMService's withRetry owns retrying.
-    const genAI = new GoogleGenAI({ apiKey });
-    const { contents, generationConfig, safetySettings, systemInstruction } =
-      this.formatInternalRequestToGemini(request);
+    const semantic = this.prepareGenerateContentParams(request);
     const transportState = this.createTransportState(options);
 
     return {
-      genAI,
+      ...semantic,
+      genAI: new GoogleGenAI({ apiKey }),
+      params: this.addTransportToParams(
+        semantic.params,
+        options,
+        transportState
+      ),
+      transportState,
+    };
+  }
+
+  private prepareGenerateContentParams(
+    request: InternalLLMChatRequest
+  ): GeminiSemanticRequest {
+    const { contents, generationConfig, safetySettings, systemInstruction } =
+      this.formatInternalRequestToGemini(request);
+    return {
       params: {
         model: request.modelId,
         contents,
@@ -252,21 +439,31 @@ export class GeminiClientAdapter implements ILLMClientAdapter {
           ...generationConfig,
           safetySettings,
           ...(systemInstruction && { systemInstruction }),
-          ...(transportState.abortSignal && {
-            abortSignal: transportState.abortSignal,
-          }),
-          // Keep the SDK's server-side timeout hint (X-Server-Timeout header),
-          // padded so the adapter's local timer always fires first.
-          ...(options?.timeoutMs !== undefined && {
-            httpOptions: { timeout: options.timeoutMs + 1000 },
-          }),
         },
       },
-      transportState,
       generationConfig,
       safetySettings,
       systemInstruction,
       contents,
+    };
+  }
+
+  private addTransportToParams(
+    semanticParams: any,
+    options: AdapterRequestOptions | undefined,
+    transportState: GeminiTransportState
+  ): any {
+    return {
+      ...semanticParams,
+      config: {
+        ...semanticParams.config,
+        ...(transportState.abortSignal && {
+          abortSignal: transportState.abortSignal,
+        }),
+        ...(options?.timeoutMs !== undefined && {
+          httpOptions: { timeout: options.timeoutMs + 1000 },
+        }),
+      },
     };
   }
 
@@ -326,7 +523,10 @@ export class GeminiClientAdapter implements ILLMClientAdapter {
     const candidate = chunk.candidates?.[0];
     accumulator.finishReason = candidate?.finishReason ?? accumulator.finishReason;
     if (chunk.usageMetadata) {
-      accumulator.usageMetadata = chunk.usageMetadata;
+      accumulator.usageMetadata = mergeUsageRecords(
+        accumulator.usageMetadata,
+        chunk.usageMetadata
+      );
     }
   }
 
@@ -334,11 +534,56 @@ export class GeminiClientAdapter implements ILLMClientAdapter {
     accumulator: GeminiStreamAccumulator,
     chunk: any,
     request: InternalLLMChatRequest
-  ): LLMStreamEvent[] {
-    const events: LLMStreamEvent[] = [];
-    const parts = chunk.candidates?.[0]?.content?.parts || [];
+  ): AdapterLLMStreamEvent[] {
+    const events: AdapterLLMStreamEvent[] = [];
+    const candidate = chunk.candidates?.[0];
+    const parts = candidate?.content?.parts || [];
+    const rawFinishReason = candidate?.finishReason;
+    if (rawFinishReason != null) {
+      events.push({
+        type: "adapter_evidence",
+        observedEvidence: {
+          choice: {
+            index: 0,
+            finishReason: this.mapGeminiFinishReason(rawFinishReason),
+            termination: normalizeTermination(
+              rawFinishReason,
+              rawFinishReason === "MAX_TOKENS" ? "output" : undefined
+            ),
+          },
+        },
+      });
+    }
 
     for (const part of parts) {
+      const rawPart = toPreparedRequestValue(part);
+      if (
+        rawPart &&
+        typeof rawPart === "object" &&
+        !Array.isArray(rawPart)
+      ) {
+        accumulator.rawParts.push(rawPart);
+      }
+      events.push({
+        type: "adapter_evidence",
+        observedEvidence: {
+          choice: {
+            index: 0,
+            ...(!part?.thought &&
+              typeof part?.text === "string" && {
+                rawContentDelta: part.text,
+              }),
+            rawContentParts: [{
+              type: getGeminiRawPartType(part),
+              ...(typeof part?.text === "string" && {
+                text: part.text,
+              }),
+              ...(rawPart !== undefined && { value: rawPart }),
+              ...(part?.thought && { reasoning: true }),
+            }],
+          },
+        },
+      });
       if (typeof part?.text !== "string" || part.text.length === 0) {
         continue;
       }
@@ -363,14 +608,27 @@ export class GeminiClientAdapter implements ILLMClientAdapter {
     }
 
     if (chunk.usageMetadata) {
-      events.push({
-        type: "usage",
-        usage: {
-          prompt_tokens: chunk.usageMetadata.promptTokenCount || 0,
-          completion_tokens: chunk.usageMetadata.candidatesTokenCount || 0,
-          total_tokens: chunk.usageMetadata.totalTokenCount || 0,
-        },
+      const normalized = normalizeUsage(chunk.usageMetadata, {
+        prompt: ["promptTokenCount"],
+        completion: ["candidatesTokenCount"],
+        total: ["totalTokenCount"],
       });
+      if (normalized.usage) {
+        events.push({
+          type: "adapter_evidence",
+          observedEvidence: {
+            usage: normalized.usage,
+            usageEvidence: normalized.usageEvidence,
+          },
+        });
+        events.push({
+          type: "usage",
+          usage: normalized.usage,
+          observedEvidence: {
+            usageEvidence: normalized.usageEvidence,
+          },
+        });
+      }
     }
 
     return events;
@@ -379,10 +637,7 @@ export class GeminiClientAdapter implements ILLMClientAdapter {
   private createSyntheticGeminiResponse(
     accumulator: GeminiStreamAccumulator
   ): any {
-    const parts = [
-      ...accumulator.thoughtParts.map((text) => ({ text, thought: true })),
-      ...accumulator.contentParts.map((text) => ({ text })),
-    ];
+    const parts = accumulator.rawParts;
 
     return {
       responseId: accumulator.responseId,
@@ -528,7 +783,11 @@ export class GeminiClientAdapter implements ILLMClientAdapter {
     }
 
     // Handle structured output configuration for Gemini
-    if (request.settings.structuredOutput?.schema && request.settings.structuredOutput.enabled !== false) {
+    if (
+      request.settings.structuredOutput?.schema &&
+      request.settings.structuredOutput.enabled !== false &&
+      request.settings.structuredOutput.delivery !== "prompt"
+    ) {
       const so = request.settings.structuredOutput;
       generationConfig.responseMimeType = 'application/json';
       generationConfig.responseSchema = this.convertToGeminiSchema(so.schema);
@@ -587,11 +846,10 @@ export class GeminiClientAdapter implements ILLMClientAdapter {
       }
     }
 
-    // Extract usage data if available
-    const usageMetadata = response.usageMetadata || {};
+    const rawFinishReason = candidate?.finishReason ?? null;
 
     const finishReason = this.mapGeminiFinishReason(
-      candidate?.finishReason || null
+      rawFinishReason
     );
 
     const choice: any = {
@@ -599,7 +857,20 @@ export class GeminiClientAdapter implements ILLMClientAdapter {
         role: "assistant",
         content: content,
       },
+      rawContent: content,
+      rawContentParts: (candidate?.content?.parts ?? []).map((part: any) => ({
+        type: getGeminiRawPartType(part),
+        ...(typeof part.text === "string" && { text: part.text }),
+        ...(part.thought && { reasoning: true }),
+        ...(toPreparedRequestValue(part) !== undefined && {
+          value: toPreparedRequestValue(part),
+        }),
+      })),
       finish_reason: finishReason,
+      termination: normalizeTermination(
+        rawFinishReason,
+        rawFinishReason === "MAX_TOKENS" ? "output" : undefined
+      ),
       index: 0,
     };
 
@@ -608,19 +879,19 @@ export class GeminiClientAdapter implements ILLMClientAdapter {
       choice.reasoning = reasoning;
     }
 
+    const normalizedUsage = normalizeUsage(response.usageMetadata, {
+      prompt: ["promptTokenCount"],
+      completion: ["candidatesTokenCount"],
+      total: ["totalTokenCount"],
+    });
+
     return {
       id: (response as any).responseId || this.generateResponseId(),
       provider: request.providerId,
       model: response.modelUsed || request.modelId,
       created: (response as any).created || Math.floor(Date.now() / 1000),
       choices: [choice],
-      usage: usageMetadata
-        ? {
-            prompt_tokens: usageMetadata.promptTokenCount || 0,
-            completion_tokens: usageMetadata.candidatesTokenCount || 0,
-            total_tokens: usageMetadata.totalTokenCount || 0,
-          }
-        : undefined,
+      ...normalizedUsage,
       object: "chat.completion",
     };
   }

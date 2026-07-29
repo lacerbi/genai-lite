@@ -531,7 +531,7 @@ describe('MistralClientAdapter', () => {
       }, expect.objectContaining({
         signal: expect.any(AbortSignal),
       }));
-      expect(events[0]).toMatchObject({
+      expect(events.find((event) => event.type === "start")).toMatchObject({
         type: 'start',
         provider: 'mistral',
         model: 'mistral-small-latest',

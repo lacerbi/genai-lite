@@ -1,5 +1,10 @@
 # Providers & Models
 
+Capability metadata is intentionally conservative: unknown model/tokenizer
+mappings are reported as unavailable rather than borrowing an unrelated exact
+profile. Static capability preflight performs no network requests; active
+llama.cpp exact-count status appears only in prepared inspection.
+
 Complete reference of all supported AI providers and models in genai-lite.
 
 ## Contents

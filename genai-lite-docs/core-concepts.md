@@ -1,5 +1,10 @@
 # Core Concepts
 
+Applications that budget model context should use the evidence contract in
+[Prepared Calls and Token Accounting](prepared-calls-and-accounting.md).
+Certified library bounds contain structural allowances only. Subtract an
+application/session heuristic margin once at the capacity boundary.
+
 Fundamental patterns and concepts used across genai-lite's LLM and Image services.
 
 ## Contents
@@ -359,6 +364,9 @@ interface ILLMClientAdapter {
   ): AsyncIterable<LLMStreamEvent>;
 }
 
+// Public service streams add one stable ID per physical invocation:
+type LLMServiceStreamEvent = LLMStreamEvent & { attemptId: string };
+
 // Image Adapter
 interface ImageProviderAdapter {
   readonly id: ImageProviderId;
@@ -372,26 +380,17 @@ interface ImageProviderAdapter {
 }
 ```
 
-### Adapter Registry
+### Adapter Contract
 
-Register custom adapters for additional providers:
+`ILLMClientAdapter` is exported for lower-level integrations, but `LLMService`
+does not expose a public `registerAdapter()` method. Built-in adapters implement
+the optional prepared-call methods. Existing external adapter implementations
+remain source-compatible; prepared capability is reported as unavailable when
+those optional methods are absent.
 
-```typescript
-import { LlamaCppClientAdapter } from 'genai-lite';
-
-const service = new LLMService(fromEnvironment);
-
-service.registerAdapter(
-  'llamacpp-large',
-  new LlamaCppClientAdapter({ baseURL: 'http://localhost:8081' })
-);
-
-const response = await service.sendMessage({
-  providerId: 'llamacpp-large',
-  modelId: 'llamacpp',
-  messages: [{ role: 'user', content: 'Hello!' }]
-});
-```
+Custom adapters do not assign attempt IDs. `LLMService` stamps their events and
+exposes `AsyncIterable<LLMServiceStreamEvent>` from its public streaming
+methods.
 
 ## Logging Configuration
 

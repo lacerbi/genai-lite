@@ -616,6 +616,24 @@ For entirely new LLM providers (not just models):
 5. Export any new types from `src/index.ts` if needed
 6. Add presets to `src/config/llm-presets.json` (see [Adding Presets](#adding-presets))
 
+Built-in adapters should also implement the optional prepared-call capability:
+split deterministic semantic formatting from SDK/client/credential/transport
+construction, assign explicit adapter and request-shape revisions, and dispatch
+the frozen command without rebuilding it. Leave prepared-message counting
+unavailable unless a versioned calculator covers the complete canonical view.
+See [Token-Bound Certificates](token-bound-certificates.md) before adding a
+token profile or structural certificate. Legacy external implementations of
+`ILLMClientAdapter` remain source-compatible because these methods are optional.
+
+Streaming adapters return `AdapterLLMStreamEvent`. When a provider chunk
+contains raw parts, usage provenance, or termination details, emit
+`adapter_evidence` events for the entire chunk before yielding its first public
+`start`, delta, or usage event. `LLMService` suppresses adapter-only events but
+uses them to build truthful cancellation/failure partials. This ordering matters:
+a caller may abort immediately after any public event, so evidence that was
+already present in the received provider chunk must not remain behind that
+yield.
+
 ## Adding New Image Providers
 
 For entirely new image generation providers:

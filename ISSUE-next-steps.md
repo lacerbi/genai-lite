@@ -1,7 +1,7 @@
 # ISSUE: Post-v0.9.2 TODO — deferred follow-ups
 
 Created: 2026-07-03
-Updated: 2026-07-27 (item 16 resolved; item 19 added as upstream/low priority)
+Updated: 2026-07-29 (item 20 resolved in v0.15.0)
 Status: OPEN
 Package: genai-lite
 
@@ -291,12 +291,24 @@ Note: all "latest" package versions below were checked via `npm view` on
     `node-fetch` chain. Do not replace the official SDK, add an override, or pin
     a test to this transitive graph solely to hide the warning.
 
+20. ~~**Prepared LLM calls and truthful token accounting.**~~ **RESOLVED
+    (v0.15.0, 2026-07-29).** Added credential-free mode-bound preparation,
+    immutable semantic inspection, identical prepared redispatch, exact
+    active-template llama.cpp counting with coherent state binding,
+    hash-verified token profiles and certified structural bounds, lossless
+    response evidence, and hardened single-terminal streaming. Certified bounds
+    exclude application margins; the consumer applies its heuristic margin
+    exactly once. See
+    [`docs/archive/ISSUE-prepared-llm-calls-and-accounting.md`](docs/archive/ISSUE-prepared-llm-calls-and-accounting.md)
+    and
+    [`docs/archive/PLAN-prepared-llm-calls.md`](docs/archive/PLAN-prepared-llm-calls.md).
+
 ## Pickup point
 
 Open items: 12 (dual packaging — unblocks Mistral 2.x / PR #95), 15 (dev-only
 audit advisory, blocked on jest upstream), 18 (TypeScript 7, blocked on
 ts-jest), 19 (`node-domexception` warning, blocked upstream). Items 13, 14, 16,
-and 17 are resolved.
+17, and 20 are resolved.
 
 **Dependabot queue is clear except for blocked items** (2026-07-26): #93, #98,
 #101, #102 were consolidated into PR #107 and merged (`6e0e3e3`) following the
@@ -307,25 +319,13 @@ CI run. #100 is closed (item 18). **#95 is the only open PR** and is left open o
 purpose as the landing spot for item 12 (Dependabot has since retargeted it from
 2.4.1 to 2.5.0; the ESM-only blocker is unchanged).
 
-**Resume here (2026-07-26, post-v0.14.0):** v0.14.0 is released and published,
-and everything actionable without Anthropic credits is done. The next decision is
-**item 16** — add credits to the Anthropic account and run
-
-```bash
-npm run test:e2e -- structured-output.e2e.test.ts   # needs E2E_ANTHROPIC_API_KEY
-```
-
-to confirm the shipped `output_config.format` request shape against the real API.
-That is still the one claim in 0.13.1/0.14.0 backed only by docs, SDK types, and
-mocks — never a live 200. Two paid runs are pending and can share one top-up:
-item 16 (structured output) and the item 14 reasoning run
-(`npm run test:e2e:reasoning`).
-
-After that, the largest remaining piece of work is **item 12** (dual ESM/CJS
-packaging), which unblocks PR #95 and wants a design decision up front —
-tsup/tshy dual build vs. ESM-only with an engines bump — so it suits its own
-session. Items 15 and 18 need nothing from us; they unblock when jest moves to
-`glob@11` and when `ts-jest` widens its TypeScript peer range.
+**Resume here (2026-07-29, v0.15.0 working tree):** item 20 is implemented,
+verified, and archived. The largest remaining piece of work is **item 12**
+(dual ESM/CJS packaging), which unblocks PR #95 and wants a design decision up
+front — tsup/tshy dual build vs. ESM-only with an engines bump — so it suits
+its own session. Items 15 and 18 need nothing from us; they unblock when jest
+moves to `glob@11` and when `ts-jest` widens its TypeScript peer range. Item 19
+remains a cosmetic upstream deprecation warning.
 
 **v0.14.0 release state**: merged via PR #105 + #106, tag `v0.14.0` on
 `7d5860f`, **published to npm on 2026-07-26** (`npm view genai-lite version` →

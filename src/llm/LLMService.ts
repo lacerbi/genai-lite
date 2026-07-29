@@ -1,6 +1,7 @@
 // AI Summary: Main process service for LLM operations, integrating with ApiKeyProvider for secure key access.
 // Orchestrates LLM requests through provider-specific client adapters with proper error handling.
 
+import { randomUUID } from "node:crypto";
 import type { ApiKeyProvider, PresetMode } from '../types';
 import type { Logger, LogLevel } from '../logging/types';
 import { createDefaultLogger } from '../logging/defaultLogger';
@@ -15,18 +16,33 @@ import type {
   LLMSettings,
   ModelContext,
   LLMMessage,
-  LLMStreamEvent,
+  LLMServiceStreamEvent,
   LLMRequestCapabilityPreflight,
   LLMRequestCapabilityValidationResult,
   ModelCapabilities,
   ModelCapabilitiesResult,
   StructuredOutputSupport,
   CapabilitySource,
+  PreparedCallMode,
+  PreparedCall,
+  PreparedCompleteCall,
+  PreparedStreamCall,
+  PrepareMessageResult,
+  PreparedRequestInspection,
+  EffectiveOutputTokenLimit,
+  PreparedPromptAccounting,
+  LLMRawAnswerAccounting,
+  LLMRawContentPart,
+  LLMTermination,
+  LLMUsage,
+  LLMUsageEvidence,
 } from "./types";
 import type {
   ILLMClientAdapter,
   InternalLLMChatRequest,
   AdapterRequestOptions,
+  AdapterPreparedRequest,
+  AdapterLLMStreamEvent,
 } from "./clients/types";
 import type { ModelPreset } from "../types/presets";
 import {
@@ -50,6 +66,11 @@ import { SettingsManager } from "./services/SettingsManager";
 import { ModelResolver } from "./services/ModelResolver";
 import { withRetry, type RetryPolicy } from "../shared/services/withRetry";
 import { ADAPTER_ERROR_CODES } from "./clients/types";
+import { deepFreeze } from "./clients/preparedAdapterUtils";
+import {
+  countTextTokens,
+  resolveTokenProfile,
+} from "./tokenization";
 
 // Re-export PresetMode for backward compatibility
 export type { PresetMode };
@@ -108,6 +129,11 @@ export interface StreamMessageOptions {
   timeoutMs?: number;
 }
 
+/** Selects the immutable dispatch mode fixed during preparation. */
+export interface PrepareMessageOptions<TMode extends PreparedCallMode> {
+  mode: TMode;
+}
+
 /**
  * Result from createMessages method
  */
@@ -127,8 +153,7 @@ interface PreparedLLMRequest {
   resolvedRequest: LLMChatRequest;
   internalRequest: InternalLLMChatRequest;
   clientAdapter: ILLMClientAdapter;
-  apiKey: string;
-  adapterOptions: AdapterRequestOptions;
+  adapterPrepared: AdapterPreparedRequest;
 }
 
 interface CapabilityValidationContext {
@@ -138,6 +163,28 @@ interface CapabilityValidationContext {
   resolvedRequest: LLMChatRequest;
   finalSettings: Required<LLMSettings>;
   capabilities: ModelCapabilities;
+  adapterPreparationState?: unknown;
+}
+
+interface StreamPartialChoiceState {
+  content: string;
+  reasoning: string;
+  rawContent?: string;
+  rawContentParts?: LLMRawContentPart[];
+  rawAnswerAccounting?: LLMRawAnswerAccounting;
+  finishReason?: string | null;
+  termination?: LLMTermination;
+}
+
+interface StreamPartialState {
+  provider: ApiProviderId;
+  model: string;
+  id?: string;
+  created?: number;
+  started: boolean;
+  choices: Map<number, StreamPartialChoiceState>;
+  usage?: LLMUsage;
+  usageEvidence?: LLMUsageEvidence;
 }
 
 /**
@@ -162,6 +209,7 @@ export class LLMService {
   private modelResolver: ModelResolver;
   private retryOptions: LLMServiceOptions['retry'];
   private defaultTimeoutMs?: number;
+  private preparedCalls = new WeakMap<object, PreparedLLMRequest>();
 
   constructor(getApiKey: ApiKeyProvider, options: LLMServiceOptions = {}) {
     this.getApiKey = getApiKey;
@@ -245,13 +293,15 @@ export class LLMService {
     const resolvedModelId = resolved.modelId!;
     const modelInfo = resolved.modelInfo!;
     const source = this.getCapabilitySource(resolvedProviderId, resolvedModelId);
+    const capabilities = this.buildModelCapabilities(modelInfo, source);
 
     return {
       object: "model.capabilities",
       provider: resolvedProviderId,
       model: resolvedModelId,
       modelInfo: { ...modelInfo },
-      structuredOutput: this.getStructuredOutputSupport(modelInfo, source),
+      structuredOutput: capabilities.structuredOutput,
+      capabilities,
     };
   }
 
@@ -343,100 +393,168 @@ export class LLMService {
       `LLMService.sendMessage called with presetId: ${(request as LLMChatRequestWithPreset).presetId}, provider: ${request.providerId}, model: ${request.modelId}`
     );
 
+    const canonical = await this.prepareMessage(request, { mode: "complete" });
+    if (this.isFailureResponse(canonical)) {
+      return canonical;
+    }
+    return this.sendPrepared(canonical, callOptions);
+
+  }
+
+  /**
+   * Resolves and freezes the final semantic provider request without retrieving
+   * credentials or creating transport state.
+   */
+  async prepareMessage<TMode extends PreparedCallMode>(
+    request: LLMChatRequest | LLMChatRequestWithPreset,
+    options: PrepareMessageOptions<TMode>
+  ): Promise<PrepareMessageResult<TMode>> {
+    if (
+      !options ||
+      (options.mode !== "complete" && options.mode !== "stream")
+    ) {
+      return this.createPreparedFailure(
+        request.providerId ?? "unknown",
+        request.modelId ?? "unknown",
+        ADAPTER_ERROR_CODES.INVALID_PREPARED_CALL,
+        "Prepared-call mode must be either 'complete' or 'stream'.",
+        "validation_error"
+      );
+    }
+    const result = await this.prepareCanonicalRequest(request, options.mode);
+    if ("error" in result) {
+      return result.error;
+    }
+
+    const handle = Object.create(null) as PreparedCall<TMode>;
+    Object.defineProperties(handle, {
+      mode: {
+        value: options.mode,
+        enumerable: true,
+        configurable: false,
+        writable: false,
+      },
+      toJSON: {
+        value: () => {
+          throw new TypeError("Prepared LLM calls cannot be serialized.");
+        },
+        enumerable: false,
+        configurable: false,
+        writable: false,
+      },
+    });
+    Object.freeze(handle);
+    this.preparedCalls.set(handle, result.prepared);
+    return handle;
+  }
+
+  /** Returns the immutable inspection view for a service-owned prepared call. */
+  async inspectPrepared(
+    handle: PreparedCall<PreparedCallMode>
+  ): Promise<PreparedRequestInspection | LLMFailureResponse> {
+    const prepared = this.preparedCalls.get(handle as object);
+    if (!prepared) {
+      return this.createPreparedHandleError(
+        handle,
+        ADAPTER_ERROR_CODES.INVALID_PREPARED_CALL,
+        "The prepared call is invalid, forged, or belongs to another LLMService instance."
+      );
+    }
+
+    return deepFreeze({
+      provider: prepared.providerId,
+      model: prepared.modelId,
+      mode: prepared.adapterPrepared.mode,
+      request: structuredClone(prepared.adapterPrepared.requestView),
+      promptAccounting: structuredClone(
+        prepared.adapterPrepared.promptAccounting
+      ),
+      ...(prepared.adapterPrepared.outputTokenLimit && {
+        outputTokenLimit: structuredClone(
+          prepared.adapterPrepared.outputTokenLimit
+        ),
+      }),
+      bindings: structuredClone(prepared.adapterPrepared.bindings),
+    });
+  }
+
+  /** Dispatches a reusable complete-mode prepared call. */
+  async sendPrepared(
+    handle: PreparedCompleteCall,
+    callOptions?: SendMessageOptions
+  ): Promise<LLMResponse | LLMFailureResponse> {
+    const resolved = this.resolvePreparedHandle(handle, "complete");
+    if ("error" in resolved) {
+      return resolved.error;
+    }
+    const prepared = resolved.prepared;
+    const adapter = prepared.clientAdapter;
+    if (!adapter.sendPrepared) {
+      return this.createPreparedFailure(
+        prepared.providerId,
+        prepared.modelId,
+        ADAPTER_ERROR_CODES.PREPARED_CALL_UNSUPPORTED,
+        `Prepared calls are not supported for provider '${prepared.providerId}'.`,
+        "unsupported_feature"
+      );
+    }
+
+    const apiKey = await this.resolveDispatchApiKey(prepared);
+    if (this.isFailureResponse(apiKey)) {
+      return apiKey;
+    }
+    const adapterOptions = this.createAdapterOptions(callOptions);
+    const retryOnTimeout = this.retryOptions?.retryOnTimeout ?? true;
+    const retryableCodes = new Set<string>([
+      ADAPTER_ERROR_CODES.RATE_LIMIT_EXCEEDED,
+      ADAPTER_ERROR_CODES.NETWORK_ERROR,
+      ...(retryOnTimeout ? [ADAPTER_ERROR_CODES.REQUEST_TIMEOUT] : []),
+    ]);
+
     try {
-      const preparedResult = await this.prepareRequest(request, callOptions);
-      if ("error" in preparedResult) {
-        return preparedResult.error;
-      }
-
-      const prepared = preparedResult.prepared;
-      try {
-        this.logger.info(
-          `Making LLM request with ${prepared.clientAdapter.constructor.name} for provider: ${prepared.providerId}`
-        );
-
-        // Unified retry layer: adapters never throw, so retry decisions are made on
-        // RETURNED failure responses. SDK-internal retries are disabled (maxRetries: 0
-        // at client construction) — this loop is the single owner of retry behavior.
-        const retryOnTimeout = this.retryOptions?.retryOnTimeout ?? true;
-        const retryableCodes = new Set<string>([
-          ADAPTER_ERROR_CODES.RATE_LIMIT_EXCEEDED,
-          ADAPTER_ERROR_CODES.NETWORK_ERROR,
-          ...(retryOnTimeout ? [ADAPTER_ERROR_CODES.REQUEST_TIMEOUT] : []),
-        ]);
-
-        const result = await withRetry(
-          () => prepared.clientAdapter.sendMessage(
-            prepared.internalRequest,
-            prepared.apiKey,
-            prepared.adapterOptions
-          ),
-          (res) => {
-            if (res.object !== 'error') {
-              return { retry: false };
-            }
-            const code = String(res.error.code);
-            const status = res.error.status;
-            const retryable =
+      const result = await withRetry(
+        async () => {
+          const revalidation = await this.revalidatePrepared(
+            prepared,
+            adapterOptions
+          );
+          if (revalidation) {
+            return revalidation;
+          }
+          return adapter.sendPrepared!(
+            prepared.adapterPrepared,
+            apiKey,
+            adapterOptions
+          );
+        },
+        (response) => {
+          if (response.object !== "error") {
+            return { retry: false };
+          }
+          const code = String(response.error.code);
+          const status = response.error.status;
+          return {
+            retry:
               retryableCodes.has(code) ||
               (code === ADAPTER_ERROR_CODES.PROVIDER_ERROR &&
-                typeof status === 'number' &&
-                (status === 408 || status === 409 || status >= 500));
-            return { retry: retryable, retryAfterMs: res.error.retryAfterMs };
-          },
-          {
-            ...this.retryOptions,
-            ...(callOptions?.maxRetries !== undefined && {
-              maxRetries: callOptions.maxRetries,
-            }),
-            signal: callOptions?.signal,
-            logger: this.logger,
-            label: `${prepared.providerId}/${prepared.modelId}`,
-          }
-        );
-
-        const processedResult = this.postProcessResponse(result, prepared);
-
-        if (processedResult.object === "chat.completion") {
-          this.logger.info(
-            `LLM request completed successfully for model: ${prepared.modelId}`
-          );
-        }
-        return processedResult;
-      } catch (error) {
-        this.logger.error("Error in LLMService.sendMessage:", error);
-        return {
-          provider: prepared.providerId,
-          model: prepared.modelId,
-          error: {
-            message:
-              error instanceof Error
-                ? error.message
-                : "An unknown error occurred during message sending.",
-            code: "PROVIDER_ERROR",
-            type: "server_error",
-            providerError: error,
-          },
-          object: "error",
-        };
-      }
-    } catch (error) {
-      this.logger.error("Error in LLMService.sendMessage (outer):", error);
-
-      return {
-        provider: request.providerId || (request as LLMChatRequestWithPreset).presetId || 'unknown',
-        model: request.modelId || (request as LLMChatRequestWithPreset).presetId || 'unknown',
-        error: {
-          message:
-            error instanceof Error
-              ? error.message
-              : "An unknown error occurred.",
-          code: "UNEXPECTED_ERROR",
-          type: "server_error",
-          providerError: error,
+                typeof status === "number" &&
+                (status === 408 || status === 409 || status >= 500)),
+            retryAfterMs: response.error.retryAfterMs,
+          };
         },
-        object: "error",
-      };
+        {
+          ...this.retryOptions,
+          ...(callOptions?.maxRetries !== undefined && {
+            maxRetries: callOptions.maxRetries,
+          }),
+          signal: callOptions?.signal,
+          logger: this.logger,
+          label: `${prepared.providerId}/${prepared.modelId}`,
+        }
+      );
+      return this.postProcessResponse(result, prepared);
+    } catch (error) {
+      return this.createUnexpectedDispatchFailure(prepared, error);
     }
   }
 
@@ -450,93 +568,206 @@ export class LLMService {
   async *streamMessage(
     request: LLMChatRequest | LLMChatRequestWithPreset,
     callOptions?: StreamMessageOptions
-  ): AsyncGenerator<LLMStreamEvent> {
+  ): AsyncGenerator<LLMServiceStreamEvent> {
+    const attemptId = randomUUID();
     this.logger.info(
       `LLMService.streamMessage called with presetId: ${(request as LLMChatRequestWithPreset).presetId}, provider: ${request.providerId}, model: ${request.modelId}`
     );
 
+    const canonical = await this.prepareMessage(request, { mode: "stream" });
+    if (this.isFailureResponse(canonical)) {
+      yield { attemptId, type: "error", error: canonical };
+      return;
+    }
+    yield* this.streamPreparedWithAttempt(canonical, callOptions, attemptId);
+    return;
+
+  }
+
+  /** Dispatches a reusable stream-mode prepared call with no automatic retries. */
+  async *streamPrepared(
+    handle: PreparedStreamCall,
+    callOptions?: StreamMessageOptions
+  ): AsyncGenerator<LLMServiceStreamEvent> {
+    yield* this.streamPreparedWithAttempt(handle, callOptions, randomUUID());
+  }
+
+  private async *streamPreparedWithAttempt(
+    handle: PreparedStreamCall,
+    callOptions: StreamMessageOptions | undefined,
+    attemptId: string
+  ): AsyncGenerator<LLMServiceStreamEvent> {
+    const resolved = this.resolvePreparedHandle(handle, "stream");
+    if ("error" in resolved) {
+      yield { attemptId, type: "error", error: resolved.error };
+      return;
+    }
+    const prepared = resolved.prepared;
+    const adapter = prepared.clientAdapter;
+    if (!adapter.streamPrepared) {
+      yield {
+        attemptId,
+        type: "error",
+        error: this.createPreparedFailure(
+          prepared.providerId,
+          prepared.modelId,
+          ADAPTER_ERROR_CODES.PREPARED_CALL_UNSUPPORTED,
+          `Prepared streaming is not supported for provider '${prepared.providerId}'.`,
+          "unsupported_feature"
+        ),
+      };
+      return;
+    }
+
+    const apiKey = await this.resolveDispatchApiKey(prepared);
+    if (this.isFailureResponse(apiKey)) {
+      yield { attemptId, type: "error", error: apiKey };
+      return;
+    }
+
+    const cancellation = new AbortController();
+    const signal = callOptions?.signal
+      ? AbortSignal.any([callOptions.signal, cancellation.signal])
+      : cancellation.signal;
+    const adapterOptions = this.createAdapterOptions({
+      ...callOptions,
+      signal,
+    });
+    const partialState: StreamPartialState = {
+      provider: prepared.providerId,
+      model: prepared.modelId,
+      started: false,
+      choices: new Map(),
+    };
+    let iterator: AsyncIterator<AdapterLLMStreamEvent> | undefined;
+    let terminal = false;
     try {
-      const preparedResult = await this.prepareRequest(request, callOptions);
-      if ("error" in preparedResult) {
-        yield { type: "error", error: preparedResult.error };
+      const revalidation = await this.revalidatePrepared(
+        prepared,
+        adapterOptions
+      );
+      if (revalidation) {
+        yield { attemptId, type: "error", error: revalidation };
         return;
       }
 
-      const prepared = preparedResult.prepared;
-      if (!prepared.clientAdapter.streamMessage) {
-        yield {
-          type: "error",
-          error: {
-            provider: prepared.providerId,
-            model: prepared.modelId,
-            error: {
-              message: `Streaming is not supported for provider '${prepared.providerId}'.`,
-              code: "PROVIDER_ERROR",
-              type: "unsupported_feature",
-            },
-            object: "error",
-          },
-        };
-        return;
-      }
-
-      try {
-        for await (const event of prepared.clientAdapter.streamMessage(
-          prepared.internalRequest,
-          prepared.apiKey,
-          prepared.adapterOptions
-        )) {
-          if (event.type === "complete") {
-            const processedResult = this.postProcessResponse(event.response, prepared);
-            if (processedResult.object === "error") {
-              yield { type: "error", error: processedResult };
-            } else {
-              yield { type: "complete", response: processedResult };
-            }
-            continue;
-          }
-
-          yield event;
+      iterator = adapter
+        .streamPrepared(prepared.adapterPrepared, apiKey, adapterOptions)
+        [Symbol.asyncIterator]();
+      while (!terminal) {
+        const step = await this.nextStreamEvent(iterator, signal);
+        if (step.done) {
+          break;
         }
-      } catch (error) {
-        this.logger.error("Error in LLMService.streamMessage:", error);
+        const event = step.value;
+        this.observeStreamPartial(partialState, event);
+        if (event.type === "adapter_evidence") {
+          continue;
+        }
+        if (event.type === "complete") {
+          const processed = this.postProcessResponse(event.response, prepared);
+          if (processed.object === "error") {
+            const failure = this.finalizeStreamFailure(
+              processed,
+              partialState,
+              attemptId,
+              prepared
+            );
+            terminal = true;
+            yield {
+              attemptId,
+              type: "error",
+              error: failure,
+            };
+          } else {
+            terminal = true;
+            yield { attemptId, type: "complete", response: processed };
+          }
+          break;
+        }
+        if (event.type === "error") {
+          const failure = this.finalizeStreamFailure(
+            event.error,
+            partialState,
+            attemptId,
+            prepared
+          );
+          terminal = true;
+          yield {
+            attemptId,
+            type: "error",
+            error: failure,
+          };
+          break;
+        }
+        const {
+          observedEvidence: _observedEvidence,
+          ...publicEvent
+        } = event;
+        yield { ...publicEvent, attemptId } as LLMServiceStreamEvent;
+      }
+
+      if (!terminal) {
+        terminal = true;
+        const aborted = signal.aborted;
         yield {
+          attemptId,
           type: "error",
-          error: {
-            provider: prepared.providerId,
-            model: prepared.modelId,
-            error: {
-              message:
-                error instanceof Error
-                  ? error.message
-                  : "An unknown error occurred during message streaming.",
-              code: "PROVIDER_ERROR",
-              type: "server_error",
-              providerError: error,
-            },
-            object: "error",
-          },
+          error: this.finalizeStreamFailure(
+            this.createPreparedFailure(
+              prepared.providerId,
+              prepared.modelId,
+              aborted
+                ? ADAPTER_ERROR_CODES.REQUEST_ABORTED
+                : ADAPTER_ERROR_CODES.PROVIDER_ERROR,
+              aborted
+                ? "The streaming request was aborted."
+                : "The provider stream ended without a terminal event.",
+              aborted ? "abort_error" : "server_error"
+            ),
+            partialState,
+            attemptId,
+            prepared
+          ),
         };
       }
     } catch (error) {
-      this.logger.error("Error in LLMService.streamMessage (outer):", error);
-      yield {
-        type: "error",
-        error: {
-          provider: request.providerId || (request as LLMChatRequestWithPreset).presetId || 'unknown',
-          model: request.modelId || (request as LLMChatRequestWithPreset).presetId || 'unknown',
-          error: {
-            message:
-              error instanceof Error
-                ? error.message
-                : "An unknown error occurred.",
-            code: "UNEXPECTED_ERROR",
-            type: "server_error",
-            providerError: error,
-          },
-          object: "error",
-        },
-      };
+      if (!terminal) {
+        terminal = true;
+        const aborted = signal.aborted;
+        yield {
+          attemptId,
+          type: "error",
+          error: this.finalizeStreamFailure(
+            this.createPreparedFailure(
+              prepared.providerId,
+              prepared.modelId,
+              aborted
+                ? ADAPTER_ERROR_CODES.REQUEST_ABORTED
+                : ADAPTER_ERROR_CODES.PROVIDER_ERROR,
+              aborted
+                ? "The streaming request was aborted."
+                : error instanceof Error
+                  ? error.message
+                  : "An unknown streaming error occurred.",
+              aborted ? "abort_error" : "server_error",
+              error
+            ),
+            partialState,
+            attemptId,
+            prepared
+          ),
+        };
+      }
+    } finally {
+      cancellation.abort();
+      if (iterator?.return) {
+        try {
+          void Promise.resolve(iterator.return()).catch(() => undefined);
+        } catch {
+          // Iterator cleanup is best-effort and must never replace the terminal.
+        }
+      }
     }
   }
 
@@ -626,6 +857,9 @@ export class LLMService {
         resolvedRequest,
         finalSettings,
         capabilities,
+        ...(resolved.adapterPreparationState !== undefined && {
+          adapterPreparationState: resolved.adapterPreparationState,
+        }),
       },
     };
   }
@@ -634,8 +868,45 @@ export class LLMService {
     modelInfo: ModelInfo,
     source: CapabilitySource
   ): ModelCapabilities {
+    const structuredOutput = this.getStructuredOutputSupport(modelInfo, source);
+    const tokenProfile = resolveTokenProfile(
+      modelInfo.providerId,
+      modelInfo.id
+    );
+    const reportsUsage =
+      modelInfo.providerId === "openai" ||
+      modelInfo.providerId === "anthropic" ||
+      modelInfo.providerId === "gemini" ||
+      modelInfo.providerId === "mistral" ||
+      modelInfo.providerId === "openrouter" ||
+      modelInfo.providerId === "llamacpp";
     return {
-      structuredOutput: this.getStructuredOutputSupport(modelInfo, source),
+      structuredOutput,
+      ...(modelInfo.contextWindow !== undefined && {
+        contextWindow: {
+          tokens: modelInfo.contextWindow,
+          source,
+        },
+      }),
+      contentTokenCounting:
+        tokenProfile.status === "available" ? "exact" : "unavailable",
+      preparedMessageTokenCounting:
+        modelInfo.providerId === "llamacpp" ? "runtime" : "unavailable",
+      ...(tokenProfile.status === "available" && {
+        tokenProfileId: tokenProfile.profile.id,
+        tokenProfileMappingRevision: tokenProfile.mappingRevision,
+      }),
+      ...(reportsUsage && {
+        reportsPromptUsage: true,
+        reportsCompletionUsage: true,
+      }),
+      distinguishesLimitCause:
+        modelInfo.providerId === "anthropic" ||
+        modelInfo.providerId === "gemini",
+      structuredOutputDelivery: {
+        native: structuredOutput,
+        prompt: "instruction_only",
+      },
     };
   }
 
@@ -669,9 +940,489 @@ export class LLMService {
     return getModelById(modelId, providerId) ? "registry" : "fallback";
   }
 
-  private async prepareRequest(
-    request: LLMChatRequest | LLMChatRequestWithPreset,
+  private isFailureResponse(value: unknown): value is LLMFailureResponse {
+    return (
+      typeof value === "object" &&
+      value !== null &&
+      (value as { object?: unknown }).object === "error"
+    );
+  }
+
+  private createPreparedFailure(
+    provider: string,
+    model: string,
+    code: string,
+    message: string,
+    type: string,
+    providerError?: unknown
+  ): LLMFailureResponse {
+    return {
+      provider,
+      model,
+      error: {
+        message,
+        code,
+        type,
+        ...(providerError !== undefined && { providerError }),
+      },
+      object: "error",
+    };
+  }
+
+  private createPreparedHandleError(
+    handle: unknown,
+    code: string,
+    message: string
+  ): LLMFailureResponse {
+    const mode =
+      typeof handle === "object" && handle !== null && "mode" in handle
+        ? String((handle as { mode?: unknown }).mode ?? "unknown")
+        : "unknown";
+    return this.createPreparedFailure(
+      "unknown",
+      "unknown",
+      code,
+      message,
+      mode === "unknown" ? "invalid_request_error" : "validation_error"
+    );
+  }
+
+  private resolvePreparedHandle(
+    handle: unknown,
+    expectedMode: PreparedCallMode
+  ):
+    | { prepared: PreparedLLMRequest }
+    | { error: LLMFailureResponse } {
+    if (
+      (typeof handle !== "object" && typeof handle !== "function") ||
+      handle === null
+    ) {
+      return {
+        error: this.createPreparedHandleError(
+          handle,
+          ADAPTER_ERROR_CODES.INVALID_PREPARED_CALL,
+          "The prepared call is invalid or forged."
+        ),
+      };
+    }
+    const prepared = this.preparedCalls.get(handle as object);
+    if (!prepared) {
+      return {
+        error: this.createPreparedHandleError(
+          handle,
+          ADAPTER_ERROR_CODES.INVALID_PREPARED_CALL,
+          "The prepared call is invalid, forged, or belongs to another LLMService instance."
+        ),
+      };
+    }
+    if (prepared.adapterPrepared.mode !== expectedMode) {
+      return {
+        error: this.createPreparedFailure(
+          prepared.providerId,
+          prepared.modelId,
+          ADAPTER_ERROR_CODES.PREPARED_CALL_MODE_MISMATCH,
+          `A '${prepared.adapterPrepared.mode}' prepared call cannot be dispatched as '${expectedMode}'.`,
+          "validation_error"
+        ),
+      };
+    }
+    return { prepared };
+  }
+
+  private async resolveDispatchApiKey(
+    prepared: PreparedLLMRequest
+  ): Promise<string | LLMFailureResponse> {
+    try {
+      const apiKey = await this.getApiKey(prepared.providerId);
+      if (!apiKey) {
+        return this.createPreparedFailure(
+          prepared.providerId,
+          prepared.modelId,
+          "API_KEY_ERROR",
+          `API key for provider '${prepared.providerId}' could not be retrieved. Ensure your ApiKeyProvider is configured correctly.`,
+          "authentication_error"
+        );
+      }
+      if (
+        prepared.clientAdapter.validateApiKey &&
+        !prepared.clientAdapter.validateApiKey(apiKey)
+      ) {
+        return this.createPreparedFailure(
+          prepared.providerId,
+          prepared.modelId,
+          ADAPTER_ERROR_CODES.INVALID_API_KEY,
+          `Invalid API key format for provider '${prepared.providerId}'. Please check your API key.`,
+          "authentication_error"
+        );
+      }
+      return apiKey;
+    } catch (error) {
+      return this.createPreparedFailure(
+        prepared.providerId,
+        prepared.modelId,
+        ADAPTER_ERROR_CODES.PROVIDER_ERROR,
+        error instanceof Error
+          ? error.message
+          : "An unknown error occurred while retrieving credentials.",
+        "server_error",
+        error
+      );
+    }
+  }
+
+  private createAdapterOptions(
     callOptions?: StreamMessageOptions
+  ): AdapterRequestOptions {
+    const timeoutMs = callOptions?.timeoutMs ?? this.defaultTimeoutMs;
+    return {
+      ...(callOptions?.signal && { signal: callOptions.signal }),
+      ...(timeoutMs !== undefined && { timeoutMs }),
+    };
+  }
+
+  private async revalidatePrepared(
+    prepared: PreparedLLMRequest,
+    options: AdapterRequestOptions
+  ): Promise<LLMFailureResponse | undefined> {
+    if (!prepared.clientAdapter.revalidatePreparedRequest) {
+      return undefined;
+    }
+    const result = await prepared.clientAdapter.revalidatePreparedRequest(
+      prepared.adapterPrepared,
+      options
+    );
+    return result.valid ? undefined : result.error;
+  }
+
+  private async nextStreamEvent(
+    iterator: AsyncIterator<AdapterLLMStreamEvent>,
+    signal: AbortSignal
+  ): Promise<IteratorResult<AdapterLLMStreamEvent>> {
+    if (signal.aborted) {
+      throw new Error("Streaming request aborted");
+    }
+    return new Promise<IteratorResult<AdapterLLMStreamEvent>>(
+      (resolve, reject) => {
+        const onAbort = () => {
+          reject(new Error("Streaming request aborted"));
+        };
+        signal.addEventListener("abort", onAbort, { once: true });
+        Promise.resolve(iterator.next()).then(
+          (result) => {
+            signal.removeEventListener("abort", onAbort);
+            resolve(result);
+          },
+          (error) => {
+            signal.removeEventListener("abort", onAbort);
+            reject(error);
+          }
+        );
+      }
+    );
+  }
+
+  private observeStreamPartial(
+    state: StreamPartialState,
+    event: AdapterLLMStreamEvent
+  ): void {
+    const observed = event.observedEvidence;
+    if (observed?.choice) {
+      const choice = this.getStreamPartialChoice(
+        state,
+        observed.choice.index
+      );
+      if (observed.choice.rawContentDelta !== undefined) {
+        choice.rawContent =
+          (choice.rawContent ?? "") + observed.choice.rawContentDelta;
+      }
+      if (observed.choice.rawContentParts) {
+        choice.rawContentParts = [
+          ...(choice.rawContentParts ?? []),
+          ...observed.choice.rawContentParts,
+        ];
+      }
+      if (observed.choice.rawAnswerAccounting) {
+        choice.rawAnswerAccounting =
+          observed.choice.rawAnswerAccounting;
+      }
+      if (observed.choice.finishReason !== undefined) {
+        choice.finishReason = observed.choice.finishReason;
+      }
+      if (observed.choice.termination) {
+        choice.termination = observed.choice.termination;
+      }
+    }
+    if (observed?.usageEvidence) {
+      state.usageEvidence = {
+        ...(state.usageEvidence ?? {}),
+        ...observed.usageEvidence,
+      };
+    }
+    if (observed?.usage) {
+      state.usage = {
+        ...(state.usage ?? {}),
+        ...Object.fromEntries(
+          Object.entries(observed.usage).filter(
+            ([, value]) => value !== undefined
+          )
+        ),
+      };
+    }
+    if (event.type === "adapter_evidence") {
+      return;
+    }
+    if (event.type === "start") {
+      state.started = true;
+      state.provider = event.provider;
+      state.model = event.model;
+      state.id = event.id;
+      state.created = event.created;
+      return;
+    }
+    if (event.type === "content_delta" || event.type === "reasoning_delta") {
+      const choice = this.getStreamPartialChoice(state, event.index);
+      if (event.type === "content_delta") {
+        choice.content += event.delta;
+      } else {
+        choice.reasoning += event.delta;
+      }
+      return;
+    }
+    if (event.type === "usage") {
+      state.usage = {
+        ...(state.usage ?? {}),
+        ...Object.fromEntries(
+          Object.entries(event.usage).filter(
+            ([, value]) => value !== undefined
+          )
+        ),
+      };
+    }
+  }
+
+  private getStreamPartialChoice(
+    state: StreamPartialState,
+    index: number
+  ): StreamPartialChoiceState {
+    let choice = state.choices.get(index);
+    if (!choice) {
+      choice = { content: "", reasoning: "" };
+      state.choices.set(index, choice);
+    }
+    return choice;
+  }
+
+  private finalizeStreamFailure(
+    failure: LLMFailureResponse,
+    state: StreamPartialState,
+    attemptId: string,
+    prepared: PreparedLLMRequest
+  ): LLMFailureResponse {
+    const processed = this.postProcessResponse(
+      this.attachStreamPartial(failure, state, attemptId),
+      prepared
+    );
+    return processed as LLMFailureResponse;
+  }
+
+  private attachStreamPartial(
+    failure: LLMFailureResponse,
+    state: StreamPartialState,
+    attemptId: string
+  ): LLMFailureResponse {
+    const hasEvidence =
+      state.started ||
+      state.choices.size > 0 ||
+      state.usage !== undefined ||
+      state.usageEvidence !== undefined;
+    if (!hasEvidence) {
+      return failure;
+    }
+
+    const choices = Array.from(state.choices.entries())
+      .sort(([left], [right]) => left - right)
+      .map(([index, choice]) => ({
+        index,
+        message: {
+          role: "assistant" as const,
+          content: choice.content,
+        },
+        ...(choice.reasoning.length > 0 && {
+          reasoning: choice.reasoning,
+        }),
+        ...(choice.rawContent !== undefined && {
+          rawContent: choice.rawContent,
+        }),
+        ...(choice.rawContentParts && {
+          rawContentParts: choice.rawContentParts,
+        }),
+        ...(choice.rawAnswerAccounting && {
+          rawAnswerAccounting: choice.rawAnswerAccounting,
+        }),
+        finish_reason: choice.finishReason ?? null,
+        termination: choice.termination ?? {
+          rawReason: null,
+          kind: "unknown" as const,
+        },
+      }));
+    const observed: Omit<LLMResponse, "object"> = {
+      id: state.id ?? attemptId,
+      provider: state.provider,
+      model: state.model,
+      created: state.created ?? Math.floor(Date.now() / 1000),
+      choices,
+      ...(state.usage && { usage: state.usage }),
+      ...(state.usageEvidence && {
+        usageEvidence: state.usageEvidence,
+      }),
+    };
+    if (!failure.partialResponse) {
+      return { ...failure, partialResponse: observed };
+    }
+
+    const provided = failure.partialResponse;
+    const choicesByIndex = new Map(
+      observed.choices.map((choice, position) => [
+        choice.index ?? position,
+        choice,
+      ])
+    );
+    for (const [position, choice] of provided.choices.entries()) {
+      const index = choice.index ?? position;
+      const prior = choicesByIndex.get(index);
+      choicesByIndex.set(index, {
+        ...(prior ?? {}),
+        ...choice,
+        message: {
+          ...(prior?.message ?? { role: "assistant", content: "" }),
+          ...choice.message,
+        },
+        ...(choice.rawContentParts === undefined &&
+          prior?.rawContentParts && {
+            rawContentParts: prior.rawContentParts,
+          }),
+      });
+    }
+    const usage = {
+      ...(observed.usage ?? {}),
+      ...Object.fromEntries(
+        Object.entries(provided.usage ?? {}).filter(
+          ([, value]) => value !== undefined
+        )
+      ),
+    };
+    const usageEvidence = {
+      ...(observed.usageEvidence ?? {}),
+      ...Object.fromEntries(
+        Object.entries(provided.usageEvidence ?? {}).filter(
+          ([, value]) => value !== undefined
+        )
+      ),
+    };
+    return {
+      ...failure,
+      partialResponse: {
+        ...observed,
+        ...provided,
+        choices: Array.from(choicesByIndex.entries())
+          .sort(([left], [right]) => left - right)
+          .map(([, choice]) => choice),
+        ...(Object.keys(usage).length > 0 && { usage }),
+        ...(Object.keys(usageEvidence).length > 0 && {
+          usageEvidence,
+        }),
+      },
+    };
+  }
+
+  private isValidPreparedAccounting(
+    accounting: PreparedPromptAccounting
+  ): boolean {
+    if (accounting.status === "unavailable") {
+      return true;
+    }
+    return accounting.count !== undefined || accounting.upperBound !== undefined;
+  }
+
+  private createEffectiveOutputTokenLimit(
+    request: LLMChatRequest | LLMChatRequestWithPreset,
+    providerId: ApiProviderId,
+    modelInfo: ModelInfo,
+    filteredMaxTokens: number | undefined
+  ): EffectiveOutputTokenLimit | undefined {
+    if (
+      filteredMaxTokens === undefined ||
+      !Number.isSafeInteger(filteredMaxTokens) ||
+      filteredMaxTokens <= 0
+    ) {
+      return undefined;
+    }
+
+    const presetId = (request as LLMChatRequestWithPreset).presetId;
+    const preset = presetId
+      ? this.presetManager
+          .getPresets()
+          .find((candidate) => candidate.id === presetId)
+      : undefined;
+    const source: EffectiveOutputTokenLimit["source"] =
+      request.settings?.maxTokens !== undefined
+        ? "request"
+        : preset?.settings.maxTokens !== undefined
+          ? "preset"
+          : modelInfo.defaultSettings?.maxTokens !== undefined ||
+              modelInfo.maxTokens !== undefined
+            ? "model_default"
+            : "library_default";
+    const hardLimit = modelInfo.hardOutputTokenLimit;
+    const tokens = hardLimit
+      ? Math.min(filteredMaxTokens, hardLimit.tokens)
+      : filteredMaxTokens;
+    const counts: EffectiveOutputTokenLimit["counts"] =
+      hardLimit?.counts ??
+      (providerId === "mistral"
+        ? "visible_output"
+        : providerId === "openrouter"
+          ? "provider_defined"
+          : providerId === "openai" ||
+              providerId === "anthropic" ||
+              providerId === "gemini" ||
+              providerId === "llamacpp"
+            ? "visible_and_reasoning"
+            : "unknown");
+
+    return {
+      tokens,
+      source,
+      ...(tokens !== filteredMaxTokens && {
+        requestedTokens: filteredMaxTokens,
+        clamp: {
+          tokens,
+          source: hardLimit!.source,
+        },
+      }),
+      counts,
+    };
+  }
+
+  private createUnexpectedDispatchFailure(
+    prepared: PreparedLLMRequest,
+    error: unknown
+  ): LLMFailureResponse {
+    return this.createPreparedFailure(
+      prepared.providerId,
+      prepared.modelId,
+      ADAPTER_ERROR_CODES.PROVIDER_ERROR,
+      error instanceof Error
+        ? error.message
+        : "An unknown error occurred during prepared dispatch.",
+      "server_error",
+      error
+    );
+  }
+
+  private async prepareCanonicalRequest(
+    request: LLMChatRequest | LLMChatRequestWithPreset,
+    mode: PreparedCallMode
   ): Promise<{ prepared: PreparedLLMRequest } | { error: LLMFailureResponse }> {
     const validation = await this.resolveAndValidateCapabilities(request, {
       validateStructure: true,
@@ -687,6 +1438,7 @@ export class LLMService {
       modelInfo,
       resolvedRequest,
       finalSettings,
+      adapterPreparationState,
     } = validation.context;
 
     // Get provider info for parameter filtering
@@ -712,6 +1464,18 @@ export class LLMService {
       modelInfo,
       providerInfo
     );
+    const outputTokenLimit = this.createEffectiveOutputTokenLimit(
+      request,
+      providerId,
+      modelInfo,
+      filteredSettings.maxTokens
+    );
+    if (
+      outputTokenLimit?.clamp &&
+      filteredSettings.maxTokens !== outputTokenLimit.tokens
+    ) {
+      filteredSettings.maxTokens = outputTokenLimit.tokens;
+    }
 
     const internalRequest: InternalLLMChatRequest = {
       ...resolvedRequest,
@@ -731,45 +1495,55 @@ export class LLMService {
     // Get client adapter
     const clientAdapter = this.adapterRegistry.getAdapter(providerId);
 
-    try {
-      const apiKey = await this.getApiKey(providerId);
-      if (!apiKey) {
-        return {
-          error: {
-            provider: providerId,
-            model: modelId,
-            error: {
-              message: `API key for provider '${providerId}' could not be retrieved. Ensure your ApiKeyProvider is configured correctly.`,
-              code: "API_KEY_ERROR",
-              type: "authentication_error",
-            },
-            object: "error",
-          },
-        };
-      }
-
-      // Validate API key format if adapter supports it
-      if (clientAdapter.validateApiKey && !clientAdapter.validateApiKey(apiKey)) {
-        return {
-          error: {
-            provider: providerId,
-            model: modelId,
-            error: {
-              message: `Invalid API key format for provider '${providerId}'. Please check your API key.`,
-              code: "INVALID_API_KEY",
-              type: "authentication_error",
-            },
-            object: "error",
-          },
-        };
-      }
-
-      const adapterOptions: AdapterRequestOptions = {
-        ...(callOptions?.signal && { signal: callOptions.signal }),
-        ...((callOptions?.timeoutMs ?? this.defaultTimeoutMs) !== undefined && {
-          timeoutMs: callOptions?.timeoutMs ?? this.defaultTimeoutMs,
-        }),
+    if (!clientAdapter.prepareRequest) {
+      return {
+        error: this.createPreparedFailure(
+          providerId,
+          modelId,
+          ADAPTER_ERROR_CODES.PREPARED_CALL_UNSUPPORTED,
+          `Prepared calls are not supported for provider '${providerId}'.`,
+          "unsupported_feature"
+        ),
       };
+    }
+
+    try {
+      const adapterResult = await clientAdapter.prepareRequest(internalRequest, {
+        mode,
+        modelInfo,
+        outputTokenLimit,
+        ...(adapterPreparationState !== undefined && {
+          providerState: adapterPreparationState,
+        }),
+      });
+      if ("error" in adapterResult) {
+        return { error: adapterResult.error };
+      }
+      if (!this.isValidPreparedAccounting(adapterResult.prepared.promptAccounting)) {
+        return {
+          error: this.createPreparedFailure(
+            providerId,
+            modelId,
+            ADAPTER_ERROR_CODES.INVALID_PREPARED_CALL,
+            "The adapter returned invalid prepared prompt accounting.",
+            "server_error"
+          ),
+        };
+      }
+      if (adapterResult.prepared.mode !== mode) {
+        return {
+          error: this.createPreparedFailure(
+            providerId,
+            modelId,
+            ADAPTER_ERROR_CODES.INVALID_PREPARED_CALL,
+            `The adapter prepared mode '${String(
+              adapterResult.prepared.mode
+            )}' instead of '${mode}'.`,
+            "server_error"
+          ),
+        };
+      }
+      const adapterPrepared = deepFreeze(adapterResult.prepared);
 
       return {
         prepared: {
@@ -779,29 +1553,24 @@ export class LLMService {
           resolvedRequest,
           internalRequest,
           clientAdapter,
-          apiKey,
-          adapterOptions,
+          adapterPrepared,
         },
       };
     } catch (error) {
-      this.logger.error("Error preparing LLM request:", error);
       return {
-        error: {
-          provider: providerId!,
-          model: modelId!,
-          error: {
-            message:
-              error instanceof Error
-                ? error.message
-                : "An unknown error occurred during request preparation.",
-            code: "PROVIDER_ERROR",
-            type: "server_error",
-            providerError: error,
-          },
-          object: "error",
-        },
+        error: this.createPreparedFailure(
+          providerId,
+          modelId,
+          ADAPTER_ERROR_CODES.PROVIDER_ERROR,
+          error instanceof Error
+            ? error.message
+            : "An unknown error occurred during request preparation.",
+          "server_error",
+          error
+        ),
       };
     }
+
   }
 
   private postProcessResponse(
@@ -809,7 +1578,53 @@ export class LLMService {
     prepared: PreparedLLMRequest
   ): LLMResponse | LLMFailureResponse {
     if (result.object === "error") {
-      return result;
+      if (!result.partialResponse) {
+        return result;
+      }
+      const processed = this.postProcessResponse(
+        {
+          ...result.partialResponse,
+          object: "chat.completion",
+        },
+        prepared
+      );
+      if (processed.object === "error") {
+        return {
+          ...result,
+          ...(processed.partialResponse && {
+            partialResponse: processed.partialResponse,
+          }),
+        };
+      }
+      const { object: _object, ...partialResponse } = processed;
+      return { ...result, partialResponse };
+    }
+
+    const tokenProfile = resolveTokenProfile(
+      prepared.providerId,
+      prepared.modelId
+    );
+    if (tokenProfile.status === "available") {
+      for (const choice of result.choices) {
+        const rawContent = choice.rawContent ?? choice.message.content;
+        choice.rawContent ??= rawContent;
+        if (!choice.rawAnswerAccounting) {
+          const counted = countTextTokens(rawContent, tokenProfile.profile);
+          if (counted.status === "available") {
+            choice.rawAnswerAccounting = {
+              tokens: counted.count.tokens,
+              method: counted.count.method,
+              source: "library",
+              tokenizerId: counted.count.tokenizerId,
+              tokenProfileRevision: counted.count.tokenProfileRevision,
+              reasoning:
+                choice.reasoning && choice.reasoning.length > 0
+                  ? "excluded"
+                  : "unknown",
+            };
+          }
+        }
+      }
     }
 
     // Post-process for thinking tag fallback
@@ -830,6 +1645,7 @@ export class LLMService {
       // Process the response - extract thinking tags if present
       const choice = result.choices[0];
       if (choice?.message?.content) {
+        choice.rawContent ??= choice.message.content;
         const { extracted, remaining } = extractInitialTaggedContent(choice.message.content, tagName);
 
         if (extracted !== null) {
@@ -847,6 +1663,9 @@ export class LLMService {
             choice.reasoning = extracted;
           }
           choice.message.content = remaining;
+          if (choice.rawAnswerAccounting) {
+            choice.rawAnswerAccounting.reasoning = "included_extracted";
+          }
         } else {
           // Tag was not found
           // Enforce only if: (1) enforce: true AND (2) native reasoning is NOT active
@@ -875,7 +1694,8 @@ export class LLMService {
                 model: result.model,
                 created: result.created,
                 choices: result.choices,
-                usage: result.usage
+                usage: result.usage,
+                usageEvidence: result.usageEvidence,
               }
             };
           }

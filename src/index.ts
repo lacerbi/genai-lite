@@ -3,7 +3,13 @@ export type { ApiKeyProvider, PresetMode } from "./types";
 
 // --- LLM Service ---
 export { LLMService } from "./llm/LLMService";
-export type { LLMServiceOptions, SendMessageOptions, StreamMessageOptions, CreateMessagesResult } from "./llm/LLMService";
+export type {
+  LLMServiceOptions,
+  SendMessageOptions,
+  StreamMessageOptions,
+  PrepareMessageOptions,
+  CreateMessagesResult,
+} from "./llm/LLMService";
 
 // --- Retry Utilities ---
 export { withRetry, DEFAULT_RETRY_POLICY } from "./shared/services/withRetry";
@@ -39,6 +45,8 @@ export type {
   LlamaCppSlotsResponse,
   LlamaCppModel,
   LlamaCppModelsResponse,
+  LlamaCppChatInputTokensResponse,
+  LlamaCppUtilityRequestOptions,
 } from "./llm/clients/LlamaCppServerClient";
 
 // --- OpenRouter Integration ---
@@ -88,6 +96,22 @@ export type {
 // --- Utilities ---
 export { renderTemplate } from "./prompting/template";
 export { countTokens, getSmartPreview, extractRandomVariables } from "./prompting/content";
+export {
+  TOKEN_PROFILE_MAPPING_REVISION,
+  codePointBoundToTokenUpperBound,
+  countTextTokens,
+  estimateTextTokens,
+  getTokenProfileById,
+  resolveTokenProfile,
+  retokenizationUpperBound,
+} from "./llm/tokenization";
+export type {
+  TokenBoundResult,
+  TokenCountResult,
+  TokenProfile,
+  TokenProfileId,
+  TokenProfileResolution,
+} from "./llm/tokenization";
 export { parseStructuredContent, parseRoleTags, extractInitialTaggedContent, extractMarkerDelimitedContent, parseTemplateWithMetadata } from "./prompting/parser";
 export type { TemplateMetadata } from "./prompting/parser";
 export { createFallbackModelInfo, detectGgufCapabilities, KNOWN_GGUF_MODELS } from "./llm/config";

@@ -2,21 +2,34 @@
 // Provides unified access to 100+ LLM models from various providers through a single API.
 
 import OpenAI from "openai";
-import type { LLMResponse, LLMFailureResponse, LLMStreamEvent } from "../types";
+import type { LLMResponse, LLMFailureResponse } from "../types";
 import type {
   ILLMClientAdapter,
   InternalLLMChatRequest,
   AdapterRequestOptions,
+  AdapterLLMStreamEvent,
+  AdapterPreparationContext,
+  AdapterPreparationResult,
+  AdapterPreparedRequest,
 } from "./types";
 import { ADAPTER_ERROR_CODES } from "./types";
 import { getCommonMappedErrorDetails } from "../../shared/adapters/errorUtils";
 import { mapOpenAIChatLogprobs } from "../../shared/adapters/logprobsUtils";
+import {
+  normalizeTermination,
+  normalizeUsage,
+} from "../../shared/adapters/usageUtils";
 import {
   collectSystemContent,
   prependSystemToFirstUserMessage,
 } from "../../shared/adapters/systemMessageUtils";
 import type { Logger } from "../../logging/types";
 import { createDefaultLogger } from "../../logging/defaultLogger";
+import {
+  applyPromptStructuredOutput,
+  createPreparedRequestView,
+  freezeProviderRequest,
+} from "./preparedAdapterUtils";
 
 /**
  * Configuration options for OpenRouterClientAdapter
@@ -36,6 +49,14 @@ interface OpenRouterCompletionRequest {
   openai: OpenAI;
   completionParams: OpenAI.Chat.Completions.ChatCompletionCreateParams;
 }
+
+interface OpenRouterPreparedProviderRequest {
+  request: InternalLLMChatRequest;
+  completionParams: OpenAI.Chat.Completions.ChatCompletionCreateParams;
+}
+
+const OPENROUTER_ADAPTER_REVISION = "openrouter-adapter-v1";
+const OPENROUTER_REQUEST_SHAPE_REVISION = "openrouter-chat-completions-v1";
 
 interface OpenRouterStreamChoiceState {
   content: string;
@@ -93,6 +114,96 @@ export class OpenRouterClientAdapter implements ILLMClientAdapter {
     this.logger = config?.logger ?? createDefaultLogger();
   }
 
+  async prepareRequest(
+    request: InternalLLMChatRequest,
+    context: AdapterPreparationContext
+  ): Promise<AdapterPreparationResult> {
+    try {
+      request = applyPromptStructuredOutput(request);
+      const baseParams = this.prepareCompletionParams(request);
+      const completionParams =
+        context.mode === "stream"
+          ? ({
+              ...baseParams,
+              stream: true,
+              stream_options: { include_usage: true },
+            } as OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming)
+          : baseParams;
+      const providerRequest =
+        freezeProviderRequest<OpenRouterPreparedProviderRequest>({
+          request,
+          completionParams,
+        });
+      return {
+        prepared: {
+          mode: context.mode,
+          providerRequest,
+          requestView: createPreparedRequestView({
+            operation: "openrouter.chat.completions",
+            mode: context.mode,
+            payload: completionParams as unknown as Record<string, unknown>,
+            structuredOutput: request.settings.structuredOutput,
+            reasoningField: "reasoning",
+            extensionFields: ["provider"],
+          }),
+          promptAccounting: { status: "unavailable" },
+          outputTokenLimit: context.outputTokenLimit,
+          bindings: {
+            adapterRevision: OPENROUTER_ADAPTER_REVISION,
+            requestShapeRevision: OPENROUTER_REQUEST_SHAPE_REVISION,
+          },
+        },
+      };
+    } catch (error) {
+      return { error: this.createErrorResponse(error, request) };
+    }
+  }
+
+  async sendPrepared(
+    prepared: AdapterPreparedRequest,
+    apiKey: string,
+    options?: AdapterRequestOptions
+  ): Promise<LLMResponse | LLMFailureResponse> {
+    const providerRequest =
+      prepared.providerRequest as OpenRouterPreparedProviderRequest;
+    const request = providerRequest.request;
+    try {
+      const openai = this.createClient(apiKey);
+      const completionParams = structuredClone(
+        providerRequest.completionParams
+      ) as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming;
+      const transportOptions = this.createTransportOptions(options);
+      const completion =
+        Object.keys(transportOptions).length > 0
+          ? await openai.chat.completions.create(
+              completionParams,
+              transportOptions
+            )
+          : await openai.chat.completions.create(completionParams);
+      return this.createSuccessResponse(completion, request);
+    } catch (error) {
+      this.logger.error("OpenRouter prepared API error:", error);
+      return this.createErrorResponse(error, request);
+    }
+  }
+
+  async *streamPrepared(
+    prepared: AdapterPreparedRequest,
+    apiKey: string,
+    options?: AdapterRequestOptions
+  ): AsyncIterable<AdapterLLMStreamEvent> {
+    const providerRequest =
+      prepared.providerRequest as OpenRouterPreparedProviderRequest;
+    yield* this.streamCompletion(
+      providerRequest.request,
+      structuredClone(
+        providerRequest.completionParams
+      ) as OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming,
+      apiKey,
+      options
+    );
+  }
+
   /**
    * Sends a chat message to OpenRouter API
    *
@@ -105,6 +216,7 @@ export class OpenRouterClientAdapter implements ILLMClientAdapter {
     apiKey: string,
     options?: AdapterRequestOptions
   ): Promise<LLMResponse | LLMFailureResponse> {
+    request = applyPromptStructuredOutput(request);
     try {
       const { openai, completionParams } = this.prepareCompletionRequest(request, apiKey);
 
@@ -146,7 +258,22 @@ export class OpenRouterClientAdapter implements ILLMClientAdapter {
     request: InternalLLMChatRequest,
     apiKey: string,
     options?: AdapterRequestOptions
-  ): AsyncIterable<LLMStreamEvent> {
+  ): AsyncIterable<AdapterLLMStreamEvent> {
+    request = applyPromptStructuredOutput(request);
+    const streamParams = {
+      ...this.prepareCompletionParams(request),
+      stream: true,
+      stream_options: { include_usage: true },
+    } as OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming;
+    yield* this.streamCompletion(request, streamParams, apiKey, options);
+  }
+
+  private async *streamCompletion(
+    request: InternalLLMChatRequest,
+    streamParams: OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming,
+    apiKey: string,
+    options?: AdapterRequestOptions
+  ): AsyncIterable<AdapterLLMStreamEvent> {
     const choiceStates = new Map<number, OpenRouterStreamChoiceState>();
     let responseId = "";
     let responseModel = request.modelId;
@@ -154,12 +281,7 @@ export class OpenRouterClientAdapter implements ILLMClientAdapter {
     let usage: OpenAI.Completions.CompletionUsage | undefined;
 
     try {
-      const { openai, completionParams } = this.prepareCompletionRequest(request, apiKey);
-      const streamParams = {
-        ...completionParams,
-        stream: true,
-        stream_options: { include_usage: true },
-      } as OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming;
+      const openai = this.createClient(apiKey);
       const transportOptions = this.createTransportOptions(options);
       const stream =
         Object.keys(transportOptions).length > 0
@@ -171,7 +293,110 @@ export class OpenRouterClientAdapter implements ILLMClientAdapter {
         responseId = chunk.id || responseId;
         responseModel = chunk.model || responseModel;
         created = chunk.created || created;
+        const evidenceEvents: AdapterLLMStreamEvent[] = [];
+        const publicEvents: AdapterLLMStreamEvent[] = [];
 
+        if (chunk.usage) {
+          usage = chunk.usage;
+          const normalized = normalizeUsage(
+            chunk.usage as unknown as Record<string, unknown>,
+            {
+              prompt: ["prompt_tokens"],
+              completion: ["completion_tokens"],
+              total: ["total_tokens"],
+            }
+          );
+          if (normalized.usage) {
+            evidenceEvents.push({
+              type: "adapter_evidence",
+              observedEvidence: {
+                usage: normalized.usage,
+                usageEvidence: normalized.usageEvidence,
+              },
+            });
+            publicEvents.push({
+              type: "usage",
+              usage: normalized.usage,
+              observedEvidence: {
+                usageEvidence: normalized.usageEvidence,
+              },
+            });
+          }
+        }
+
+        for (const choice of chunk.choices || []) {
+          const state = this.getStreamChoiceState(choiceStates, choice.index);
+          state.finishReason = choice.finish_reason ?? state.finishReason;
+          if (choice.finish_reason != null) {
+            evidenceEvents.push({
+              type: "adapter_evidence",
+              observedEvidence: {
+                choice: {
+                  index: choice.index,
+                  finishReason: choice.finish_reason,
+                  termination: normalizeTermination(choice.finish_reason),
+                },
+              },
+            });
+          }
+          const delta = choice.delta as any;
+
+          const reasoningDelta = delta?.reasoning ?? delta?.reasoning_content;
+          if (typeof reasoningDelta === "string" && reasoningDelta.length > 0) {
+            state.reasoning += reasoningDelta;
+            evidenceEvents.push({
+              type: "adapter_evidence",
+              observedEvidence: {
+                choice: {
+                  index: choice.index,
+                  rawContentParts: [{
+                    type: "reasoning",
+                    text: reasoningDelta,
+                    reasoning: true,
+                  }],
+                },
+              },
+            });
+            if (request.settings.reasoning?.exclude !== true) {
+              publicEvents.push({
+                type: "reasoning_delta",
+                delta: reasoningDelta,
+                index: choice.index,
+              });
+            }
+          }
+
+          if (delta?.reasoning_details) {
+            state.reasoningDetails = delta.reasoning_details;
+          }
+
+          if (typeof delta?.content === "string" && delta.content.length > 0) {
+            state.content += delta.content;
+            evidenceEvents.push({
+              type: "adapter_evidence",
+              observedEvidence: {
+                choice: {
+                  index: choice.index,
+                  rawContentDelta: delta.content,
+                },
+              },
+            });
+            publicEvents.push({
+              type: "content_delta",
+              delta: delta.content,
+              index: choice.index,
+            });
+          }
+
+          const mappedLogprobs = mapOpenAIChatLogprobs(choice.logprobs);
+          if (mappedLogprobs) {
+            state.logprobs.push(...((choice.logprobs as any)?.content || []));
+          }
+        }
+
+        for (const event of evidenceEvents) {
+          yield event;
+        }
         if (!started) {
           started = true;
           yield {
@@ -182,53 +407,8 @@ export class OpenRouterClientAdapter implements ILLMClientAdapter {
             created,
           };
         }
-
-        if (chunk.usage) {
-          usage = chunk.usage;
-          yield {
-            type: "usage",
-            usage: {
-              prompt_tokens: chunk.usage.prompt_tokens,
-              completion_tokens: chunk.usage.completion_tokens,
-              total_tokens: chunk.usage.total_tokens,
-            },
-          };
-        }
-
-        for (const choice of chunk.choices || []) {
-          const state = this.getStreamChoiceState(choiceStates, choice.index);
-          state.finishReason = choice.finish_reason ?? state.finishReason;
-          const delta = choice.delta as any;
-
-          const reasoningDelta = delta?.reasoning ?? delta?.reasoning_content;
-          if (typeof reasoningDelta === "string" && reasoningDelta.length > 0) {
-            state.reasoning += reasoningDelta;
-            if (request.settings.reasoning?.exclude !== true) {
-              yield {
-                type: "reasoning_delta",
-                delta: reasoningDelta,
-                index: choice.index,
-              };
-            }
-          }
-
-          if (delta?.reasoning_details) {
-            state.reasoningDetails = delta.reasoning_details;
-          }
-
-          if (typeof delta?.content === "string" && delta.content.length > 0) {
-            state.content += delta.content;
-            yield {
-              type: "content_delta",
-              delta: delta.content,
-              index: choice.index,
-            };
-          }
-
-          const mappedLogprobs = mapOpenAIChatLogprobs(choice.logprobs);
-          if (mappedLogprobs) {
-            state.logprobs.push(...((choice.logprobs as any)?.content || []));
-          }
+        for (const event of publicEvents) {
+          yield event;
         }
       }
 
@@ -267,6 +447,24 @@ export class OpenRouterClientAdapter implements ILLMClientAdapter {
           created: partial.created,
           choices: partial.choices,
           usage: partial.usage,
+          usageEvidence: partial.usageEvidence,
+        };
+      } else if (usage) {
+        const normalizedUsage = normalizeUsage(
+          usage as unknown as Record<string, unknown>,
+          {
+            prompt: ["prompt_tokens"],
+            completion: ["completion_tokens"],
+            total: ["total_tokens"],
+          }
+        );
+        errorResponse.partialResponse = {
+          id: responseId,
+          provider: request.providerId,
+          model: responseModel,
+          created,
+          choices: [],
+          ...normalizedUsage,
         };
       }
       yield { type: "error", error: errorResponse };
@@ -277,7 +475,14 @@ export class OpenRouterClientAdapter implements ILLMClientAdapter {
     request: InternalLLMChatRequest,
     apiKey: string
   ): OpenRouterCompletionRequest {
-    const openai = new OpenAI({
+    return {
+      openai: this.createClient(apiKey),
+      completionParams: this.prepareCompletionParams(request),
+    };
+  }
+
+  private createClient(apiKey: string): OpenAI {
+    return new OpenAI({
       apiKey,
       maxRetries: 0, // retries are owned by the unified LLMService retry layer
       baseURL: this.baseURL,
@@ -286,7 +491,11 @@ export class OpenRouterClientAdapter implements ILLMClientAdapter {
         ...(this.siteTitle && { 'X-Title': this.siteTitle }),
       },
     });
+  }
 
+  private prepareCompletionParams(
+    request: InternalLLMChatRequest
+  ): OpenAI.Chat.Completions.ChatCompletionCreateParams {
     const messages = this.formatMessages(request);
     const completionParams: OpenAI.Chat.Completions.ChatCompletionCreateParams = {
       model: request.modelId,
@@ -346,7 +555,11 @@ export class OpenRouterClientAdapter implements ILLMClientAdapter {
       }
     }
 
-    if (request.settings.structuredOutput?.schema && request.settings.structuredOutput.enabled !== false) {
+    if (
+      request.settings.structuredOutput?.schema &&
+      request.settings.structuredOutput.enabled !== false &&
+      request.settings.structuredOutput.delivery !== "prompt"
+    ) {
       const so = request.settings.structuredOutput;
       (completionParams as any).response_format = {
         type: 'json_schema',
@@ -379,7 +592,7 @@ export class OpenRouterClientAdapter implements ILLMClientAdapter {
       (completionParams as any).reasoning = reasoning;
     }
 
-    return { openai, completionParams };
+    return completionParams;
   }
 
   private createTransportOptions(options?: AdapterRequestOptions) {
@@ -554,6 +767,15 @@ export class OpenRouterClientAdapter implements ILLMClientAdapter {
       throw new Error("No valid choices in OpenRouter completion response");
     }
 
+    const normalizedUsage = normalizeUsage(
+      completion.usage as unknown as Record<string, unknown> | undefined,
+      {
+        prompt: ["prompt_tokens"],
+        completion: ["completion_tokens"],
+        total: ["total_tokens"],
+      }
+    );
+
     return {
       id: completion.id,
       provider: request.providerId,
@@ -565,7 +787,9 @@ export class OpenRouterClientAdapter implements ILLMClientAdapter {
             role: "assistant",
             content: c.message.content || "",
           },
+          rawContent: c.message.content || "",
           finish_reason: c.finish_reason,
+          termination: normalizeTermination(c.finish_reason),
           index: c.index,
         };
 
@@ -588,13 +812,7 @@ export class OpenRouterClientAdapter implements ILLMClientAdapter {
 
         return mappedChoice;
       }),
-      usage: completion.usage
-        ? {
-            prompt_tokens: completion.usage.prompt_tokens,
-            completion_tokens: completion.usage.completion_tokens,
-            total_tokens: completion.usage.total_tokens,
-          }
-        : undefined,
+      ...normalizedUsage,
       object: "chat.completion",
     };
   }

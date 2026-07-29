@@ -335,6 +335,28 @@ describe('RequestValidator', () => {
       expect(result).toBeNull();
     });
 
+    it("allows explicit prompt delivery without native provider support", () => {
+      const result = validator.validateStructuredOutputSettings(
+        mockModelWithoutStructuredOutput,
+        { ...validStructuredOutput, delivery: "prompt" },
+        baseRequest
+      );
+
+      expect(result).toBeNull();
+    });
+
+    it("rejects an invalid structured-output delivery value at runtime", () => {
+      const result = validator.validateStructuredOutputSettings(
+        mockModelWithStructuredOutput,
+        { ...validStructuredOutput, delivery: "invalid" as any },
+        baseRequest
+      );
+
+      expect(result?.error.code).toBe(
+        "structured_output_invalid_delivery"
+      );
+    });
+
     it('should pass validation for models with partial support (no strict mode)', () => {
       const result = validator.validateStructuredOutputSettings(
         mockModelWithPartialSupport,

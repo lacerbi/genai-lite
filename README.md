@@ -19,6 +19,9 @@ A lightweight, portable Node.js/TypeScript library providing a unified interface
 - 🎭 **Template Engine** - Sophisticated templating with conditionals and variable substitution
 - 📊 **Configurable Logging** - Debug mode, custom loggers (pino, winston), and silent mode for tests
 
+Prepared calls can inspect and budget the immutable semantic provider request,
+then dispatch that same representation with truthful token/termination evidence.
+
 ## Installation
 
 ```bash
@@ -105,6 +108,24 @@ for await (const event of llmService.streamMessage({
 
 Streaming is implemented for all text providers: `openai`, `anthropic`, `gemini`, `mistral`, `openrouter`, and `llamacpp`. The final `complete.response` event contains the same normalized response shape returned by `sendMessage()`.
 
+### Prepared Calls
+
+```typescript
+const prepared = await llmService.prepareMessage(request, { mode: 'complete' });
+if ('object' in prepared) throw new Error(prepared.error.message);
+
+const inspection = await llmService.inspectPrepared(prepared);
+if ('object' in inspection) throw new Error(inspection.error.message);
+
+console.log(inspection.promptAccounting, inspection.outputTokenLimit);
+const response = await llmService.sendPrepared(prepared);
+```
+
+Preparation is credential-free and mode-bound. See
+**[Prepared Calls & Token Accounting](./genai-lite-docs/prepared-calls-and-accounting.md)**
+for certified structural bounds, the single-margin capacity formula, response
+evidence, and exact active-template llama.cpp counting.
+
 ### Image Generation
 
 ```typescript
@@ -138,6 +159,7 @@ Comprehensive documentation is available in the **[`genai-lite-docs`](./genai-li
 
 ### API Reference
 - **[LLM Service](./genai-lite-docs/llm-service.md)** - Text generation and chat
+- **[Prepared Calls & Token Accounting](./genai-lite-docs/prepared-calls-and-accounting.md)** - Inspect, budget, and dispatch one canonical request
 - **[Image Service](./genai-lite-docs/image-service.md)** - Image generation (cloud and local)
 - **[llama.cpp Integration](./genai-lite-docs/llamacpp-integration.md)** - Local LLM inference
 

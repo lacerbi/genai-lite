@@ -606,7 +606,7 @@ describe('OpenRouterClientAdapter', () => {
         stream_options: { include_usage: true },
         model: 'google/gemma-3-27b-it:free'
       }));
-      expect(events[0]).toMatchObject({
+      expect(events.find((event) => event.type === "start")).toMatchObject({
         type: 'start',
         provider: 'openrouter',
         id: 'gen-stream'

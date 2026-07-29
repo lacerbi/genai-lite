@@ -434,7 +434,7 @@ describe('AnthropicClientAdapter', () => {
         signal: controller.signal,
         timeout: 5000,
       });
-      expect(events[0]).toMatchObject({
+      expect(events.find((event) => event.type === "start")).toMatchObject({
         type: 'start',
         provider: 'anthropic',
         model: 'claude-3-5-sonnet-20241022',
@@ -487,6 +487,21 @@ describe('AnthropicClientAdapter', () => {
         delta: 'thinking ',
         index: 0
       });
+      expect(events.find((event) => event.type === "content_delta")).toMatchObject({
+        type: "content_delta",
+        delta: "answer",
+        index: 0,
+      });
+      expect(
+        new Set(
+          events.flatMap((event) =>
+            event.type === "adapter_evidence" &&
+            event.observedEvidence.choice !== undefined
+              ? [event.observedEvidence.choice.index]
+              : []
+          )
+        )
+      ).toEqual(new Set([0]));
       const complete = events.find((event) => event.type === 'complete');
       if (complete?.type === 'complete') {
         expect(complete.response.choices[0].reasoning).toBe('thinking ');

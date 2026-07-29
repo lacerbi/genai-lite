@@ -230,6 +230,42 @@ describe('ModelResolver', () => {
       expect(result.modelInfo?.structuredOutput?.supported).toBe(true);
     });
 
+    it("carries one llama.cpp resolution snapshot into adapter preparation", async () => {
+      const snapshot = {
+        kind: "llamacpp-preparation-v1",
+        selectedModel: "llamacpp",
+        detectedCaps: {
+          defaultSettings: { temperature: 0.6 },
+          localReasoning: { toggleKwarg: "enable_thinking" },
+        },
+        stateBinding: {
+          serverStateFingerprint: "state-a",
+          chatTemplateFingerprint: "template-a",
+          metadata: { model: "model-a.gguf", buildInfo: "{}" },
+        },
+      };
+      const getPreparationSnapshot = jest
+        .fn()
+        .mockResolvedValue(snapshot);
+      const getModelCapabilities = jest.fn();
+      mockAdapterRegistry.getAdapter.mockReturnValue({
+        getPreparationSnapshot,
+        getModelCapabilities,
+      } as any);
+
+      const result = await resolver.resolve({
+        providerId: "llamacpp",
+        modelId: "llamacpp",
+      });
+
+      expect(getPreparationSnapshot).toHaveBeenCalledWith("llamacpp");
+      expect(getModelCapabilities).not.toHaveBeenCalled();
+      expect(result.adapterPreparationState).toBe(snapshot);
+      expect(result.modelInfo?.defaultSettings).toEqual({
+        temperature: 0.6,
+      });
+    });
+
     it('should keep the generic llamacpp entry unchanged when detection fails', async () => {
       mockAdapterRegistry.getAdapter.mockReturnValue({
         getModelCapabilities: jest.fn().mockResolvedValue(null),

@@ -8,6 +8,7 @@ Complete guide to text generation and chat completions using genai-lite's LLMSer
 - [Basic Usage](#basic-usage) - Simple message sending
 - [Capability Preflight](#capability-preflight) - Check provider/model support before sending
 - [Streaming Text](#streaming-text) - Token deltas from streaming-capable providers
+- [Prepared Calls and Accounting](prepared-calls-and-accounting.md) - Inspect and budget the exact semantic request
 - [Structured Output](#structured-output) - Guaranteed JSON responses with schema validation
 - [Reasoning Mode](#reasoning-mode) - Advanced problem-solving with native reasoning
 - [Thinking Tag Fallback](#thinking-tag-fallback) - Structured reasoning for non-reasoning models
@@ -36,6 +37,10 @@ The `LLMService` class provides a unified interface for text generation across m
 - Preset management for common configurations
 - Streaming text deltas for providers that implement streaming
 - Consistent error handling
+- Credential-free, mode-bound prepared requests with immutable inspection
+
+For applications that enforce context boundaries or need lossless accounting
+evidence, see [Prepared Calls and Token Accounting](prepared-calls-and-accounting.md).
 
 ## Basic Usage
 
@@ -189,7 +194,13 @@ type LLMStreamEvent =
   | { type: 'usage'; usage: LLMUsage }
   | { type: 'complete'; response: LLMResponse }
   | { type: 'error'; error: LLMFailureResponse };
+
+type LLMServiceStreamEvent = LLMStreamEvent & { attemptId: string };
 ```
+
+`LLMStreamEvent` is the source-compatible custom-adapter event shape.
+`streamMessage()` and `streamPrepared()` emit `LLMServiceStreamEvent`; all
+events from one physical invocation share its `attemptId`.
 
 ### Provider Support
 

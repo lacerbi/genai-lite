@@ -5,8 +5,19 @@ import type {
   LLMChatRequest,
   LLMResponse,
   LLMFailureResponse,
+  LLMRawAnswerAccounting,
+  LLMRawContentPart,
   LLMSettings,
   LLMStreamEvent,
+  LLMTermination,
+  LLMUsage,
+  LLMUsageEvidence,
+  ModelInfo,
+  PreparedCallMode,
+  PreparedPromptAccounting,
+  PreparedProviderRequestView,
+  PreparedRequestBindings,
+  EffectiveOutputTokenLimit,
 } from "../types";
 
 /**
@@ -30,6 +41,65 @@ export interface AdapterRequestOptions {
   /** Request timeout in milliseconds (mapped to each SDK's timeout mechanism) */
   timeoutMs?: number;
 }
+
+/** Raw/provenance evidence observed by an adapter while streaming. */
+export interface AdapterStreamObservedEvidence {
+  choice?: {
+    index: number;
+    rawContentDelta?: string;
+    rawContentParts?: LLMRawContentPart[];
+    rawAnswerAccounting?: LLMRawAnswerAccounting;
+    finishReason?: string | null;
+    termination?: LLMTermination;
+  };
+  usage?: LLMUsage;
+  usageEvidence?: LLMUsageEvidence;
+}
+
+/**
+ * Stream event emitted by adapters before the service assigns an attempt ID.
+ *
+ * Existing adapters may keep emitting the legacy LLMStreamEvent union. Built-in
+ * adapters can attach evidence to a public event or emit an adapter-only
+ * evidence event, which LLMService consumes without forwarding.
+ */
+export type AdapterLLMStreamEvent =
+  | (LLMStreamEvent & {
+      observedEvidence?: AdapterStreamObservedEvidence;
+    })
+  | {
+      type: "adapter_evidence";
+      observedEvidence: AdapterStreamObservedEvidence;
+    };
+
+/** Context supplied to credential-free adapter preparation. */
+export interface AdapterPreparationContext {
+  mode: PreparedCallMode;
+  modelInfo: ModelInfo;
+  outputTokenLimit?: EffectiveOutputTokenLimit;
+  /** Opaque adapter-owned state captured during dynamic model resolution. */
+  providerState?: unknown;
+}
+
+/** Opaque adapter-owned command plus stable inspection evidence. */
+export interface AdapterPreparedRequest<TProviderRequest = unknown> {
+  mode: PreparedCallMode;
+  providerRequest: TProviderRequest;
+  requestView: PreparedProviderRequestView;
+  promptAccounting: PreparedPromptAccounting;
+  outputTokenLimit?: EffectiveOutputTokenLimit;
+  bindings: PreparedRequestBindings;
+}
+
+/** Result of credential-free adapter preparation. */
+export type AdapterPreparationResult =
+  | { prepared: AdapterPreparedRequest }
+  | { error: LLMFailureResponse };
+
+/** Result of revalidating observable prepared-call bindings. */
+export type AdapterRevalidationResult =
+  | { valid: true }
+  | { valid: false; error: LLMFailureResponse };
 
 /**
  * Interface that all LLM client adapters must implement
@@ -69,7 +139,38 @@ export interface ILLMClientAdapter {
     request: InternalLLMChatRequest,
     apiKey: string,
     options?: AdapterRequestOptions
-  ): AsyncIterable<LLMStreamEvent>;
+  ): AsyncIterable<AdapterLLMStreamEvent>;
+
+  /**
+   * Optional credential-free canonical preparation capability.
+   *
+   * Built-in adapters implement this. Legacy custom adapters remain
+   * source-compatible and are reported as unsupported when it is absent.
+   */
+  prepareRequest?(
+    request: InternalLLMChatRequest,
+    context: AdapterPreparationContext
+  ): Promise<AdapterPreparationResult>;
+
+  /** Dispatches a canonical non-streaming provider request. */
+  sendPrepared?(
+    prepared: AdapterPreparedRequest,
+    apiKey: string,
+    options?: AdapterRequestOptions
+  ): Promise<LLMResponse | LLMFailureResponse>;
+
+  /** Dispatches a canonical streaming provider request. */
+  streamPrepared?(
+    prepared: AdapterPreparedRequest,
+    apiKey: string,
+    options?: AdapterRequestOptions
+  ): AsyncIterable<AdapterLLMStreamEvent>;
+
+  /** Revalidates locally observable state before an inference request. */
+  revalidatePreparedRequest?(
+    prepared: AdapterPreparedRequest,
+    options?: AdapterRequestOptions
+  ): Promise<AdapterRevalidationResult>;
 
   /**
    * Optional method to validate API key format before making requests
@@ -108,6 +209,14 @@ export const ADAPTER_ERROR_CODES = {
   REQUEST_TIMEOUT: "REQUEST_TIMEOUT",
   /** The request was cancelled via AbortSignal (never retried) */
   REQUEST_ABORTED: "REQUEST_ABORTED",
+  /** The adapter does not implement canonical prepared calls. */
+  PREPARED_CALL_UNSUPPORTED: "PREPARED_CALL_UNSUPPORTED",
+  /** Observable local state changed after preparation. */
+  PREPARED_CALL_STALE: "PREPARED_CALL_STALE",
+  /** A prepared handle is invalid, forged, or belongs to another service. */
+  INVALID_PREPARED_CALL: "INVALID_PREPARED_CALL",
+  /** A prepared handle was dispatched with the wrong mode. */
+  PREPARED_CALL_MODE_MISMATCH: "PREPARED_CALL_MODE_MISMATCH",
 } as const;
 
 /**

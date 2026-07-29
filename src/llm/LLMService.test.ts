@@ -209,7 +209,9 @@ describe('LLMService', () => {
     it('should yield an error when an adapter does not support streaming', async () => {
       mockApiKeyProvider.mockResolvedValueOnce('sk-ant-test-key-12345678901234567890');
       const originalStreamMessage = AnthropicClientAdapter.prototype.streamMessage;
+      const originalStreamPrepared = AnthropicClientAdapter.prototype.streamPrepared;
       (AnthropicClientAdapter.prototype as any).streamMessage = undefined;
+      (AnthropicClientAdapter.prototype as any).streamPrepared = undefined;
 
       try {
         const events = await collectEvents({
@@ -223,13 +225,14 @@ describe('LLMService', () => {
           type: 'error',
           error: {
             error: {
-              code: 'PROVIDER_ERROR',
+              code: 'PREPARED_CALL_UNSUPPORTED',
               type: 'unsupported_feature',
             },
           },
         });
       } finally {
         AnthropicClientAdapter.prototype.streamMessage = originalStreamMessage;
+        AnthropicClientAdapter.prototype.streamPrepared = originalStreamPrepared;
       }
     });
 
@@ -280,7 +283,7 @@ describe('LLMService', () => {
         timeoutMs: 12345,
         logLevel: 'silent',
       });
-      const spy = jest.spyOn(MockClientAdapter.prototype, 'streamMessage');
+      const spy = jest.spyOn(MockClientAdapter.prototype, 'streamPrepared');
       const controller = new AbortController();
       const events = [];
 
@@ -296,7 +299,10 @@ describe('LLMService', () => {
       expect(spy).toHaveBeenCalledWith(
         expect.anything(),
         expect.any(String),
-        expect.objectContaining({ signal: controller.signal, timeoutMs: 12345 })
+        expect.objectContaining({
+          signal: expect.any(AbortSignal),
+          timeoutMs: 12345,
+        })
       );
 
       spy.mockRestore();
@@ -1214,7 +1220,7 @@ describe('LLMService', () => {
 
       it('rejects a structured-output request for Claude 4 without calling the adapter', async () => {
         mockApiKeyProvider.mockResolvedValue('sk-ant-test-key-12345678901234567890');
-        const spy = jest.spyOn(AnthropicClientAdapter.prototype, 'sendMessage');
+        const spy = jest.spyOn(AnthropicClientAdapter.prototype, 'sendPrepared');
 
         const response = await service.sendMessage(anthropicRequest('claude-sonnet-4-20250514'));
 
@@ -1232,7 +1238,7 @@ describe('LLMService', () => {
       it('lets a structured-output request for Claude 4.5 reach the adapter', async () => {
         mockApiKeyProvider.mockResolvedValue('sk-ant-test-key-12345678901234567890');
         const spy = jest
-          .spyOn(AnthropicClientAdapter.prototype, 'sendMessage')
+          .spyOn(AnthropicClientAdapter.prototype, 'sendPrepared')
           .mockResolvedValue({
             id: 'msg_ok',
             provider: 'anthropic',
