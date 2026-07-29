@@ -37,6 +37,7 @@ export interface ModelResolution {
   modelId?: string;
   modelInfo?: ModelInfo;
   settings?: LLMSettings;
+  adapterPreparationState?: unknown;
   error?: LLMFailureResponse;
 }
 
@@ -46,8 +47,9 @@ export interface ModelResolution {
 export interface ModelResolutionOptions {
   /**
    * Whether resolution may query local provider adapters for dynamic model
-   * capabilities. Defaults to true for sendMessage(), but public capability
-   * preflight uses false so it remains no-network/no-adapter.
+   * capabilities and an opaque preparation snapshot. Defaults to true for
+   * sendMessage(), but public capability preflight uses false so it remains
+   * no-network/no-adapter.
    */
   detectLocalCapabilities?: boolean;
 }
@@ -114,11 +116,15 @@ export class ModelResolver {
 
       // Overlay detected GGUF capabilities for llama.cpp presets (the server decides
       // which model is actually loaded, regardless of the preset's modelId)
+      let adapterPreparationState: unknown;
       if (preset.providerId === 'llamacpp' && detectLocalCapabilities) {
-        const detected = await this.detectLlamaCppCapabilities();
-        if (detected) {
-          modelInfo = { ...modelInfo, ...detected };
+        const detected = await this.detectLlamaCppCapabilities(
+          preset.modelId
+        );
+        if (detected.capabilities) {
+          modelInfo = { ...modelInfo, ...detected.capabilities };
         }
+        adapterPreparationState = detected.preparationState;
       }
 
       // Merge preset settings with user settings
@@ -131,7 +137,10 @@ export class ModelResolver {
         providerId: preset.providerId,
         modelId: preset.modelId,
         modelInfo,
-        settings
+        settings,
+        ...(adapterPreparationState !== undefined && {
+          adapterPreparationState,
+        }),
       };
     }
 
@@ -175,8 +184,13 @@ export class ModelResolver {
     // decides which model is actually loaded, so detected capabilities and vendor
     // default settings must overlay whatever the registry says.
     let detectedCapabilities: Partial<ModelInfo> | undefined;
+    let adapterPreparationState: unknown;
     if (options.providerId === 'llamacpp' && detectLocalCapabilities) {
-      detectedCapabilities = await this.detectLlamaCppCapabilities();
+      const detected = await this.detectLlamaCppCapabilities(
+        options.modelId
+      );
+      detectedCapabilities = detected.capabilities;
+      adapterPreparationState = detected.preparationState;
     }
 
     if (modelInfo) {
@@ -219,7 +233,10 @@ export class ModelResolver {
       providerId: options.providerId,
       modelId: options.modelId,
       modelInfo,
-      settings: options.settings
+      settings: options.settings,
+      ...(adapterPreparationState !== undefined && {
+        adapterPreparationState,
+      }),
     };
   }
 
@@ -228,18 +245,31 @@ export class ModelResolver {
    * its detected capabilities (cached inside the adapter). Returns undefined when
    * the server is unreachable or the model is not recognized.
    */
-  private async detectLlamaCppCapabilities(): Promise<Partial<ModelInfo> | undefined> {
+  private async detectLlamaCppCapabilities(
+    modelId?: string
+  ): Promise<{
+    capabilities?: Partial<ModelInfo>;
+    preparationState?: unknown;
+  }> {
     try {
       const adapter = this.adapterRegistry.getAdapter('llamacpp') as any;
-      // Check if adapter has the getModelCapabilities method
+      if (
+        adapter &&
+        typeof adapter.getPreparationSnapshot === "function"
+      ) {
+        const snapshot = await adapter.getPreparationSnapshot(modelId);
+        return {
+          capabilities: snapshot.detectedCaps || undefined,
+          preparationState: snapshot,
+        };
+      }
       if (adapter && typeof adapter.getModelCapabilities === 'function') {
-        const capabilities = await adapter.getModelCapabilities();
-        return capabilities || undefined;
+        const capabilities = await adapter.getModelCapabilities(modelId);
+        return { capabilities: capabilities || undefined };
       }
     } catch (error) {
       this.logger.warn('Failed to detect GGUF model capabilities:', error);
-      // Continue with fallback
     }
-    return undefined;
+    return {};
   }
 }

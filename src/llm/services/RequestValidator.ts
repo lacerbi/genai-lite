@@ -191,6 +191,37 @@ export class RequestValidator {
       return null;
     }
 
+    if (
+      structuredOutput.delivery !== undefined &&
+      structuredOutput.delivery !== "native" &&
+      structuredOutput.delivery !== "prompt"
+    ) {
+      return {
+        provider: request.providerId!,
+        model: request.modelId!,
+        error: {
+          message:
+            "structuredOutput.delivery must be either 'native' or 'prompt'.",
+          type: "validation_error",
+          code: "structured_output_invalid_delivery",
+          param: "settings.structuredOutput.delivery",
+        },
+        object: "error",
+      };
+    }
+
+    // Explicit prompt delivery is instruction-only and does not require a
+    // provider-native structured-output capability.
+    if (structuredOutput.delivery === "prompt") {
+      if (structuredOutput.strict !== false) {
+        this.logger.warn(
+          `Prompt-delivered structured output for ${request.modelId} is instruction-only; ` +
+          `strict provider enforcement is not available.`
+        );
+      }
+      return null;
+    }
+
     // If model has explicit structuredOutput capabilities defined, check them
     if (modelInfo.structuredOutput !== undefined) {
       if (!modelInfo.structuredOutput.supported) {

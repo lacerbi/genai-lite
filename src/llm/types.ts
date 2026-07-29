@@ -99,6 +99,18 @@ export interface StructuredOutputSettings {
   enabled?: boolean;
 
   /**
+   * How the schema is delivered to the model.
+   *
+   * `native` uses the provider's structured-output facility and remains the
+   * compatibility default. `prompt` injects a deterministic instruction into
+   * the prepared messages and provides instruction-only (not provider-enforced)
+   * guidance.
+   *
+   * @default "native"
+   */
+  delivery?: "native" | "prompt";
+
+  /**
    * Name for the schema (required by most providers).
    * Should be a descriptive identifier like 'person_info' or 'weather_data'.
    */
@@ -163,12 +175,47 @@ export interface StructuredOutputSupport {
   source: CapabilitySource;
 }
 
+/** Availability of a token-counting capability. */
+export type TokenCountingAvailability =
+  | "exact"
+  | "model"
+  | "heuristic"
+  | "unavailable"
+  | "runtime";
+
+/** Provenance for a known context-window value. */
+export interface ContextWindowCapability {
+  tokens: number;
+  source: "registry" | "detected" | "provider" | "fallback";
+}
+
 /**
  * Capability summary for a provider/model pair.
  */
 export interface ModelCapabilities {
   /** Structured-output support status */
   structuredOutput: StructuredOutputSupport;
+  /** Known context window and provenance, when available. */
+  contextWindow?: ContextWindowCapability;
+  /** Synchronous content-counting availability. */
+  contentTokenCounting?: TokenCountingAvailability;
+  /** Fully prepared message-counting availability. */
+  preparedMessageTokenCounting?: TokenCountingAvailability;
+  /** Tokenizer/profile identity when statically known. */
+  tokenProfileId?: string;
+  /** Revision of the model-to-profile mapping table. */
+  tokenProfileMappingRevision?: string;
+  /** Whether prompt usage is normally reported (not a per-response guarantee). */
+  reportsPromptUsage?: boolean;
+  /** Whether completion usage is normally reported (not a per-response guarantee). */
+  reportsCompletionUsage?: boolean;
+  /** Whether provider evidence distinguishes context from output limits. */
+  distinguishesLimitCause?: boolean;
+  /** Available structured-output delivery paths. */
+  structuredOutputDelivery?: {
+    native: StructuredOutputSupport;
+    prompt: "instruction_only";
+  };
 }
 
 /**
@@ -547,6 +594,212 @@ export interface ModelCapabilitiesResult {
   modelInfo: ModelInfo;
   /** Structured-output support status for this provider/model pair */
   structuredOutput: StructuredOutputSupport;
+  /** Full additive capability summary. */
+  capabilities: ModelCapabilities;
+}
+
+// ============================================================================
+// Prepared-call and token-accounting types
+// ============================================================================
+
+/** Dispatch mode fixed when a request is prepared. */
+export type PreparedCallMode = "complete" | "stream";
+
+/** JSON-safe value used by stable, library-owned inspection views. */
+export type PreparedRequestValue =
+  | null
+  | boolean
+  | number
+  | string
+  | PreparedRequestValue[]
+  | { [key: string]: PreparedRequestValue };
+
+/** A provider-facing message after deterministic role/content conversion. */
+export interface PreparedProviderMessageView {
+  role: string;
+  content: PreparedRequestValue;
+}
+
+/** Structured-output delivery visible in a prepared request. */
+export interface PreparedStructuredOutputView {
+  delivery: "native" | "prompt";
+  enforcement: "provider" | "json_only" | "instruction_only";
+  name?: string;
+  schema?: PreparedRequestValue;
+  /** Version of the deterministic prompt instruction, when prompt-delivered. */
+  promptRevision?: string;
+}
+
+/**
+ * Stable semantic view of a provider request.
+ *
+ * This deliberately contains library-owned JSON values rather than SDK
+ * request instances or transport/authentication state.
+ */
+export interface PreparedProviderRequestView {
+  operation: string;
+  mode: PreparedCallMode;
+  messages: PreparedProviderMessageView[];
+  systemInstruction?: PreparedRequestValue;
+  structuredOutput?: PreparedStructuredOutputView;
+  reasoning?: PreparedRequestValue;
+  settings: { [key: string]: PreparedRequestValue };
+  extensions?: { [key: string]: PreparedRequestValue };
+}
+
+/** Evidence-bearing point count for a fully prepared prompt. */
+export interface PreparedPromptTokenCount {
+  tokens: number;
+  method: "exact" | "model" | "heuristic";
+  tokenizerId?: string;
+  tokenProfileRevision?: string;
+  uncertaintyTokens?: number;
+}
+
+/** Reference to a revision-pinned proof used for a structural bound. */
+export interface TokenBoundCertificateRef {
+  id: string;
+  derivation: string;
+  provenance: string;
+  sourceProfileRevision?: string;
+  targetProfileRevision: string;
+}
+
+/** Certified structural upper bound for a fully prepared prompt. */
+export interface PreparedPromptTokenUpperBound {
+  tokens: number;
+  certificate: TokenBoundCertificateRef;
+}
+
+/** Prepared accounting is available only when at least one evidence form exists. */
+export type PreparedPromptAccounting =
+  | {
+      status: "available";
+      count: PreparedPromptTokenCount;
+      upperBound?: PreparedPromptTokenUpperBound;
+    }
+  | {
+      status: "available";
+      count?: undefined;
+      upperBound: PreparedPromptTokenUpperBound;
+    }
+  | { status: "unavailable" };
+
+/** Provenance for the output-token field that dispatch will enforce. */
+export type OutputTokenLimitSource =
+  | "request"
+  | "preset"
+  | "model_default"
+  | "library_default"
+  | "provider_default";
+
+/** Verified model/provider cap that changed an output-token request. */
+export interface OutputTokenLimitClamp {
+  tokens: number;
+  source: "model_hard_limit" | "provider_hard_limit";
+}
+
+/** Effective provider output-token setting and its accounting semantics. */
+export interface EffectiveOutputTokenLimit {
+  tokens: number;
+  source: OutputTokenLimitSource;
+  requestedTokens?: number;
+  clamp?: OutputTokenLimitClamp;
+  counts:
+    | "visible_output"
+    | "visible_and_reasoning"
+    | "provider_defined"
+    | "unknown";
+}
+
+/** Revisions and observable state to which a prepared call is bound. */
+export interface PreparedRequestBindings {
+  adapterRevision: string;
+  requestShapeRevision: string;
+  tokenProfileRevision?: string;
+  providerEndpointRevision?: string;
+  serverStateFingerprint?: string;
+  chatTemplateFingerprint?: string;
+}
+
+/** Read-only inspection returned for a prepared call. */
+export interface PreparedRequestInspection {
+  provider: ApiProviderId;
+  model: string;
+  mode: PreparedCallMode;
+  request: PreparedProviderRequestView;
+  promptAccounting: PreparedPromptAccounting;
+  outputTokenLimit?: EffectiveOutputTokenLimit;
+  bindings: PreparedRequestBindings;
+}
+
+declare const preparedCallBrand: unique symbol;
+
+/** Opaque service-owned handle for an immutable prepared call. */
+export interface PreparedCall<TMode extends PreparedCallMode> {
+  readonly mode: TMode;
+  readonly [preparedCallBrand]: TMode;
+  /** Prepared calls intentionally have no replayable serialized form. */
+  toJSON(): never;
+}
+
+/** Prepared handle accepted by sendPrepared(). */
+export type PreparedCompleteCall = PreparedCall<"complete">;
+
+/** Prepared handle accepted by streamPrepared(). */
+export type PreparedStreamCall = PreparedCall<"stream">;
+
+/** Result of preparing a mode-bound call. */
+export type PrepareMessageResult<TMode extends PreparedCallMode> =
+  | PreparedCall<TMode>
+  | LLMFailureResponse;
+
+/** Normalized provider termination with the original reason retained. */
+export interface LLMTermination {
+  rawReason: string | null;
+  kind:
+    | "stop"
+    | "limit"
+    | "content_filter"
+    | "tool_call"
+    | "other"
+    | "unknown";
+  limit?: "output" | "context" | "unknown";
+}
+
+/** Library-owned ordered content part retained before response flattening. */
+export interface LLMRawContentPart {
+  type: string;
+  text?: string;
+  value?: PreparedRequestValue;
+  reasoning?: boolean;
+}
+
+/** Evidence for a token count over pre-normalization answer content. */
+export interface LLMRawAnswerAccounting {
+  tokens: number;
+  method: "exact" | "model" | "heuristic";
+  source: "provider" | "library";
+  tokenizerId?: string;
+  tokenProfileRevision?: string;
+  reasoning:
+    | "included_native"
+    | "included_extracted"
+    | "excluded"
+    | "unknown";
+}
+
+/** Provenance for an individual normalized usage field. */
+export interface LLMUsageFieldEvidence {
+  source: "provider" | "derived" | "heuristic";
+  providerField?: string;
+}
+
+/** Field-level provenance for normalized usage values. */
+export interface LLMUsageEvidence {
+  prompt_tokens?: LLMUsageFieldEvidence;
+  completion_tokens?: LLMUsageFieldEvidence;
+  total_tokens?: LLMUsageFieldEvidence;
 }
 
 /**
@@ -556,6 +809,14 @@ export interface LLMChoice {
   message: LLMMessage;
   finish_reason: string | null;
   index?: number;
+  /** Exact text received before reasoning/tag/whitespace normalization. */
+  rawContent?: string;
+  /** Ordered library-owned parts retained when flattening would lose boundaries. */
+  rawContentParts?: LLMRawContentPart[];
+  /** Token evidence over rawContent, when a suitable profile is available. */
+  rawAnswerAccounting?: LLMRawAnswerAccounting;
+  /** Raw and normalized termination evidence. */
+  termination?: LLMTermination;
   /** Reasoning/thinking content (if available and not excluded) */
   reasoning?: string;
   /** Provider-specific reasoning details that need to be preserved */
@@ -593,6 +854,8 @@ export interface LLMResponse {
   created: number;
   choices: LLMChoice[];
   usage?: LLMUsage;
+  /** Provenance for each normalized usage field. */
+  usageEvidence?: LLMUsageEvidence;
   object: 'chat.completion';
 }
 
@@ -653,7 +916,11 @@ export type LLMRequestCapabilityValidationResult =
   | LLMRequestCapabilityValidationFailure;
 
 /**
- * Streaming event emitted by LLMService.streamMessage().
+ * Legacy adapter-facing stream event.
+ *
+ * Existing custom adapters may continue constructing this shape without an
+ * attempt ID. LLMService stamps every public event and returns
+ * LLMServiceStreamEvent.
  */
 export type LLMStreamEvent =
   | {
@@ -685,6 +952,11 @@ export type LLMStreamEvent =
       type: "error";
       error: LLMFailureResponse;
     };
+
+/** Stream event emitted by LLMService with a stable physical attempt ID. */
+export type LLMServiceStreamEvent = LLMStreamEvent & {
+  attemptId: string;
+};
 
 /**
  * Information about a supported LLM provider
@@ -743,6 +1015,16 @@ export interface ModelInfo {
   supportsSystemMessage?: boolean;
   description?: string;
   maxTokens?: number;
+  /** Verified hard output-token cap; distinct from the default maxTokens setting. */
+  hardOutputTokenLimit?: {
+    tokens: number;
+    source: "model_hard_limit" | "provider_hard_limit";
+    counts:
+      | "visible_output"
+      | "visible_and_reasoning"
+      | "provider_defined"
+      | "unknown";
+  };
   supportsImages?: boolean;
   supportsPromptCache: boolean;
   /** @deprecated Use reasoning instead */

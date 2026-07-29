@@ -365,4 +365,58 @@ describe('LlamaCppServerClient', () => {
       await expect(client.getSlots()).rejects.toThrow('Get slots failed: 500 Server Error');
     });
   });
+
+  describe("prepared chat input counting", () => {
+    it("sends the exact final body and validates the response", async () => {
+      const body = {
+        model: "llamacpp",
+        messages: [{ role: "user", content: "Hello" }],
+        stream: true,
+        stream_options: { include_usage: true },
+        chat_template_kwargs: { enable_thinking: false },
+      };
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          input_tokens: 21,
+          object: "response.input_tokens",
+        }),
+      });
+
+      const result = await client.countChatCompletionInputTokens(body);
+
+      expect(result.input_tokens).toBe(21);
+      expect(global.fetch).toHaveBeenCalledWith(
+        `${baseURL}/v1/chat/completions/input_tokens`,
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify(body),
+        })
+      );
+    });
+
+    it("supports an encoded router model selector for props", async () => {
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ chat_template: "template" }),
+      });
+
+      await client.getProps({ model: "folder/model name.gguf" });
+
+      expect(global.fetch).toHaveBeenCalledWith(
+        `${baseURL}/props?model=folder%2Fmodel%20name.gguf`
+      );
+    });
+
+    it("rejects malformed count responses", async () => {
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ input_tokens: -1 }),
+      });
+
+      await expect(
+        client.countChatCompletionInputTokens({})
+      ).rejects.toThrow("invalid input_tokens");
+    });
+  });
 });

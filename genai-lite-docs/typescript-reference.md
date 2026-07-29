@@ -40,6 +40,16 @@ import {
   extractMarkerDelimitedContent
 } from 'genai-lite/prompting';
 
+// Evidence-bearing token profiles and structural certificates
+import {
+  countTextTokens,
+  estimateTextTokens,
+  resolveTokenProfile,
+  getTokenProfileById,
+  codePointBoundToTokenUpperBound,
+  retokenizationUpperBound
+} from 'genai-lite';
+
 // llama.cpp
 import { LlamaCppClientAdapter, LlamaCppServerClient } from 'genai-lite';
 ```
@@ -70,6 +80,24 @@ import type {
   LLMResponse,
   LLMFailureResponse,
   LLMStreamEvent,
+  LLMServiceStreamEvent,
+  PreparedCall,
+  PreparedCompleteCall,
+  PreparedStreamCall,
+  PreparedRequestInspection,
+  PreparedRequestValue,
+  PreparedStructuredOutputView,
+  PreparedPromptAccounting,
+  PreparedPromptTokenUpperBound,
+  EffectiveOutputTokenLimit,
+  LLMTermination,
+  LLMRawContentPart,
+  LLMRawAnswerAccounting,
+  LLMUsageEvidence,
+  TokenProfile,
+  TokenProfileResolution,
+  TokenCountResult,
+  TokenBoundResult,
   LLMError,
   LLMSettings,
   LlamaCppSettings,
@@ -131,6 +159,8 @@ import type {
   LlamaCppSlotsResponse,
   LlamaCppModel,
   LlamaCppModelsResponse,
+  LlamaCppChatInputTokensResponse,
+  LlamaCppUtilityRequestOptions,
   GgufModelPattern
 } from 'genai-lite';
 ```
@@ -180,10 +210,15 @@ interface LLMResponse {
   object: 'chat.completion';
   id: string;
   created: number;
+  provider: string;
   model: string;
   choices: Array<{
     index: number;
     message: LLMMessage;
+    rawContent?: string;
+    rawContentParts?: LLMRawContentPart[];
+    rawAnswerAccounting?: LLMRawAnswerAccounting;
+    termination?: LLMTermination;
     reasoning?: string;
     reasoning_details?: any;    // Provider-specific reasoning details (e.g. OpenRouter)
     logprobs?: TokenLogprob[];  // Per-token log probs (when settings.logprobs requested)
@@ -192,10 +227,11 @@ interface LLMResponse {
     finish_reason: string;
   }>;
   usage?: {
-    prompt_tokens: number;
-    completion_tokens: number;
-    total_tokens: number;
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    total_tokens?: number;
   };
+  usageEvidence?: LLMUsageEvidence;
 }
 
 // Per-token log probability entry (OpenAI-compatible shape; also from llama.cpp)
@@ -234,14 +270,82 @@ type LLMStreamEvent =
   | {
       type: 'usage';
       usage: {
-        prompt_tokens: number;
-        completion_tokens: number;
-        total_tokens: number;
+        prompt_tokens?: number;
+        completion_tokens?: number;
+        total_tokens?: number;
       };
     }
   | { type: 'complete'; response: LLMResponse }
   | { type: 'error'; error: LLMFailureResponse };
+
+type LLMServiceStreamEvent = LLMStreamEvent & { attemptId: string };
 ```
+
+Custom adapters emit the legacy-compatible `LLMStreamEvent` shape without an
+attempt ID. Every `LLMService` public stream event is an
+`LLMServiceStreamEvent` and carries the same `attemptId`, including validation,
+preparation, handle, and API-key failures.
+
+### Prepared calls
+
+```typescript
+type PreparedCallMode = 'complete' | 'stream';
+type PreparedCompleteCall = PreparedCall<'complete'>;
+type PreparedStreamCall = PreparedCall<'stream'>;
+
+interface PreparedStructuredOutputView {
+  delivery: 'native' | 'prompt';
+  enforcement: 'provider' | 'json_only' | 'instruction_only';
+  name?: string;
+  schema?: PreparedRequestValue;
+  promptRevision?: string;
+}
+
+type PreparedPromptAccounting =
+  | {
+      status: 'available';
+      count: {
+        tokens: number;
+        method: 'exact' | 'model' | 'heuristic';
+        tokenizerId?: string;
+        tokenProfileRevision?: string;
+        uncertaintyTokens?: number;
+      };
+      upperBound?: PreparedPromptTokenUpperBound;
+    }
+  | {
+      status: 'available';
+      upperBound: PreparedPromptTokenUpperBound;
+    }
+  | { status: 'unavailable' };
+
+interface EffectiveOutputTokenLimit {
+  tokens: number;
+  source:
+    | 'request'
+    | 'preset'
+    | 'model_default'
+    | 'library_default'
+    | 'provider_default';
+  requestedTokens?: number;
+  clamp?: {
+    tokens: number;
+    source: 'model_hard_limit' | 'provider_hard_limit';
+  };
+  counts: 'visible_only' | 'visible_and_reasoning' | 'provider_defined' | 'unknown';
+}
+
+service.prepareMessage(request, { mode: 'complete' });
+service.inspectPrepared(prepared);
+service.sendPrepared(completePrepared, options);
+service.streamPrepared(streamPrepared, options);
+```
+
+Prepared handles are nominal, service-owned, immutable, and nonserializable.
+Inspection exposes `PreparedProviderRequestView`, `PreparedPromptAccounting`,
+`EffectiveOutputTokenLimit`, and `PreparedRequestBindings`. See
+[Prepared Calls and Token Accounting](prepared-calls-and-accounting.md) for the
+full evidence contract.
 
 ### Capability Types
 
@@ -631,19 +735,30 @@ interface LlamaCppEmbeddingResponse {
 
 interface LlamaCppInfillResponse {
   content: string;
-  stop: boolean;
-  tokens_predicted: number;
-  tokens_evaluated: number;
+  tokens?: number[];
+  stop?: boolean;
 }
 
 interface LlamaCppPropsResponse {
-  total_slots: number;
-  default_generation_settings: Record<string, any>;
+  assistant_name?: string;
+  user_name?: string;
+  default_generation_settings?: Record<string, unknown>;
+  total_slots?: number;
+  model_alias?: string;
+  model_path?: string;
+  chat_template?: string;
+  chat_template_caps?: Record<string, unknown>;
+  bos_token?: string;
+  eos_token?: string;
+  build_info?: Record<string, unknown> | string;
+  [key: string]: unknown;
 }
 
 interface LlamaCppSlot {
   id: number;
-  state: 0 | 1;
+  state: number;
+  prompt?: string;
+  [key: string]: any;
 }
 
 interface LlamaCppSlotsResponse {
@@ -651,11 +766,28 @@ interface LlamaCppSlotsResponse {
 }
 
 interface LlamaCppModel {
-  model: string;
+  id: string;
+  object?: string;
+  created?: number;
+  owned_by?: string;
+  aliases?: string[];
+  meta?: Record<string, unknown>;
 }
 
 interface LlamaCppModelsResponse {
+  object: string;
   data: LlamaCppModel[];
+}
+
+interface LlamaCppChatInputTokensResponse {
+  input_tokens: number;
+  object?: string;
+}
+
+interface LlamaCppUtilityRequestOptions {
+  signal?: AbortSignal;
+  timeoutMs?: number;
+  model?: string;
 }
 ```
 

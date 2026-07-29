@@ -127,6 +127,38 @@ describe('OpenAIClientAdapter', () => {
       expect(successResponse.usage?.total_tokens).toBe(30);
     });
 
+    it("injects prompt-delivered structured output exactly once on the legacy path", async () => {
+      mockCreate.mockResolvedValueOnce({
+        id: "chatcmpl-prompt-schema",
+        object: "chat.completion",
+        created: 1234567890,
+        model: "gpt-4.1",
+        choices: [{
+          index: 0,
+          message: { role: "assistant", content: "{\"ok\":true}" },
+          finish_reason: "stop",
+        }],
+      });
+      basicRequest.settings.structuredOutput = {
+        name: "result",
+        delivery: "prompt",
+        schema: {
+          type: "object",
+          properties: { ok: { type: "boolean" } },
+          required: ["ok"],
+        },
+      };
+
+      await adapter.sendMessage(basicRequest, "test-api-key");
+
+      const params = mockCreate.mock.calls[0][0];
+      const content = String(params.messages[0].content);
+      expect(
+        content.match(/<GENAI_LITE_STRUCTURED_OUTPUT revision=/g)
+      ).toHaveLength(1);
+      expect(params).not.toHaveProperty("response_format");
+    });
+
     it('should map seed and never send llama.cpp-style sampling params', async () => {
       mockCreate.mockResolvedValueOnce({
         id: 'chatcmpl-seed',
@@ -452,7 +484,7 @@ describe('OpenAIClientAdapter', () => {
         signal: controller.signal,
         timeout: 5000,
       });
-      expect(events[0]).toMatchObject({
+      expect(events.find((event) => event.type === "start")).toMatchObject({
         type: 'start',
         provider: 'openai',
         model: 'gpt-4.1',
@@ -473,6 +505,67 @@ describe('OpenAIClientAdapter', () => {
         expect(complete.response.choices[0].finish_reason).toBe('stop');
         expect(complete.response.usage?.total_tokens).toBe(5);
       }
+    });
+
+    it("records every provider-chunk evidence item before its first public event", async () => {
+      mockCreate.mockResolvedValueOnce(streamFrom([{
+        id: "chatcmpl-evidence-order",
+        object: "chat.completion.chunk",
+        created: 1234567890,
+        model: "gpt-4.1",
+        choices: [{
+          index: 0,
+          delta: { content: "done" },
+          finish_reason: "length",
+        }],
+        usage: {
+          prompt_tokens: 7,
+          completion_tokens: 4,
+          total_tokens: 11,
+        },
+      }]));
+
+      const events = await collectEvents();
+      const startIndex = events.findIndex((event) => event.type === "start");
+      const evidenceBeforeStart = events.slice(0, startIndex).filter(
+        (event) => event.type === "adapter_evidence"
+      );
+
+      expect(startIndex).toBeGreaterThan(0);
+      expect(evidenceBeforeStart).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          observedEvidence: expect.objectContaining({
+            usage: {
+              prompt_tokens: 7,
+              completion_tokens: 4,
+              total_tokens: 11,
+            },
+            usageEvidence: expect.objectContaining({
+              prompt_tokens: expect.any(Object),
+            }),
+          }),
+        }),
+        expect.objectContaining({
+          observedEvidence: {
+            choice: expect.objectContaining({
+              finishReason: "length",
+              termination: expect.objectContaining({
+                rawReason: "length",
+              }),
+            }),
+          },
+        }),
+        expect.objectContaining({
+          observedEvidence: {
+            choice: expect.objectContaining({
+              rawContentDelta: "done",
+            }),
+          },
+        }),
+      ]));
+      expect(events.slice(startIndex).map((event) => event.type)).toEqual(
+        expect.arrayContaining(["start", "usage", "content_delta", "complete"])
+      );
     });
 
     it('should preserve structured output, reasoning, logprobs, and sampling params', async () => {

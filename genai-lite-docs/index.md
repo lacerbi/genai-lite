@@ -20,6 +20,7 @@ Complete documentation for genai-lite - A lightweight, portable TypeScript libra
 
 ### API Reference
 - **[LLM Service](llm-service.md)** - Text generation and chat
+- **[Prepared Calls & Token Accounting](prepared-calls-and-accounting.md)** - Canonical inspection, certified bounds, and truthful evidence
 - **[Image Service](image-service.md)** - Image generation (cloud and local)
 - **[llama.cpp Integration](llamacpp-integration.md)** - Local LLM inference
 

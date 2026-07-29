@@ -995,7 +995,7 @@ describe('LlamaCppClientAdapter', () => {
         stream: true,
         stream_options: { include_usage: true },
       }));
-      expect(events[0]).toMatchObject({
+      expect(events.find((event) => event.type === "start")).toMatchObject({
         type: 'start',
         provider: 'llamacpp',
         model: 'llamacpp',

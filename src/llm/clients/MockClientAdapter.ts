@@ -6,15 +6,33 @@ import type {
   LLMFailureResponse,
   ApiProviderId,
   LLMSettings,
-  LLMStreamEvent,
 } from "../types";
 import type {
   ILLMClientAdapter,
   InternalLLMChatRequest,
   AdapterErrorCode,
   AdapterRequestOptions,
+  AdapterLLMStreamEvent,
+  AdapterPreparationContext,
+  AdapterPreparationResult,
+  AdapterPreparedRequest,
 } from "./types";
 import { ADAPTER_ERROR_CODES } from "./types";
+import { normalizeTermination } from "../../shared/adapters/usageUtils";
+import {
+  applyPromptStructuredOutput,
+  createPreparedRequestView,
+  freezeProviderRequest,
+} from "./preparedAdapterUtils";
+
+const MOCK_ADAPTER_REVISION = "mock-adapter-v1";
+const MOCK_REQUEST_SHAPE_REVISION = "mock-chat-v1";
+const MOCK_HEURISTIC_ID = "mock:utf16-code-units-per-4";
+const MOCK_HEURISTIC_REVISION = "mock-token-estimator-v1";
+
+interface MockPreparedProviderRequest {
+  request: InternalLLMChatRequest;
+}
 
 /**
  * Mock client adapter for testing LLM functionality
@@ -33,6 +51,77 @@ export class MockClientAdapter implements ILLMClientAdapter {
     this.providerId = providerId;
   }
 
+  async prepareRequest(
+    request: InternalLLMChatRequest,
+    context: AdapterPreparationContext
+  ): Promise<AdapterPreparationResult> {
+    request = applyPromptStructuredOutput(request);
+    const providerRequest = freezeProviderRequest<MockPreparedProviderRequest>({
+      request,
+    });
+    return {
+      prepared: {
+        mode: context.mode,
+        providerRequest,
+        requestView: createPreparedRequestView({
+          operation: "mock.chat",
+          mode: context.mode,
+          payload: {
+            model: request.modelId,
+            messages: request.messages,
+            settings: request.settings,
+          },
+          structuredOutput: request.settings.structuredOutput,
+        }),
+        promptAccounting: {
+          status: "available",
+          count: {
+            tokens: Math.ceil(
+              request.messages.reduce(
+                (total, message) => total + message.content.length,
+                0
+              ) / 4
+            ),
+            method: "heuristic",
+            tokenizerId: MOCK_HEURISTIC_ID,
+            tokenProfileRevision: MOCK_HEURISTIC_REVISION,
+            uncertaintyTokens: Math.ceil(
+              request.messages.reduce(
+                (total, message) => total + message.content.length,
+                0
+              ) / 8
+            ),
+          },
+        },
+        outputTokenLimit: context.outputTokenLimit,
+        bindings: {
+          adapterRevision: MOCK_ADAPTER_REVISION,
+          requestShapeRevision: MOCK_REQUEST_SHAPE_REVISION,
+        },
+      },
+    };
+  }
+
+  async sendPrepared(
+    prepared: AdapterPreparedRequest,
+    apiKey: string,
+    options?: AdapterRequestOptions
+  ): Promise<LLMResponse | LLMFailureResponse> {
+    const providerRequest =
+      prepared.providerRequest as MockPreparedProviderRequest;
+    return this.sendMessage(providerRequest.request, apiKey, options);
+  }
+
+  async *streamPrepared(
+    prepared: AdapterPreparedRequest,
+    apiKey: string,
+    options?: AdapterRequestOptions
+  ): AsyncIterable<AdapterLLMStreamEvent> {
+    const providerRequest =
+      prepared.providerRequest as MockPreparedProviderRequest;
+    yield* this.streamMessage(providerRequest.request, apiKey, options);
+  }
+
   /**
    * Sends a mock message response based on request content
    *
@@ -45,6 +134,7 @@ export class MockClientAdapter implements ILLMClientAdapter {
     apiKey: string,
     options?: AdapterRequestOptions
   ): Promise<LLMResponse | LLMFailureResponse> {
+    request = applyPromptStructuredOutput(request);
     // Honor abort signals like a real adapter would
     if (options?.signal?.aborted) {
       return {
@@ -159,11 +249,55 @@ export class MockClientAdapter implements ILLMClientAdapter {
     request: InternalLLMChatRequest,
     apiKey: string,
     options?: AdapterRequestOptions
-  ): AsyncIterable<LLMStreamEvent> {
+  ): AsyncIterable<AdapterLLMStreamEvent> {
+    request = applyPromptStructuredOutput(request);
     const response = await this.sendMessage(request, apiKey, options);
     if (response.object === "error") {
       yield { type: "error", error: response };
       return;
+    }
+
+    const choice = response.choices[0];
+    if (choice) {
+      yield {
+        type: "adapter_evidence",
+        observedEvidence: {
+          choice: {
+            index: choice.index ?? 0,
+            finishReason: choice.finish_reason,
+            ...(choice.termination && {
+              termination: choice.termination,
+            }),
+          },
+        },
+      };
+    }
+    if (choice?.reasoning) {
+      yield {
+        type: "adapter_evidence",
+        observedEvidence: {
+          choice: {
+            index: choice.index ?? 0,
+            rawContentParts: [{
+              type: "reasoning",
+              text: choice.reasoning,
+              reasoning: true,
+            }],
+          },
+        },
+      };
+    }
+
+    let reasoningEvent: AdapterLLMStreamEvent | undefined;
+    if (
+      choice?.reasoning &&
+      request.settings.reasoning?.exclude !== true
+    ) {
+      reasoningEvent = {
+        type: "reasoning_delta",
+        delta: choice.reasoning,
+        index: choice.index ?? 0,
+      };
     }
 
     yield {
@@ -174,17 +308,13 @@ export class MockClientAdapter implements ILLMClientAdapter {
       created: response.created,
     };
 
-    const choice = response.choices[0];
-    if (choice?.reasoning && request.settings.reasoning?.exclude !== true) {
-      yield {
-        type: "reasoning_delta",
-        delta: choice.reasoning,
-        index: choice.index ?? 0,
-      };
+    if (reasoningEvent) {
+      yield reasoningEvent;
     }
 
     const content = choice?.message?.content || "";
     const chunks = content.match(/.{1,16}/gs) || [];
+    let observedRawContent = "";
     for (const chunk of chunks) {
       if (options?.signal?.aborted) {
         yield {
@@ -203,15 +333,36 @@ export class MockClientAdapter implements ILLMClientAdapter {
         return;
       }
 
+      observedRawContent += chunk;
       yield {
         type: "content_delta",
         delta: chunk,
         index: choice?.index ?? 0,
+        observedEvidence: {
+          choice: {
+            index: choice?.index ?? 0,
+            rawContentDelta: chunk,
+            rawAnswerAccounting: {
+              tokens: Math.floor(observedRawContent.length / 4),
+              method: "heuristic",
+              source: "library",
+              tokenizerId: MOCK_HEURISTIC_ID,
+              tokenProfileRevision: MOCK_HEURISTIC_REVISION,
+              reasoning: choice?.reasoning ? "excluded" : "unknown",
+            },
+          },
+        },
       };
     }
 
     if (response.usage) {
-      yield { type: "usage", usage: response.usage };
+      yield {
+        type: "usage",
+        usage: response.usage,
+        observedEvidence: {
+          usageEvidence: response.usageEvidence,
+        },
+      };
     }
 
     yield { type: "complete", response };
@@ -298,11 +449,13 @@ export class MockClientAdapter implements ILLMClientAdapter {
 
     // Apply maxTokens constraint (rough simulation)
     const originalLength = responseContent.length;
+    let truncatedByMaxTokens = false;
     if (request.settings.maxTokens && request.settings.maxTokens < 200) {
       const words = responseContent.split(" ");
       const maxWords = Math.max(1, Math.floor(request.settings.maxTokens / 4));
       if (words.length > maxWords) {
         responseContent = words.slice(0, maxWords).join(" ") + "...";
+        truncatedByMaxTokens = true;
       }
     }
 
@@ -324,11 +477,7 @@ export class MockClientAdapter implements ILLMClientAdapter {
 
     // Determine finish reason
     let finishReason = "stop";
-    if (
-      originalLength > responseContent.length &&
-      request.settings.maxTokens &&
-      mockTokenCount >= request.settings.maxTokens
-    ) {
+    if (truncatedByMaxTokens && originalLength > responseContent.length) {
       finishReason = "length";
     } else if (
       request.settings.stopSequences.some((seq: string) =>
@@ -346,7 +495,17 @@ export class MockClientAdapter implements ILLMClientAdapter {
         role: "assistant",
         content: responseContent,
       },
+      rawContent: responseContent,
+      rawAnswerAccounting: {
+        tokens: mockTokenCount,
+        method: "heuristic",
+        source: "library",
+        tokenizerId: MOCK_HEURISTIC_ID,
+        tokenProfileRevision: MOCK_HEURISTIC_REVISION,
+        reasoning: isReasoningTest ? "excluded" : "unknown",
+      },
       finish_reason: finishReason,
+      termination: normalizeTermination(finishReason),
       index: 0,
     };
     
@@ -365,6 +524,11 @@ export class MockClientAdapter implements ILLMClientAdapter {
         prompt_tokens: promptTokenCount,
         completion_tokens: mockTokenCount,
         total_tokens: promptTokenCount + mockTokenCount,
+      },
+      usageEvidence: {
+        prompt_tokens: { source: "heuristic" },
+        completion_tokens: { source: "heuristic" },
+        total_tokens: { source: "heuristic" },
       },
       object: "chat.completion",
     };

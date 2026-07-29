@@ -425,6 +425,18 @@ export class SettingsManager {
           soValidated.name = value.name;
         }
 
+        if (
+          'delivery' in value &&
+          value.delivery !== 'native' &&
+          value.delivery !== 'prompt'
+        ) {
+          this.logger.warn(
+            `Invalid structuredOutput.delivery value in template. Must be 'native' or 'prompt'.`
+          );
+        } else if ('delivery' in value) {
+          soValidated.delivery = value.delivery;
+        }
+
         if ('schema' in value && typeof value.schema !== 'object') {
           this.logger.warn(`Invalid structuredOutput.schema value in template. Must be an object.`);
         } else if ('schema' in value) {

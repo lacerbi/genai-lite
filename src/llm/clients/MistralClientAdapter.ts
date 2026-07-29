@@ -2,30 +2,53 @@
 // Provides access to Mistral models including Codestral and Mistral Large.
 
 import { Mistral } from "@mistralai/mistralai";
-import type { LLMResponse, LLMFailureResponse, LLMStreamEvent } from "../types";
+import type { LLMResponse, LLMFailureResponse } from "../types";
 import type {
   ILLMClientAdapter,
   InternalLLMChatRequest,
   AdapterRequestOptions,
+  AdapterLLMStreamEvent,
+  AdapterPreparationContext,
+  AdapterPreparationResult,
+  AdapterPreparedRequest,
 } from "./types";
 import { ADAPTER_ERROR_CODES } from "./types";
 import { getCommonMappedErrorDetails } from "../../shared/adapters/errorUtils";
+import {
+  normalizeTermination,
+  normalizeUsage,
+} from "../../shared/adapters/usageUtils";
 import {
   collectSystemContent,
   prependSystemToFirstUserMessage,
 } from "../../shared/adapters/systemMessageUtils";
 import type { Logger } from "../../logging/types";
 import { createDefaultLogger } from "../../logging/defaultLogger";
+import {
+  applyPromptStructuredOutput,
+  createPreparedRequestView,
+  freezeProviderRequest,
+  toPreparedRequestValue,
+} from "./preparedAdapterUtils";
 
 interface MistralPreparedRequest {
   mistral: Mistral;
   requestOptions: any;
 }
 
+interface MistralPreparedProviderRequest {
+  request: InternalLLMChatRequest;
+  requestOptions: Record<string, unknown>;
+}
+
+const MISTRAL_ADAPTER_REVISION = "mistral-adapter-v1";
+const MISTRAL_REQUEST_SHAPE_REVISION = "mistral-chat-v1";
+
 interface MistralStreamChoiceState {
   content: string;
   reasoning: string;
   finishReason: string | null;
+  rawContentParts: unknown[];
 }
 
 /**
@@ -78,6 +101,83 @@ export class MistralClientAdapter implements ILLMClientAdapter {
     this.logger = config?.logger ?? createDefaultLogger();
   }
 
+  async prepareRequest(
+    request: InternalLLMChatRequest,
+    context: AdapterPreparationContext
+  ): Promise<AdapterPreparationResult> {
+    try {
+      request = applyPromptStructuredOutput(request);
+      const baseOptions = this.prepareCompletionParams(request);
+      const requestOptions =
+        context.mode === "stream"
+          ? { ...baseOptions, stream: true }
+          : baseOptions;
+      const providerRequest =
+        freezeProviderRequest<MistralPreparedProviderRequest>({
+          request,
+          requestOptions,
+        });
+      return {
+        prepared: {
+          mode: context.mode,
+          providerRequest,
+          requestView: createPreparedRequestView({
+            operation: "mistral.chat",
+            mode: context.mode,
+            payload: requestOptions,
+            structuredOutput: request.settings.structuredOutput,
+          }),
+          promptAccounting: { status: "unavailable" },
+          outputTokenLimit: context.outputTokenLimit,
+          bindings: {
+            adapterRevision: MISTRAL_ADAPTER_REVISION,
+            requestShapeRevision: MISTRAL_REQUEST_SHAPE_REVISION,
+          },
+        },
+      };
+    } catch (error) {
+      return { error: this.createErrorResponse(error, request) };
+    }
+  }
+
+  async sendPrepared(
+    prepared: AdapterPreparedRequest,
+    apiKey: string,
+    options?: AdapterRequestOptions
+  ): Promise<LLMResponse | LLMFailureResponse> {
+    const providerRequest =
+      prepared.providerRequest as MistralPreparedProviderRequest;
+    const request = providerRequest.request;
+    try {
+      const mistral = this.createClient(apiKey);
+      const requestOptions = structuredClone(providerRequest.requestOptions);
+      const transportOptions = this.createTransportOptions(options);
+      const completion =
+        Object.keys(transportOptions).length > 0
+          ? await mistral.chat.complete(requestOptions as any, transportOptions as any)
+          : await mistral.chat.complete(requestOptions as any);
+      return this.createSuccessResponse(completion, request);
+    } catch (error) {
+      this.logger.error("Mistral prepared API error:", error);
+      return this.createErrorResponse(error, request);
+    }
+  }
+
+  async *streamPrepared(
+    prepared: AdapterPreparedRequest,
+    apiKey: string,
+    options?: AdapterRequestOptions
+  ): AsyncIterable<AdapterLLMStreamEvent> {
+    const providerRequest =
+      prepared.providerRequest as MistralPreparedProviderRequest;
+    yield* this.streamCompletion(
+      providerRequest.request,
+      structuredClone(providerRequest.requestOptions),
+      apiKey,
+      options
+    );
+  }
+
   /**
    * Sends a chat message to Mistral API
    *
@@ -90,6 +190,7 @@ export class MistralClientAdapter implements ILLMClientAdapter {
     apiKey: string,
     options?: AdapterRequestOptions
   ): Promise<LLMResponse | LLMFailureResponse> {
+    request = applyPromptStructuredOutput(request);
     try {
       // Initialize Mistral client (Speakeasy SDK retry default is "none" — retries
       // are owned by the unified LLMService retry layer)
@@ -133,7 +234,22 @@ export class MistralClientAdapter implements ILLMClientAdapter {
     request: InternalLLMChatRequest,
     apiKey: string,
     options?: AdapterRequestOptions
-  ): AsyncIterable<LLMStreamEvent> {
+  ): AsyncIterable<AdapterLLMStreamEvent> {
+    request = applyPromptStructuredOutput(request);
+    yield* this.streamCompletion(
+      request,
+      { ...this.prepareCompletionParams(request), stream: true },
+      apiKey,
+      options
+    );
+  }
+
+  private async *streamCompletion(
+    request: InternalLLMChatRequest,
+    streamRequestOptions: Record<string, unknown>,
+    apiKey: string,
+    options?: AdapterRequestOptions
+  ): AsyncIterable<AdapterLLMStreamEvent> {
     const choiceStates = new Map<number, MistralStreamChoiceState>();
     let responseId = "";
     let responseModel = request.modelId;
@@ -141,18 +257,14 @@ export class MistralClientAdapter implements ILLMClientAdapter {
     let usage: any | undefined;
 
     try {
-      const { mistral, requestOptions } = this.prepareCompletionRequest(request, apiKey);
-      const streamRequestOptions = {
-        ...requestOptions,
-        stream: true,
-      };
+      const mistral = this.createClient(apiKey);
 
       this.logger.info(`Making Mistral streaming API call for model: ${request.modelId}`);
       const transportOptions = this.createTransportOptions(options);
       const stream =
         Object.keys(transportOptions).length > 0
-          ? await mistral.chat.stream(streamRequestOptions, transportOptions as any)
-          : await mistral.chat.stream(streamRequestOptions);
+          ? await mistral.chat.stream(streamRequestOptions as any, transportOptions as any)
+          : await mistral.chat.stream(streamRequestOptions as any);
 
       let started = false;
       for await (const event of stream as AsyncIterable<any>) {
@@ -160,7 +272,132 @@ export class MistralClientAdapter implements ILLMClientAdapter {
         responseId = chunk?.id || responseId;
         responseModel = chunk?.model || responseModel;
         created = chunk?.created || created;
+        const evidenceEvents: AdapterLLMStreamEvent[] = [];
+        const publicEvents: AdapterLLMStreamEvent[] = [];
 
+        if (chunk?.usage) {
+          usage = chunk.usage;
+          const normalized = this.normalizeMistralUsage(chunk.usage);
+          if (normalized.usage) {
+            evidenceEvents.push({
+              type: "adapter_evidence",
+              observedEvidence: {
+                usage: normalized.usage,
+                usageEvidence: normalized.usageEvidence,
+              },
+            });
+            publicEvents.push({
+              type: "usage",
+              usage: normalized.usage,
+              observedEvidence: {
+                usageEvidence: normalized.usageEvidence,
+              },
+            });
+          }
+        }
+
+        for (const choice of chunk?.choices || []) {
+          const index = choice.index ?? 0;
+          const state = this.getStreamChoiceState(choiceStates, index);
+          const rawFinishReason =
+            choice.finishReason ?? choice.finish_reason;
+          state.finishReason = rawFinishReason ?? state.finishReason;
+          if (rawFinishReason != null) {
+            evidenceEvents.push({
+              type: "adapter_evidence",
+              observedEvidence: {
+                choice: {
+                  index,
+                  finishReason: rawFinishReason,
+                  termination: normalizeTermination(rawFinishReason),
+                },
+              },
+            });
+          }
+
+          const rawDelta = choice.delta?.content;
+          const rawContentParts =
+            typeof rawDelta === "string"
+              ? [{ type: "text", text: rawDelta }]
+              : Array.isArray(rawDelta)
+                ? rawDelta.map((part: any) => {
+                    const thinkingText =
+                      part?.type === "thinking" &&
+                      Array.isArray(part.thinking)
+                        ? part.thinking
+                            .filter(
+                              (item: any) =>
+                                typeof item?.text === "string"
+                            )
+                            .map((item: any) => item.text)
+                            .join("")
+                        : undefined;
+                    return {
+                      type: String(part?.type ?? "unknown"),
+                      ...(typeof part?.text === "string" && {
+                        text: part.text,
+                      }),
+                      ...(thinkingText !== undefined && {
+                        text: thinkingText,
+                        reasoning: true,
+                      }),
+                      ...(toPreparedRequestValue(part) !== undefined && {
+                        value: toPreparedRequestValue(part),
+                      }),
+                    };
+                  })
+                : [];
+          if (typeof rawDelta === "string") {
+            state.rawContentParts.push({
+              type: "text",
+              text: rawDelta,
+            });
+          } else if (Array.isArray(rawDelta)) {
+            state.rawContentParts.push(
+              ...rawDelta.map((part: unknown) =>
+                toPreparedRequestValue(part)
+              ).filter((part: unknown) => part !== undefined)
+            );
+          }
+          const deltas = this.extractMistralContentDeltas(rawDelta);
+          if (rawContentParts.length > 0) {
+            evidenceEvents.push({
+              type: "adapter_evidence",
+              observedEvidence: {
+                choice: {
+                  index,
+                  ...(deltas.content.length > 0 && {
+                    rawContentDelta: deltas.content.join(""),
+                  }),
+                  rawContentParts,
+                },
+              },
+            });
+          }
+          for (const reasoningDelta of deltas.reasoning) {
+            state.reasoning += reasoningDelta;
+            if (request.settings.reasoning?.exclude !== true) {
+              publicEvents.push({
+                type: "reasoning_delta",
+                delta: reasoningDelta,
+                index,
+              });
+            }
+          }
+
+          for (const contentDelta of deltas.content) {
+            state.content += contentDelta;
+            publicEvents.push({
+              type: "content_delta",
+              delta: contentDelta,
+              index,
+            });
+          }
+        }
+
+        for (const bufferedEvent of evidenceEvents) {
+          yield bufferedEvent;
+        }
         if (!started) {
           started = true;
           yield {
@@ -171,40 +408,8 @@ export class MistralClientAdapter implements ILLMClientAdapter {
             created,
           };
         }
-
-        if (chunk?.usage) {
-          usage = chunk.usage;
-          yield {
-            type: "usage",
-            usage: this.mapMistralUsage(chunk.usage),
-          };
-        }
-
-        for (const choice of chunk?.choices || []) {
-          const index = choice.index ?? 0;
-          const state = this.getStreamChoiceState(choiceStates, index);
-          state.finishReason = choice.finishReason || choice.finish_reason || state.finishReason;
-
-          const deltas = this.extractMistralContentDeltas(choice.delta?.content);
-          for (const reasoningDelta of deltas.reasoning) {
-            state.reasoning += reasoningDelta;
-            if (request.settings.reasoning?.exclude !== true) {
-              yield {
-                type: "reasoning_delta",
-                delta: reasoningDelta,
-                index,
-              };
-            }
-          }
-
-          for (const contentDelta of deltas.content) {
-            state.content += contentDelta;
-            yield {
-              type: "content_delta",
-              delta: contentDelta,
-              index,
-            };
-          }
+        for (const bufferedEvent of publicEvents) {
+          yield bufferedEvent;
         }
       }
 
@@ -229,6 +434,21 @@ export class MistralClientAdapter implements ILLMClientAdapter {
           created: partial.created,
           choices: partial.choices,
           usage: partial.usage,
+          usageEvidence: partial.usageEvidence,
+        };
+      } else if (usage) {
+        const normalizedUsage = normalizeUsage(usage, {
+          prompt: ["promptTokens", "prompt_tokens"],
+          completion: ["completionTokens", "completion_tokens"],
+          total: ["totalTokens", "total_tokens"],
+        });
+        errorResponse.partialResponse = {
+          id: responseId,
+          provider: request.providerId,
+          model: responseModel,
+          created,
+          choices: [],
+          ...normalizedUsage,
         };
       }
 
@@ -266,18 +486,27 @@ export class MistralClientAdapter implements ILLMClientAdapter {
     request: InternalLLMChatRequest,
     apiKey: string
   ): MistralPreparedRequest {
-    // Initialize Mistral client (Speakeasy SDK retry default is "none" - retries
-    // are owned by the unified LLMService retry layer)
-    const mistral = new Mistral({
+    return {
+      mistral: this.createClient(apiKey),
+      requestOptions: this.prepareCompletionParams(request),
+    };
+  }
+
+  private createClient(apiKey: string): Mistral {
+    return new Mistral({
       apiKey,
       serverURL: this.baseURL !== 'https://api.mistral.ai' ? this.baseURL : undefined,
     });
+  }
 
+  private prepareCompletionParams(
+    request: InternalLLMChatRequest
+  ): Record<string, unknown> {
     // Format messages for Mistral API
     const messages = this.formatMessages(request);
 
     // Build request options
-    const requestOptions: any = {
+    const requestOptions: Record<string, any> = {
       model: request.modelId,
       messages: messages,
       temperature: request.settings.temperature,
@@ -294,7 +523,11 @@ export class MistralClientAdapter implements ILLMClientAdapter {
 
     // Handle structured output configuration for Mistral
     // Mistral only supports json_object mode, no schema validation
-    if (request.settings.structuredOutput?.schema && request.settings.structuredOutput.enabled !== false) {
+    if (
+      request.settings.structuredOutput?.schema &&
+      request.settings.structuredOutput.enabled !== false &&
+      request.settings.structuredOutput.delivery !== "prompt"
+    ) {
       requestOptions.responseFormat = { type: 'json_object' };
       this.logger.warn(
         `Mistral does not support JSON schema validation. ` +
@@ -302,7 +535,7 @@ export class MistralClientAdapter implements ILLMClientAdapter {
       );
     }
 
-    return { mistral, requestOptions };
+    return requestOptions;
   }
 
   private createTransportOptions(options?: AdapterRequestOptions): { timeoutMs?: number; signal?: AbortSignal } {
@@ -330,6 +563,7 @@ export class MistralClientAdapter implements ILLMClientAdapter {
         content: "",
         reasoning: "",
         finishReason: null,
+        rawContentParts: [],
       };
       states.set(index, state);
     }
@@ -379,10 +613,13 @@ export class MistralClientAdapter implements ILLMClientAdapter {
         index,
         message: {
           role: "assistant",
-          content: state.content,
+          content:
+            state.rawContentParts.length > 0
+              ? state.rawContentParts
+              : state.content,
           ...(state.reasoning && { reasoning: state.reasoning }),
         },
-        finishReason: state.finishReason || "stop",
+        finishReason: state.finishReason,
       }));
 
     return {
@@ -395,12 +632,16 @@ export class MistralClientAdapter implements ILLMClientAdapter {
     };
   }
 
+  private normalizeMistralUsage(usage: any) {
+    return normalizeUsage(usage, {
+      prompt: ["promptTokens", "prompt_tokens"],
+      completion: ["completionTokens", "completion_tokens"],
+      total: ["totalTokens", "total_tokens"],
+    });
+  }
+
   private mapMistralUsage(usage: any) {
-    return {
-      prompt_tokens: usage.promptTokens || usage.prompt_tokens || 0,
-      completion_tokens: usage.completionTokens || usage.completion_tokens || 0,
-      total_tokens: usage.totalTokens || usage.total_tokens || 0,
-    };
+    return this.normalizeMistralUsage(usage).usage ?? {};
   }
 
   /**
@@ -485,35 +726,71 @@ export class MistralClientAdapter implements ILLMClientAdapter {
       throw new Error("No valid choices in Mistral completion response");
     }
 
+    const normalizedUsage = normalizeUsage(completion.usage, {
+      prompt: ["promptTokens", "prompt_tokens"],
+      completion: ["completionTokens", "completion_tokens"],
+      total: ["totalTokens", "total_tokens"],
+    });
+
     return {
       id: completion.id || `mistral-${Date.now()}`,
       provider: request.providerId,
       model: completion.model || request.modelId,
       created: completion.created || Math.floor(Date.now() / 1000),
       choices: completion.choices.map((c: any, index: number) => {
+        const providerContent = c.message?.content;
+        const extractedContent =
+          this.extractMistralContentDeltas(providerContent);
+        const rawContent = extractedContent.content.join("");
+        const rawFinishReason =
+          c.finishReason ?? c.finish_reason ?? null;
         const responseChoice: any = {
           message: {
             role: "assistant",
-            content: typeof c.message?.content === "string" ? c.message.content : "",
+            content: rawContent,
           },
-          finish_reason: c.finishReason || c.finish_reason || "stop",
+          rawContent,
+          ...(Array.isArray(providerContent) && {
+            rawContentParts: providerContent.map((part: any) => {
+              const thinkingText =
+                part?.type === "thinking" && Array.isArray(part.thinking)
+                  ? part.thinking
+                      .filter(
+                        (item: any) => typeof item?.text === "string"
+                      )
+                      .map((item: any) => item.text)
+                      .join("")
+                  : undefined;
+              return {
+                type: String(part?.type ?? "unknown"),
+                ...(typeof part?.text === "string" && { text: part.text }),
+                ...(thinkingText !== undefined && {
+                  text: thinkingText,
+                  reasoning: true,
+                }),
+                ...(toPreparedRequestValue(part) !== undefined && {
+                  value: toPreparedRequestValue(part),
+                }),
+              };
+            }),
+          }),
+          finish_reason: rawFinishReason,
+          termination: normalizeTermination(rawFinishReason),
           index: c.index ?? index,
         };
 
-        const reasoning = c.reasoning || c.message?.reasoning || c.message?.reasoningContent;
+        const reasoning =
+          c.reasoning ||
+          c.message?.reasoning ||
+          c.message?.reasoningContent ||
+          extractedContent.reasoning.join("");
         if (reasoning && request.settings.reasoning && !request.settings.reasoning.exclude) {
           responseChoice.reasoning = reasoning;
         }
 
         return responseChoice;
       }),
-      usage: completion.usage
-        ? {
-            prompt_tokens: completion.usage.promptTokens || completion.usage.prompt_tokens || 0,
-            completion_tokens: completion.usage.completionTokens || completion.usage.completion_tokens || 0,
-            total_tokens: completion.usage.totalTokens || completion.usage.total_tokens || 0,
-          }
-        : undefined,
+      ...normalizedUsage,
       object: "chat.completion",
     };
   }

@@ -2,11 +2,16 @@
 // Provides LLM chat completions via llama.cpp's /v1/chat/completions endpoint.
 
 import OpenAI from "openai";
-import type { LLMResponse, LLMFailureResponse, ModelInfo, LLMStreamEvent } from "../types";
+import type { LLMResponse, LLMFailureResponse, ModelInfo } from "../types";
 import type {
   ILLMClientAdapter,
   InternalLLMChatRequest,
   AdapterRequestOptions,
+  AdapterLLMStreamEvent,
+  AdapterPreparationContext,
+  AdapterPreparationResult,
+  AdapterPreparedRequest,
+  AdapterRevalidationResult,
 } from "./types";
 import { ADAPTER_ERROR_CODES } from "./types";
 import { getCommonMappedErrorDetails } from "../../shared/adapters/errorUtils";
@@ -14,12 +19,29 @@ import {
   collectSystemContent,
   prependSystemToFirstUserMessage,
 } from "../../shared/adapters/systemMessageUtils";
-import { LlamaCppServerClient } from "./LlamaCppServerClient";
+import {
+  LlamaCppServerClient,
+  type LlamaCppModelsResponse,
+} from "./LlamaCppServerClient";
 import { detectGgufCapabilities } from "../config";
 import { extractMarkerDelimitedContent } from "../../prompting/parser";
 import { mapOpenAIChatLogprobs } from "../../shared/adapters/logprobsUtils";
+import {
+  normalizeTermination,
+  normalizeUsage,
+} from "../../shared/adapters/usageUtils";
 import type { Logger } from "../../logging/types";
 import { createDefaultLogger } from "../../logging/defaultLogger";
+import {
+  applyPromptStructuredOutput,
+  createPreparedRequestView,
+  freezeProviderRequest,
+} from "./preparedAdapterUtils";
+import {
+  createLlamaCppStateBinding,
+  selectLlamaCppModel,
+  type LlamaCppStateBinding,
+} from "./llamaCppState";
 
 /**
  * Configuration options for LlamaCppClientAdapter
@@ -38,6 +60,28 @@ interface LlamaCppCompletionRequest {
   completionParams: OpenAI.Chat.Completions.ChatCompletionCreateParams;
   detectedCaps: Partial<ModelInfo> | null;
 }
+
+interface LlamaCppSemanticRequest {
+  completionParams: OpenAI.Chat.Completions.ChatCompletionCreateParams;
+  detectedCaps: Partial<ModelInfo> | null;
+}
+
+interface LlamaCppPreparedProviderRequest extends LlamaCppSemanticRequest {
+  request: InternalLLMChatRequest;
+  stateBinding?: LlamaCppStateBinding;
+}
+
+/** Opaque dynamic state shared from service resolution into preparation. */
+interface LlamaCppPreparationSnapshot {
+  kind: "llamacpp-preparation-v1";
+  selectedModel: string;
+  detectedCaps: Partial<ModelInfo> | null;
+  stateBinding?: LlamaCppStateBinding;
+}
+
+const LLAMACPP_ADAPTER_REVISION = "llamacpp-adapter-v1";
+const LLAMACPP_REQUEST_SHAPE_REVISION = "llamacpp-chat-completions-v1";
+const LLAMACPP_PREFLIGHT_TIMEOUT_MS = 5000;
 
 interface LlamaCppStreamChoiceState {
   content: string;
@@ -87,8 +131,10 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
   private baseURL: string;
   private checkHealth: boolean;
   private serverClient: LlamaCppServerClient;
-  private cachedModelCapabilities: Partial<ModelInfo> | null = null;
-  private detectionAttempted: boolean = false;
+  private cachedModelCapabilities = new Map<
+    string,
+    Partial<ModelInfo> | null
+  >();
   private logger: Logger;
 
   /**
@@ -107,54 +153,328 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
   }
 
   /**
+   * Captures the selected model capabilities and observable state in one
+   * snapshot so service-level defaults and adapter preparation cannot diverge.
+   */
+  async getPreparationSnapshot(
+    selectedModel = "llamacpp"
+  ): Promise<LlamaCppPreparationSnapshot> {
+    try {
+      const [props, models] = await Promise.all([
+        this.serverClient.getProps({
+          model: selectedModel,
+          timeoutMs: LLAMACPP_PREFLIGHT_TIMEOUT_MS,
+        }),
+        this.serverClient.getModels({
+          timeoutMs: LLAMACPP_PREFLIGHT_TIMEOUT_MS,
+        }),
+      ]);
+      const stateBinding = createLlamaCppStateBinding(
+        props,
+        models,
+        selectedModel
+      );
+      return {
+        kind: "llamacpp-preparation-v1",
+        selectedModel,
+        detectedCaps: this.detectModelCapabilities(
+          models,
+          selectedModel
+        ),
+        ...(stateBinding && { stateBinding }),
+      };
+    } catch (error) {
+      this.logger.warn(
+        "Observable llama.cpp state is unavailable during resolution:",
+        error
+      );
+      return {
+        kind: "llamacpp-preparation-v1",
+        selectedModel,
+        detectedCaps: null,
+      };
+    }
+  }
+
+  async prepareRequest(
+    request: InternalLLMChatRequest,
+    context: AdapterPreparationContext
+  ): Promise<AdapterPreparationResult> {
+    request = applyPromptStructuredOutput(request);
+    const providedSnapshot = context.providerState as
+      | LlamaCppPreparationSnapshot
+      | undefined;
+    const snapshot =
+      providedSnapshot?.kind === "llamacpp-preparation-v1" &&
+      providedSnapshot.selectedModel === request.modelId
+        ? providedSnapshot
+        : await this.getPreparationSnapshot(request.modelId);
+    const stateBinding = snapshot.stateBinding;
+
+    const semantic = await this.prepareCompletionParams(
+      request,
+      snapshot.detectedCaps
+    );
+    if ("error" in semantic) {
+      return semantic;
+    }
+    const completionParams =
+      context.mode === "stream"
+        ? ({
+            ...semantic.completionParams,
+            stream: true,
+            stream_options: { include_usage: true },
+          } as OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming)
+        : semantic.completionParams;
+    let promptAccounting: AdapterPreparedRequest["promptAccounting"] = {
+      status: "unavailable",
+    };
+    if (stateBinding) {
+      try {
+        const counted = await this.serverClient.countChatCompletionInputTokens(
+          completionParams as unknown as Record<string, unknown>,
+          {
+            model: request.modelId,
+            timeoutMs: LLAMACPP_PREFLIGHT_TIMEOUT_MS,
+          }
+        );
+        const [currentProps, currentModels] = await Promise.all([
+          this.serverClient.getProps({
+            model: request.modelId,
+            timeoutMs: LLAMACPP_PREFLIGHT_TIMEOUT_MS,
+          }),
+          this.serverClient.getModels({
+            timeoutMs: LLAMACPP_PREFLIGHT_TIMEOUT_MS,
+          }),
+        ]);
+        const currentBinding = createLlamaCppStateBinding(
+          currentProps,
+          currentModels,
+          request.modelId
+        );
+        if (
+          currentBinding?.serverStateFingerprint ===
+          stateBinding.serverStateFingerprint
+        ) {
+          promptAccounting = {
+            status: "available",
+            count: {
+              tokens: counted.input_tokens,
+              method: "exact",
+              tokenizerId: `llamacpp-active:${stateBinding.metadata.model}`,
+              tokenProfileRevision:
+                `llamacpp-state:${stateBinding.serverStateFingerprint}`,
+            },
+          };
+        } else {
+          this.logger.warn(
+            "llama.cpp state changed while preparing the exact prompt count; accounting is unavailable."
+          );
+        }
+      } catch (error) {
+        this.logger.warn(
+          "Exact llama.cpp prepared-message counting is unavailable:",
+          error
+        );
+      }
+    }
+
+    const providerRequest =
+      freezeProviderRequest<LlamaCppPreparedProviderRequest>({
+        request,
+        completionParams,
+        detectedCaps: semantic.detectedCaps,
+        ...(stateBinding && { stateBinding }),
+      });
+    return {
+      prepared: {
+        mode: context.mode,
+        providerRequest,
+        requestView: createPreparedRequestView({
+          operation: "llamacpp.chat.completions",
+          mode: context.mode,
+          payload: completionParams as unknown as Record<string, unknown>,
+          structuredOutput: request.settings.structuredOutput,
+          extensionFields: ["chat_template_kwargs", "grammar"],
+        }),
+        promptAccounting,
+        outputTokenLimit: context.outputTokenLimit,
+        bindings: {
+          adapterRevision: LLAMACPP_ADAPTER_REVISION,
+          requestShapeRevision: LLAMACPP_REQUEST_SHAPE_REVISION,
+          ...(stateBinding && {
+            tokenProfileRevision:
+              `llamacpp-state:${stateBinding.serverStateFingerprint}`,
+            serverStateFingerprint: stateBinding.serverStateFingerprint,
+            chatTemplateFingerprint: stateBinding.chatTemplateFingerprint,
+          }),
+        },
+      },
+    };
+  }
+
+  async revalidatePreparedRequest(
+    prepared: AdapterPreparedRequest,
+    options?: AdapterRequestOptions
+  ): Promise<AdapterRevalidationResult> {
+    const providerRequest =
+      prepared.providerRequest as LlamaCppPreparedProviderRequest;
+    if (!providerRequest.stateBinding) {
+      return { valid: true };
+    }
+    try {
+      const utilityOptions = {
+        model: providerRequest.request.modelId,
+        ...(options?.signal && { signal: options.signal }),
+        timeoutMs: options?.timeoutMs ?? LLAMACPP_PREFLIGHT_TIMEOUT_MS,
+      };
+      const [props, models] = await Promise.all([
+        this.serverClient.getProps(utilityOptions),
+        this.serverClient.getModels(utilityOptions),
+      ]);
+      const current = createLlamaCppStateBinding(
+        props,
+        models,
+        providerRequest.request.modelId
+      );
+      if (
+        !current ||
+        current.serverStateFingerprint !==
+          providerRequest.stateBinding.serverStateFingerprint ||
+        current.chatTemplateFingerprint !==
+          providerRequest.stateBinding.chatTemplateFingerprint
+      ) {
+        this.clearModelCache();
+        return {
+          valid: false,
+          error: {
+            provider: providerRequest.request.providerId,
+            model: providerRequest.request.modelId,
+            error: {
+              message:
+                "The llama.cpp model, server build, or chat template changed after preparation.",
+              code: ADAPTER_ERROR_CODES.PREPARED_CALL_STALE,
+              type: "validation_error",
+            },
+            object: "error",
+          },
+        };
+      }
+      return { valid: true };
+    } catch (error) {
+      return {
+        valid: false,
+        error: this.createErrorResponse(error, providerRequest.request),
+      };
+    }
+  }
+
+  async sendPrepared(
+    prepared: AdapterPreparedRequest,
+    apiKey: string,
+    options?: AdapterRequestOptions
+  ): Promise<LLMResponse | LLMFailureResponse> {
+    const providerRequest =
+      prepared.providerRequest as LlamaCppPreparedProviderRequest;
+    const request = providerRequest.request;
+    try {
+      const openai = this.createClient(apiKey);
+      const completionParams = structuredClone(
+        providerRequest.completionParams
+      ) as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming;
+      const transportOptions = this.createTransportOptions(options);
+      const completion =
+        Object.keys(transportOptions).length > 0
+          ? await openai.chat.completions.create(
+              completionParams,
+              transportOptions
+            )
+          : await openai.chat.completions.create(completionParams);
+      return this.createSuccessResponse(
+        completion,
+        request,
+        providerRequest.detectedCaps
+      );
+    } catch (error) {
+      this.handleConnectionError(error);
+      return this.createErrorResponse(error, request);
+    }
+  }
+
+  async *streamPrepared(
+    prepared: AdapterPreparedRequest,
+    apiKey: string,
+    options?: AdapterRequestOptions
+  ): AsyncIterable<AdapterLLMStreamEvent> {
+    const providerRequest =
+      prepared.providerRequest as LlamaCppPreparedProviderRequest;
+    yield* this.streamCompletion(
+      providerRequest.request,
+      structuredClone(
+        providerRequest.completionParams
+      ) as OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming,
+      providerRequest.detectedCaps,
+      apiKey,
+      options
+    );
+  }
+
+  /**
    * Gets model capabilities by detecting the loaded GGUF model
    *
-   * This method caches the result to avoid repeated HTTP calls.
-   * Cache is automatically cleared on connection errors in sendMessage().
+   * The observable model list is refreshed on each call so router selection
+   * cannot reuse stale identity. Capability classification is cached by the
+   * selected model's full observable identity and cleared on connection errors.
    *
    * @returns Detected model capabilities or null if detection fails
    */
-  async getModelCapabilities(): Promise<Partial<ModelInfo> | null> {
-    // Return cached result if available
-    if (this.cachedModelCapabilities !== null) {
-      return this.cachedModelCapabilities;
-    }
-
-    // Return null if we already tried and failed
-    if (this.detectionAttempted) {
-      return null;
-    }
-
+  async getModelCapabilities(
+    selectedModel?: string
+  ): Promise<Partial<ModelInfo> | null> {
     // Attempt detection
     try {
       this.logger.debug(`Detecting model capabilities from llama.cpp server at ${this.baseURL}`);
-      const { data } = await this.serverClient.getModels();
+      const models = await this.serverClient.getModels();
+      const { data } = models;
 
       if (!data || data.length === 0) {
         this.logger.warn('No models loaded in llama.cpp server');
-        this.detectionAttempted = true;
         return null;
       }
-
-      const ggufFilename = data[0].id;
-      const capabilities = detectGgufCapabilities(ggufFilename);
-
-      // Cache the result (even if null)
-      this.cachedModelCapabilities = capabilities;
-      this.detectionAttempted = true;
-
-      if (capabilities) {
-        this.logger.debug(`Cached model capabilities for: ${ggufFilename}`);
-      } else {
-        this.logger.debug(`No known pattern matched for: ${ggufFilename}`);
-      }
-
-      return capabilities;
+      return this.detectModelCapabilities(models, selectedModel);
     } catch (error) {
       this.logger.warn('Failed to detect model capabilities:', error);
-      this.detectionAttempted = true;
       return null;
     }
+  }
+
+  private detectModelCapabilities(
+    models: LlamaCppModelsResponse,
+    selectedModel?: string
+  ): Partial<ModelInfo> | null {
+    const selected = selectLlamaCppModel(models, selectedModel);
+    if (!selected) {
+      this.logger.warn(
+        `Could not identify llama.cpp router model '${selectedModel ?? ""}'.`
+      );
+      return null;
+    }
+    const cacheKey = JSON.stringify({
+      id: selected.id,
+      aliases: selected.aliases,
+      meta: selected.meta,
+    });
+    if (this.cachedModelCapabilities.has(cacheKey)) {
+      return this.cachedModelCapabilities.get(cacheKey) ?? null;
+    }
+    const capabilities = detectGgufCapabilities(selected.id);
+    this.cachedModelCapabilities.set(cacheKey, capabilities);
+    if (capabilities) {
+      this.logger.debug(`Cached model capabilities for: ${selected.id}`);
+    } else {
+      this.logger.debug(`No known pattern matched for: ${selected.id}`);
+    }
+    return capabilities;
   }
 
   /**
@@ -164,8 +484,7 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
    * if the server has been restarted with a different model.
    */
   clearModelCache(): void {
-    this.cachedModelCapabilities = null;
-    this.detectionAttempted = false;
+    this.cachedModelCapabilities.clear();
     this.logger.debug('Cleared model capabilities cache');
   }
 
@@ -181,6 +500,7 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
     apiKey: string,
     options?: AdapterRequestOptions
   ): Promise<LLMResponse | LLMFailureResponse> {
+    request = applyPromptStructuredOutput(request);
     try {
       const prepared = await this.prepareCompletionRequest(request, apiKey);
       if ("error" in prepared) {
@@ -236,40 +556,165 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
     request: InternalLLMChatRequest,
     apiKey: string,
     options?: AdapterRequestOptions
-  ): AsyncIterable<LLMStreamEvent> {
+  ): AsyncIterable<AdapterLLMStreamEvent> {
+    request = applyPromptStructuredOutput(request);
+    const prepared = await this.prepareCompletionRequest(request, apiKey);
+    if ("error" in prepared) {
+      yield { type: "error", error: prepared.error };
+      return;
+    }
+    const streamParams = {
+      ...prepared.completionParams,
+      stream: true,
+      stream_options: { include_usage: true },
+    } as OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming;
+    yield* this.streamCompletion(
+      request,
+      streamParams,
+      prepared.detectedCaps,
+      apiKey,
+      options
+    );
+  }
+
+  private async *streamCompletion(
+    request: InternalLLMChatRequest,
+    streamParams: OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming,
+    initialDetectedCaps: Partial<ModelInfo> | null,
+    apiKey: string,
+    options?: AdapterRequestOptions
+  ): AsyncIterable<AdapterLLMStreamEvent> {
     const choiceStates = new Map<number, LlamaCppStreamChoiceState>();
     let responseId = "";
     let responseModel = request.modelId;
     let created = Math.floor(Date.now() / 1000);
     let usage: OpenAI.Completions.CompletionUsage | undefined;
-    let detectedCaps: Partial<ModelInfo> | null = null;
+    const detectedCaps = initialDetectedCaps;
 
     try {
-      const prepared = await this.prepareCompletionRequest(request, apiKey);
-      if ("error" in prepared) {
-        yield { type: "error", error: prepared.error };
-        return;
-      }
-
-      detectedCaps = prepared.detectedCaps;
-      const streamParams = {
-        ...prepared.completionParams,
-        stream: true,
-        stream_options: { include_usage: true },
-      } as OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming;
-
+      const openai = this.createClient(apiKey);
       const transportOptions = this.createTransportOptions(options);
       const stream =
         Object.keys(transportOptions).length > 0
-          ? await prepared.openai.chat.completions.create(streamParams, transportOptions)
-          : await prepared.openai.chat.completions.create(streamParams);
+          ? await openai.chat.completions.create(streamParams, transportOptions)
+          : await openai.chat.completions.create(streamParams);
 
       let started = false;
       for await (const chunk of stream) {
         responseId = chunk.id || responseId;
         responseModel = chunk.model || responseModel;
         created = chunk.created || created;
+        const evidenceEvents: AdapterLLMStreamEvent[] = [];
+        const publicEvents: AdapterLLMStreamEvent[] = [];
 
+        if (chunk.usage) {
+          usage = chunk.usage;
+          const normalized = normalizeUsage(
+            chunk.usage as unknown as Record<string, unknown>,
+            {
+              prompt: ["prompt_tokens"],
+              completion: ["completion_tokens"],
+              total: ["total_tokens"],
+            }
+          );
+          if (normalized.usage) {
+            evidenceEvents.push({
+              type: "adapter_evidence",
+              observedEvidence: {
+                usage: normalized.usage,
+                usageEvidence: normalized.usageEvidence,
+              },
+            });
+            publicEvents.push({
+              type: "usage",
+              usage: normalized.usage,
+              observedEvidence: {
+                usageEvidence: normalized.usageEvidence,
+              },
+            });
+          }
+        }
+
+        for (const choice of chunk.choices || []) {
+          const state = this.getStreamChoiceState(choiceStates, choice.index);
+          state.finishReason = choice.finish_reason ?? state.finishReason;
+          if (choice.finish_reason != null) {
+            evidenceEvents.push({
+              type: "adapter_evidence",
+              observedEvidence: {
+                choice: {
+                  index: choice.index,
+                  finishReason: choice.finish_reason,
+                  termination: normalizeTermination(choice.finish_reason),
+                },
+              },
+            });
+          }
+
+          const delta = choice.delta as any;
+          const reasoningDelta = delta?.reasoning_content ?? delta?.reasoning;
+          if (typeof reasoningDelta === "string" && reasoningDelta.length > 0) {
+            state.reasoningContent += reasoningDelta;
+            evidenceEvents.push({
+              type: "adapter_evidence",
+              observedEvidence: {
+                choice: {
+                  index: choice.index,
+                  rawContentParts: [{
+                    type: "reasoning",
+                    text: reasoningDelta,
+                    reasoning: true,
+                  }],
+                },
+              },
+            });
+            if (request.settings.reasoning?.exclude !== true) {
+              publicEvents.push({
+                type: "reasoning_delta",
+                delta: reasoningDelta,
+                index: choice.index,
+              });
+            }
+          }
+
+          if (typeof delta?.content === "string" && delta.content.length > 0) {
+            state.content += delta.content;
+            evidenceEvents.push({
+              type: "adapter_evidence",
+              observedEvidence: {
+                choice: {
+                  index: choice.index,
+                  rawContentDelta: delta.content,
+                  rawContentParts: [{
+                    type: "text",
+                    text: delta.content,
+                  }],
+                },
+              },
+            });
+            const visibleDelta = this.filterLiveNothinkPrefixDelta(
+              state,
+              delta.content,
+              detectedCaps?.localReasoning?.nothinkPrefix
+            );
+            if (visibleDelta) {
+              publicEvents.push({
+                type: "content_delta",
+                delta: visibleDelta,
+                index: choice.index,
+              });
+            }
+          }
+
+          const mappedLogprobs = mapOpenAIChatLogprobs(choice.logprobs);
+          if (mappedLogprobs) {
+            state.logprobs.push(...((choice.logprobs as any)?.content || []));
+          }
+        }
+
+        for (const event of evidenceEvents) {
+          yield event;
+        }
         if (!started) {
           started = true;
           yield {
@@ -280,56 +725,8 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
             created,
           };
         }
-
-        if (chunk.usage) {
-          usage = chunk.usage;
-          yield {
-            type: "usage",
-            usage: {
-              prompt_tokens: chunk.usage.prompt_tokens,
-              completion_tokens: chunk.usage.completion_tokens,
-              total_tokens: chunk.usage.total_tokens,
-            },
-          };
-        }
-
-        for (const choice of chunk.choices || []) {
-          const state = this.getStreamChoiceState(choiceStates, choice.index);
-          state.finishReason = choice.finish_reason ?? state.finishReason;
-
-          const delta = choice.delta as any;
-          const reasoningDelta = delta?.reasoning_content ?? delta?.reasoning;
-          if (typeof reasoningDelta === "string" && reasoningDelta.length > 0) {
-            state.reasoningContent += reasoningDelta;
-            if (request.settings.reasoning?.exclude !== true) {
-              yield {
-                type: "reasoning_delta",
-                delta: reasoningDelta,
-                index: choice.index,
-              };
-            }
-          }
-
-          if (typeof delta?.content === "string" && delta.content.length > 0) {
-            state.content += delta.content;
-            const visibleDelta = this.filterLiveNothinkPrefixDelta(
-              state,
-              delta.content,
-              detectedCaps?.localReasoning?.nothinkPrefix
-            );
-            if (visibleDelta) {
-              yield {
-                type: "content_delta",
-                delta: visibleDelta,
-                index: choice.index,
-              };
-            }
-          }
-
-          const mappedLogprobs = mapOpenAIChatLogprobs(choice.logprobs);
-          if (mappedLogprobs) {
-            state.logprobs.push(...((choice.logprobs as any)?.content || []));
-          }
+        for (const event of publicEvents) {
+          yield event;
         }
       }
 
@@ -362,14 +759,7 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
     } catch (error) {
       this.logger.error("llama.cpp streaming API error:", error);
 
-      const errorMessage = (error as any)?.message || String(error);
-      if (
-        errorMessage.includes("ECONNREFUSED") ||
-        errorMessage.includes("fetch failed") ||
-        errorMessage.includes("connect")
-      ) {
-        this.clearModelCache();
-      }
+      this.handleConnectionError(error);
 
       const errorResponse = this.createErrorResponse(error, request);
       if (choiceStates.size > 0) {
@@ -392,6 +782,24 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
           created: partial.created,
           choices: partial.choices,
           usage: partial.usage,
+          usageEvidence: partial.usageEvidence,
+        };
+      } else if (usage) {
+        const normalizedUsage = normalizeUsage(
+          usage as unknown as Record<string, unknown>,
+          {
+            prompt: ["prompt_tokens"],
+            completion: ["completion_tokens"],
+            total: ["total_tokens"],
+          }
+        );
+        errorResponse.partialResponse = {
+          id: responseId,
+          provider: request.providerId,
+          model: responseModel,
+          created,
+          choices: [],
+          ...normalizedUsage,
         };
       }
 
@@ -426,14 +834,20 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
       }
     }
 
-    // Initialize OpenAI client with llama.cpp base URL
-    // API key is not used by llama.cpp but required by SDK
-    const openai = new OpenAI({
-      apiKey: apiKey || 'not-needed',
-      baseURL: `${this.baseURL}/v1`,
-      maxRetries: 0, // retries are owned by the unified LLMService retry layer
-    });
+    const semantic = await this.prepareCompletionParams(request);
+    if ("error" in semantic) {
+      return semantic;
+    }
+    return {
+      openai: this.createClient(apiKey),
+      ...semantic,
+    };
+  }
 
+  private async prepareCompletionParams(
+    request: InternalLLMChatRequest,
+    detectedCapsSnapshot?: Partial<ModelInfo> | null
+  ): Promise<LlamaCppSemanticRequest | { error: LLMFailureResponse }> {
     const messages = this.formatMessages(request);
     const completionParams: OpenAI.Chat.Completions.ChatCompletionCreateParams = {
       model: request.modelId,
@@ -464,7 +878,11 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
       }),
     } as OpenAI.Chat.Completions.ChatCompletionCreateParams;
 
-    if (request.settings.structuredOutput?.schema && request.settings.structuredOutput.enabled !== false) {
+    if (
+      request.settings.structuredOutput?.schema &&
+      request.settings.structuredOutput.enabled !== false &&
+      request.settings.structuredOutput.delivery !== "prompt"
+    ) {
       const so = request.settings.structuredOutput;
       (completionParams as any).response_format = {
         type: 'json_object',
@@ -472,7 +890,10 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
       };
     }
 
-    const detectedCaps = await this.getModelCapabilities();
+    const detectedCaps =
+      detectedCapsSnapshot === undefined
+        ? await this.getModelCapabilities(request.modelId)
+        : detectedCapsSnapshot;
     const localReasoning = detectedCaps?.localReasoning;
     const derivedKwargs: Record<string, string | number | boolean> = {};
     if (localReasoning?.toggleKwarg) {
@@ -518,7 +939,26 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
       }
     }
 
-    return { openai, completionParams, detectedCaps };
+    return { completionParams, detectedCaps };
+  }
+
+  private createClient(apiKey: string): OpenAI {
+    return new OpenAI({
+      apiKey: apiKey || "not-needed",
+      baseURL: `${this.baseURL}/v1`,
+      maxRetries: 0,
+    });
+  }
+
+  private handleConnectionError(error: unknown): void {
+    const errorMessage = (error as any)?.message || String(error);
+    if (
+      errorMessage.includes("ECONNREFUSED") ||
+      errorMessage.includes("fetch failed") ||
+      errorMessage.includes("connect")
+    ) {
+      this.clearModelCache();
+    }
   }
 
   private createTransportOptions(options?: AdapterRequestOptions) {
@@ -750,13 +1190,23 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
       detectedCaps?.reasoning?.canDisable === false;
     const excludeReasoning = request.settings.reasoning?.exclude === true;
 
+    const normalizedUsage = normalizeUsage(
+      completion.usage as unknown as Record<string, unknown> | undefined,
+      {
+        prompt: ["prompt_tokens"],
+        completion: ["completion_tokens"],
+        total: ["total_tokens"],
+      }
+    );
+
     return {
       id: completion.id,
       provider: request.providerId,
       model: completion.model || request.modelId,
       created: completion.created,
       choices: completion.choices.map((c) => {
-        let content = c.message.content || "";
+        const rawContent = c.message.content || "";
+        let content = rawContent;
 
         // Strip the template-injected "nothink" prefix (some chat templates leak an
         // empty think block into content when thinking is disabled). Exact match.
@@ -769,7 +1219,22 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
             role: "assistant",
             content,
           },
+          rawContent,
+          rawContentParts: [
+            {
+              type: "text",
+              text: rawContent,
+            },
+            ...((c.message as any).reasoning_content
+              ? [{
+                  type: "reasoning",
+                  text: String((c.message as any).reasoning_content),
+                  reasoning: true,
+                }]
+              : []),
+          ],
           finish_reason: c.finish_reason,
+          termination: normalizeTermination(c.finish_reason),
           index: c.index,
         };
 
@@ -803,13 +1268,7 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
 
         return mappedChoice;
       }),
-      usage: completion.usage
-        ? {
-            prompt_tokens: completion.usage.prompt_tokens,
-            completion_tokens: completion.usage.completion_tokens,
-            total_tokens: completion.usage.total_tokens,
-          }
-        : undefined,
+      ...normalizedUsage,
       object: "chat.completion",
     };
   }

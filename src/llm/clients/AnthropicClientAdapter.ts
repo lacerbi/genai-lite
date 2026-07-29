@@ -2,22 +2,37 @@
 // Handles Claude-specific request formatting, response parsing, and error mapping to standardized format.
 
 import Anthropic from "@anthropic-ai/sdk";
-import type { LLMResponse, LLMFailureResponse, LLMMessage, LLMStreamEvent } from "../types";
+import type { LLMResponse, LLMFailureResponse, LLMMessage } from "../types";
 import type {
   ILLMClientAdapter,
   InternalLLMChatRequest,
   AdapterErrorCode,
   AdapterRequestOptions,
+  AdapterLLMStreamEvent,
+  AdapterPreparationContext,
+  AdapterPreparationResult,
+  AdapterPreparedRequest,
 } from "./types";
 import { ADAPTER_ERROR_CODES } from "./types";
 import { getCommonMappedErrorDetails } from "../../shared/adapters/errorUtils";
 import { applyStrictSchemaConstraints } from "../../shared/adapters/schemaUtils";
+import {
+  mergeUsageRecords,
+  normalizeTermination,
+  normalizeUsage,
+} from "../../shared/adapters/usageUtils";
 import {
   collectSystemContent,
   prependSystemToFirstUserMessage,
 } from "../../shared/adapters/systemMessageUtils";
 import type { Logger } from "../../logging/types";
 import { createDefaultLogger } from "../../logging/defaultLogger";
+import {
+  applyPromptStructuredOutput,
+  createPreparedRequestView,
+  freezeProviderRequest,
+  toPreparedRequestValue,
+} from "./preparedAdapterUtils";
 
 interface AnthropicPreparedRequest {
   anthropic: Anthropic;
@@ -27,6 +42,21 @@ interface AnthropicPreparedRequest {
   messages: Anthropic.Messages.MessageParam[];
 }
 
+interface AnthropicMessagePayload {
+  messageParams: Anthropic.Messages.MessageCreateParams;
+  useStructuredOutput: boolean;
+  messages: Anthropic.Messages.MessageParam[];
+}
+
+interface AnthropicPreparedProviderRequest {
+  request: InternalLLMChatRequest;
+  messageParams: Anthropic.Messages.MessageCreateParams;
+  useStructuredOutput: boolean;
+}
+
+const ANTHROPIC_ADAPTER_REVISION = "anthropic-adapter-v1";
+const ANTHROPIC_REQUEST_SHAPE_REVISION = "anthropic-messages-v1";
+
 interface AnthropicStreamAccumulator {
   id: string;
   model: string;
@@ -35,6 +65,12 @@ interface AnthropicStreamAccumulator {
   reasoning: string;
   stopReason: string | null;
   usage?: any;
+  rawParts: Array<{
+    type: string;
+    text?: string;
+    value?: import("../types").PreparedRequestValue;
+    reasoning?: boolean;
+  }>;
 }
 
 /**
@@ -63,6 +99,90 @@ export class AnthropicClientAdapter implements ILLMClientAdapter {
     this.logger = config?.logger ?? createDefaultLogger();
   }
 
+  async prepareRequest(
+    request: InternalLLMChatRequest,
+    context: AdapterPreparationContext
+  ): Promise<AdapterPreparationResult> {
+    try {
+      request = applyPromptStructuredOutput(request);
+      const payload = this.prepareMessageParams(request);
+      const providerRequest =
+        freezeProviderRequest<AnthropicPreparedProviderRequest>({
+          request,
+          messageParams: payload.messageParams,
+          useStructuredOutput: payload.useStructuredOutput,
+        });
+      return {
+        prepared: {
+          mode: context.mode,
+          providerRequest,
+          requestView: createPreparedRequestView({
+            operation: "anthropic.messages",
+            mode: context.mode,
+            payload: payload.messageParams as unknown as Record<
+              string,
+              unknown
+            >,
+            structuredOutput: request.settings.structuredOutput,
+            reasoningField: "thinking",
+          }),
+          promptAccounting: { status: "unavailable" },
+          outputTokenLimit: context.outputTokenLimit,
+          bindings: {
+            adapterRevision: ANTHROPIC_ADAPTER_REVISION,
+            requestShapeRevision: ANTHROPIC_REQUEST_SHAPE_REVISION,
+          },
+        },
+      };
+    } catch (error) {
+      return { error: this.createErrorResponse(error, request) };
+    }
+  }
+
+  async sendPrepared(
+    prepared: AdapterPreparedRequest,
+    apiKey: string,
+    options?: AdapterRequestOptions
+  ): Promise<LLMResponse | LLMFailureResponse> {
+    const providerRequest =
+      prepared.providerRequest as AnthropicPreparedProviderRequest;
+    const request = providerRequest.request;
+    try {
+      const anthropic = this.createClient(apiKey);
+      const messageParams = structuredClone(
+        providerRequest.messageParams
+      ) as Anthropic.Messages.MessageCreateParamsNonStreaming;
+      const requestTransportOptions = this.createTransportOptions(options);
+      const completion =
+        Object.keys(requestTransportOptions).length > 0
+          ? await anthropic.messages.create(
+              messageParams,
+              requestTransportOptions
+            )
+          : await anthropic.messages.create(messageParams);
+      return this.createSuccessResponse(completion, request);
+    } catch (error) {
+      this.logger.error("Anthropic prepared API error:", error);
+      return this.createErrorResponse(error, request);
+    }
+  }
+
+  async *streamPrepared(
+    prepared: AdapterPreparedRequest,
+    apiKey: string,
+    options?: AdapterRequestOptions
+  ): AsyncIterable<AdapterLLMStreamEvent> {
+    const providerRequest =
+      prepared.providerRequest as AnthropicPreparedProviderRequest;
+    yield* this.streamMessages(
+      providerRequest.request,
+      structuredClone(providerRequest.messageParams),
+      providerRequest.useStructuredOutput,
+      apiKey,
+      options
+    );
+  }
+
   /**
    * Sends a chat message to Anthropic's API
    *
@@ -75,6 +195,7 @@ export class AnthropicClientAdapter implements ILLMClientAdapter {
     apiKey: string,
     options?: AdapterRequestOptions
   ): Promise<LLMResponse | LLMFailureResponse> {
+    request = applyPromptStructuredOutput(request);
     try {
       const {
         anthropic,
@@ -121,7 +242,25 @@ export class AnthropicClientAdapter implements ILLMClientAdapter {
     request: InternalLLMChatRequest,
     apiKey: string,
     options?: AdapterRequestOptions
-  ): AsyncIterable<LLMStreamEvent> {
+  ): AsyncIterable<AdapterLLMStreamEvent> {
+    request = applyPromptStructuredOutput(request);
+    const payload = this.prepareMessageParams(request);
+    yield* this.streamMessages(
+      request,
+      payload.messageParams,
+      payload.useStructuredOutput,
+      apiKey,
+      options
+    );
+  }
+
+  private async *streamMessages(
+    request: InternalLLMChatRequest,
+    messageParams: Anthropic.Messages.MessageCreateParams,
+    useStructuredOutput: boolean,
+    apiKey: string,
+    options?: AdapterRequestOptions
+  ): AsyncIterable<AdapterLLMStreamEvent> {
     const accumulator: AnthropicStreamAccumulator = {
       id: "",
       model: request.modelId,
@@ -129,17 +268,14 @@ export class AnthropicClientAdapter implements ILLMClientAdapter {
       content: "",
       reasoning: "",
       stopReason: null,
+      rawParts: [],
     };
     let sawEvent = false;
     let started = false;
 
     try {
-      const {
-        anthropic,
-        messageParams,
-        requestTransportOptions,
-        useStructuredOutput,
-      } = this.prepareMessageRequest(request, apiKey, options);
+      const anthropic = this.createClient(apiKey);
+      const requestTransportOptions = this.createTransportOptions(options);
 
       this.logger.info(`Making Anthropic streaming API call for model: ${request.modelId}`, {
         useStructuredOutput,
@@ -159,6 +295,49 @@ export class AnthropicClientAdapter implements ILLMClientAdapter {
           accumulator.stopReason = event.message.stop_reason ?? accumulator.stopReason;
           accumulator.usage = this.mergeAnthropicUsage(accumulator.usage, event.message.usage);
 
+          if (event.message.stop_reason != null) {
+            yield {
+              type: "adapter_evidence",
+              observedEvidence: {
+                choice: {
+                  index: 0,
+                  finishReason: this.mapAnthropicStopReason(
+                    event.message.stop_reason
+                  ),
+                  termination: normalizeTermination(
+                    event.message.stop_reason,
+                    event.message.stop_reason === "max_tokens"
+                      ? "output"
+                      : undefined
+                  ),
+                },
+              },
+            };
+          }
+
+          let usageEvent: AdapterLLMStreamEvent | undefined;
+          if (event.message.usage) {
+            const normalized = this.normalizeAnthropicUsage(
+              accumulator.usage
+            );
+            if (normalized.usage) {
+              yield {
+                type: "adapter_evidence",
+                observedEvidence: {
+                  usage: normalized.usage,
+                  usageEvidence: normalized.usageEvidence,
+                },
+              };
+              usageEvent = {
+                type: "usage",
+                usage: normalized.usage,
+                observedEvidence: {
+                  usageEvidence: normalized.usageEvidence,
+                },
+              };
+            }
+          }
+
           if (!started) {
             started = true;
             yield {
@@ -170,13 +349,161 @@ export class AnthropicClientAdapter implements ILLMClientAdapter {
             };
           }
 
-          if (event.message.usage) {
-            yield {
-              type: "usage",
-              usage: this.mapAnthropicUsage(accumulator.usage),
-            };
+          if (usageEvent) {
+            yield usageEvent;
           }
           continue;
+        }
+
+        const publicEvents: AdapterLLMStreamEvent[] = [];
+
+        if (event.type === "content_block_start") {
+          const block = event.content_block as any;
+          const rawValue = toPreparedRequestValue(block);
+          const rawPart = {
+            type: `content_block_start:${String(block?.type ?? "unknown")}`,
+            ...(typeof block?.text === "string" && { text: block.text }),
+            ...(typeof block?.thinking === "string" && {
+              text: block.thinking,
+              reasoning: true,
+            }),
+            ...(rawValue !== undefined && {
+              value: {
+                blockIndex: event.index,
+                block: rawValue,
+              },
+            }),
+          };
+          accumulator.rawParts.push(rawPart);
+          yield {
+            type: "adapter_evidence",
+            observedEvidence: {
+              choice: {
+                index: 0,
+                ...(block?.type === "text" &&
+                  typeof block.text === "string" && {
+                    rawContentDelta: block.text,
+                  }),
+                rawContentParts: [rawPart],
+              },
+            },
+          };
+          if (block?.type === "text" && typeof block.text === "string" && block.text.length > 0) {
+            accumulator.content += block.text;
+            publicEvents.push({
+              type: "content_delta",
+              delta: block.text,
+              index: 0,
+            });
+          } else if (
+            block?.type === "thinking" &&
+            typeof block.thinking === "string" &&
+            block.thinking.length > 0
+          ) {
+            accumulator.reasoning += block.thinking;
+            if (request.settings.reasoning?.exclude !== true) {
+              publicEvents.push({
+                type: "reasoning_delta",
+                delta: block.thinking,
+                index: 0,
+              });
+            }
+          }
+        } else if (event.type === "content_block_delta") {
+          const delta = event.delta as any;
+          const rawValue = toPreparedRequestValue(delta);
+          const rawPart = {
+            type: String(delta?.type ?? "unknown"),
+            ...(typeof delta?.text === "string" && { text: delta.text }),
+            ...(typeof delta?.thinking === "string" && {
+              text: delta.thinking,
+              reasoning: true,
+            }),
+            ...(rawValue !== undefined && {
+              value: {
+                blockIndex: event.index,
+                delta: rawValue,
+              },
+            }),
+          };
+          accumulator.rawParts.push(rawPart);
+          yield {
+            type: "adapter_evidence",
+            observedEvidence: {
+              choice: {
+                index: 0,
+                ...(delta?.type === "text_delta" &&
+                  typeof delta.text === "string" && {
+                    rawContentDelta: delta.text,
+                  }),
+                rawContentParts: [rawPart],
+              },
+            },
+          };
+          if (delta?.type === "text_delta" && typeof delta.text === "string" && delta.text.length > 0) {
+            accumulator.content += delta.text;
+            publicEvents.push({
+              type: "content_delta",
+              delta: delta.text,
+              index: 0,
+            });
+          } else if (
+            delta?.type === "thinking_delta" &&
+            typeof delta.thinking === "string" &&
+            delta.thinking.length > 0
+          ) {
+            accumulator.reasoning += delta.thinking;
+            if (request.settings.reasoning?.exclude !== true) {
+              publicEvents.push({
+                type: "reasoning_delta",
+                delta: delta.thinking,
+                index: 0,
+              });
+            }
+          }
+        } else if (event.type === "message_delta") {
+          accumulator.stopReason = event.delta.stop_reason ?? accumulator.stopReason;
+          if (event.delta.stop_reason != null) {
+            yield {
+              type: "adapter_evidence",
+              observedEvidence: {
+                choice: {
+                  index: 0,
+                  finishReason: this.mapAnthropicStopReason(
+                    event.delta.stop_reason
+                  ),
+                  termination: normalizeTermination(
+                    event.delta.stop_reason,
+                    event.delta.stop_reason === "max_tokens"
+                      ? "output"
+                      : undefined
+                  ),
+                },
+              },
+            };
+          }
+          accumulator.usage = this.mergeAnthropicUsage(accumulator.usage, event.usage);
+          if (event.usage) {
+            const normalized = this.normalizeAnthropicUsage(
+              accumulator.usage
+            );
+            if (normalized.usage) {
+              yield {
+                type: "adapter_evidence",
+                observedEvidence: {
+                  usage: normalized.usage,
+                  usageEvidence: normalized.usageEvidence,
+                },
+              };
+              publicEvents.push({
+                type: "usage",
+                usage: normalized.usage,
+                observedEvidence: {
+                  usageEvidence: normalized.usageEvidence,
+                },
+              });
+            }
+          }
         }
 
         if (!started) {
@@ -189,46 +516,8 @@ export class AnthropicClientAdapter implements ILLMClientAdapter {
             created: accumulator.created,
           };
         }
-
-        if (event.type === "content_block_start") {
-          const block = event.content_block as any;
-          if (block?.type === "text" && typeof block.text === "string" && block.text.length > 0) {
-            accumulator.content += block.text;
-            yield { type: "content_delta", delta: block.text, index: event.index };
-          } else if (
-            block?.type === "thinking" &&
-            typeof block.thinking === "string" &&
-            block.thinking.length > 0
-          ) {
-            accumulator.reasoning += block.thinking;
-            if (request.settings.reasoning?.exclude !== true) {
-              yield { type: "reasoning_delta", delta: block.thinking, index: event.index };
-            }
-          }
-        } else if (event.type === "content_block_delta") {
-          const delta = event.delta as any;
-          if (delta?.type === "text_delta" && typeof delta.text === "string" && delta.text.length > 0) {
-            accumulator.content += delta.text;
-            yield { type: "content_delta", delta: delta.text, index: event.index };
-          } else if (
-            delta?.type === "thinking_delta" &&
-            typeof delta.thinking === "string" &&
-            delta.thinking.length > 0
-          ) {
-            accumulator.reasoning += delta.thinking;
-            if (request.settings.reasoning?.exclude !== true) {
-              yield { type: "reasoning_delta", delta: delta.thinking, index: event.index };
-            }
-          }
-        } else if (event.type === "message_delta") {
-          accumulator.stopReason = event.delta.stop_reason ?? accumulator.stopReason;
-          accumulator.usage = this.mergeAnthropicUsage(accumulator.usage, event.usage);
-          if (event.usage) {
-            yield {
-              type: "usage",
-              usage: this.mapAnthropicUsage(accumulator.usage),
-            };
-          }
+        for (const publicEvent of publicEvents) {
+          yield publicEvent;
         }
       }
 
@@ -236,6 +525,7 @@ export class AnthropicClientAdapter implements ILLMClientAdapter {
         this.createSyntheticMessage(request, accumulator),
         request
       );
+      response.choices[0].rawContentParts = accumulator.rawParts;
       yield { type: "complete", response };
     } catch (error) {
       this.logger.error("Anthropic streaming API error:", error);
@@ -246,6 +536,7 @@ export class AnthropicClientAdapter implements ILLMClientAdapter {
           this.createSyntheticMessage(request, accumulator),
           request
         );
+        partial.choices[0].rawContentParts = accumulator.rawParts;
         errorResponse.partialResponse = {
           id: partial.id,
           provider: partial.provider,
@@ -253,6 +544,7 @@ export class AnthropicClientAdapter implements ILLMClientAdapter {
           created: partial.created,
           choices: partial.choices,
           usage: partial.usage,
+          usageEvidence: partial.usageEvidence,
         };
       }
 
@@ -287,6 +579,34 @@ export class AnthropicClientAdapter implements ILLMClientAdapter {
     apiKey: string,
     options?: AdapterRequestOptions
   ): AnthropicPreparedRequest {
+    const payload = this.prepareMessageParams(request);
+    return {
+      anthropic: this.createClient(apiKey),
+      requestTransportOptions: this.createTransportOptions(options),
+      ...payload,
+    };
+  }
+
+  private createClient(apiKey: string): Anthropic {
+    return new Anthropic({
+      apiKey,
+      ...(this.baseURL && { baseURL: this.baseURL }),
+      maxRetries: 0,
+    });
+  }
+
+  private createTransportOptions(
+    options?: AdapterRequestOptions
+  ): Record<string, unknown> {
+    return {
+      ...(options?.signal && { signal: options.signal }),
+      ...(options?.timeoutMs !== undefined && { timeout: options.timeoutMs }),
+    };
+  }
+
+  private prepareMessageParams(
+    request: InternalLLMChatRequest
+  ): AnthropicMessagePayload {
     const hasTemperature = request.settings.temperature !== undefined;
     const hasTopP = request.settings.topP !== undefined;
     if (hasTemperature && hasTopP) {
@@ -298,21 +618,9 @@ export class AnthropicClientAdapter implements ILLMClientAdapter {
     // Check if generally available structured output is requested.
     const useStructuredOutput = !!(
       request.settings.structuredOutput?.schema &&
-      request.settings.structuredOutput.enabled !== false
+      request.settings.structuredOutput.enabled !== false &&
+      request.settings.structuredOutput.delivery !== "prompt"
     );
-
-    // Initialize Anthropic client
-    const anthropic = new Anthropic({
-      apiKey,
-      ...(this.baseURL && { baseURL: this.baseURL }),
-      maxRetries: 0, // retries are owned by the unified LLMService retry layer
-    });
-
-    // Per-request transport options (abort signal, timeout)
-    const requestTransportOptions = {
-      ...(options?.signal && { signal: options.signal }),
-      ...(options?.timeoutMs !== undefined && { timeout: options.timeoutMs }),
-    };
 
     // Format messages for Anthropic API (Claude has specific requirements)
     const { messages, systemMessage } = this.formatMessagesForAnthropic(request);
@@ -392,22 +700,22 @@ export class AnthropicClientAdapter implements ILLMClientAdapter {
     }
 
     return {
-      anthropic,
       messageParams,
-      requestTransportOptions,
       useStructuredOutput,
       messages,
     };
   }
 
+  private normalizeAnthropicUsage(usage: any) {
+    return normalizeUsage(usage, {
+      prompt: ["input_tokens"],
+      completion: ["output_tokens"],
+      total: [],
+    });
+  }
+
   private mapAnthropicUsage(usage: any) {
-    const promptTokens = usage.input_tokens ?? 0;
-    const completionTokens = usage.output_tokens ?? 0;
-    return {
-      prompt_tokens: promptTokens,
-      completion_tokens: completionTokens,
-      total_tokens: promptTokens + completionTokens,
-    };
+    return this.normalizeAnthropicUsage(usage).usage ?? {};
   }
 
   private mergeAnthropicUsage(
@@ -418,12 +726,7 @@ export class AnthropicClientAdapter implements ILLMClientAdapter {
       return current;
     }
 
-    return {
-      ...(current || {}),
-      ...next,
-      input_tokens: next.input_tokens ?? current?.input_tokens ?? 0,
-      output_tokens: next.output_tokens ?? current?.output_tokens ?? 0,
-    };
+    return mergeUsageRecords(current, next);
   }
 
   private createSyntheticMessage(
@@ -621,7 +924,23 @@ export class AnthropicClientAdapter implements ILLMClientAdapter {
         role: "assistant",
         content: textContent,
       },
+      rawContent: textContent,
+      rawContentParts: completion.content.map((block: any) => ({
+        type: String(block.type ?? "unknown"),
+        ...(typeof block.text === "string" && { text: block.text }),
+        ...(typeof block.thinking === "string" && {
+          text: block.thinking,
+          reasoning: true,
+        }),
+        ...(toPreparedRequestValue(block) !== undefined && {
+          value: toPreparedRequestValue(block),
+        }),
+      })),
       finish_reason: finishReason,
+      termination: normalizeTermination(
+        completion.stop_reason,
+        completion.stop_reason === "max_tokens" ? "output" : undefined
+      ),
       index: 0,
     };
 
@@ -630,20 +949,22 @@ export class AnthropicClientAdapter implements ILLMClientAdapter {
       choice.reasoning = reasoning;
     }
 
+    const normalizedUsage = normalizeUsage(
+      completion.usage as unknown as Record<string, unknown> | undefined,
+      {
+        prompt: ["input_tokens"],
+        completion: ["output_tokens"],
+        total: [],
+      }
+    );
+
     return {
       id: completion.id,
       provider: request.providerId,
       model: completion.model || request.modelId,
       created: Math.floor(Date.now() / 1000), // Anthropic doesn't provide created timestamp
       choices: [choice],
-      usage: completion.usage
-        ? {
-            prompt_tokens: completion.usage.input_tokens,
-            completion_tokens: completion.usage.output_tokens,
-            total_tokens:
-              completion.usage.input_tokens + completion.usage.output_tokens,
-          }
-        : undefined,
+      ...normalizedUsage,
       object: "chat.completion",
     };
   }

@@ -1954,7 +1954,8 @@ export function validateLLMSettings(settings: Partial<LLMSettings>): string[] {
       if (
         settings.llamacpp.grammar &&
         settings.structuredOutput?.schema &&
-        settings.structuredOutput.enabled !== false
+        settings.structuredOutput.enabled !== false &&
+        settings.structuredOutput.delivery !== "prompt"
       ) {
         errors.push(
           "llamacpp.grammar and structuredOutput are mutually exclusive (llama-server rejects both together)"
@@ -2052,6 +2053,14 @@ export function validateLLMSettings(settings: Partial<LLMSettings>): string[] {
       // enabled must be boolean if present
       if (so.enabled !== undefined && typeof so.enabled !== "boolean") {
         errors.push("structuredOutput.enabled must be a boolean");
+      }
+
+      if (
+        so.delivery !== undefined &&
+        so.delivery !== "native" &&
+        so.delivery !== "prompt"
+      ) {
+        errors.push("structuredOutput.delivery must be 'native' or 'prompt'");
       }
 
       // strict must be boolean if present

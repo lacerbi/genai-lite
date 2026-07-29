@@ -2,15 +2,23 @@
 // Handles request formatting, response parsing, and error mapping to standardized format.
 
 import OpenAI from "openai";
-import type { LLMResponse, LLMFailureResponse, LLMStreamEvent } from "../types";
+import type { LLMResponse, LLMFailureResponse } from "../types";
 import type {
   ILLMClientAdapter,
   InternalLLMChatRequest,
   AdapterRequestOptions,
+  AdapterLLMStreamEvent,
+  AdapterPreparationContext,
+  AdapterPreparationResult,
+  AdapterPreparedRequest,
 } from "./types";
 import { ADAPTER_ERROR_CODES } from "./types";
 import { getCommonMappedErrorDetails } from "../../shared/adapters/errorUtils";
 import { mapOpenAIChatLogprobs } from "../../shared/adapters/logprobsUtils";
+import {
+  normalizeTermination,
+  normalizeUsage,
+} from "../../shared/adapters/usageUtils";
 import { applyStrictSchemaConstraints } from "../../shared/adapters/schemaUtils";
 import {
   collectSystemContent,
@@ -18,11 +26,24 @@ import {
 } from "../../shared/adapters/systemMessageUtils";
 import type { Logger } from "../../logging/types";
 import { createDefaultLogger } from "../../logging/defaultLogger";
+import {
+  applyPromptStructuredOutput,
+  createPreparedRequestView,
+  freezeProviderRequest,
+} from "./preparedAdapterUtils";
 
 interface OpenAICompletionRequest {
   openai: OpenAI;
   completionParams: OpenAI.Chat.Completions.ChatCompletionCreateParams;
 }
+
+interface OpenAIPreparedProviderRequest {
+  request: InternalLLMChatRequest;
+  completionParams: OpenAI.Chat.Completions.ChatCompletionCreateParams;
+}
+
+const OPENAI_ADAPTER_REVISION = "openai-adapter-v1";
+const OPENAI_REQUEST_SHAPE_REVISION = "openai-chat-completions-v1";
 
 interface OpenAIStreamChoiceState {
   content: string;
@@ -56,6 +77,96 @@ export class OpenAIClientAdapter implements ILLMClientAdapter {
     this.logger = config?.logger ?? createDefaultLogger();
   }
 
+  async prepareRequest(
+    request: InternalLLMChatRequest,
+    context: AdapterPreparationContext
+  ): Promise<AdapterPreparationResult> {
+    try {
+      request = applyPromptStructuredOutput(request);
+      const baseParams = this.prepareCompletionParams(request);
+      const completionParams =
+        context.mode === "stream"
+          ? ({
+              ...baseParams,
+              stream: true,
+              stream_options: { include_usage: true },
+            } as OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming)
+          : baseParams;
+      const providerRequest =
+        freezeProviderRequest<OpenAIPreparedProviderRequest>({
+          request,
+          completionParams,
+        });
+
+      return {
+        prepared: {
+          mode: context.mode,
+          providerRequest,
+          requestView: createPreparedRequestView({
+            operation: "openai.chat.completions",
+            mode: context.mode,
+            payload: completionParams as unknown as Record<string, unknown>,
+            structuredOutput: request.settings.structuredOutput,
+            reasoningField: "reasoning_effort",
+          }),
+          promptAccounting: { status: "unavailable" },
+          outputTokenLimit: context.outputTokenLimit,
+          bindings: {
+            adapterRevision: OPENAI_ADAPTER_REVISION,
+            requestShapeRevision: OPENAI_REQUEST_SHAPE_REVISION,
+          },
+        },
+      };
+    } catch (error) {
+      return { error: this.createErrorResponse(error, request) };
+    }
+  }
+
+  async sendPrepared(
+    prepared: AdapterPreparedRequest,
+    apiKey: string,
+    options?: AdapterRequestOptions
+  ): Promise<LLMResponse | LLMFailureResponse> {
+    const providerRequest =
+      prepared.providerRequest as OpenAIPreparedProviderRequest;
+    const request = providerRequest.request;
+    try {
+      const openai = this.createClient(apiKey);
+      const completionParams = structuredClone(
+        providerRequest.completionParams
+      ) as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming;
+      const transportOptions = this.createTransportOptions(options);
+      const completion =
+        Object.keys(transportOptions).length > 0
+          ? await openai.chat.completions.create(
+              completionParams,
+              transportOptions
+            )
+          : await openai.chat.completions.create(completionParams);
+      return this.createSuccessResponse(completion, request);
+    } catch (error) {
+      this.logger.error("OpenAI prepared API error:", error);
+      return this.createErrorResponse(error, request);
+    }
+  }
+
+  async *streamPrepared(
+    prepared: AdapterPreparedRequest,
+    apiKey: string,
+    options?: AdapterRequestOptions
+  ): AsyncIterable<AdapterLLMStreamEvent> {
+    const providerRequest =
+      prepared.providerRequest as OpenAIPreparedProviderRequest;
+    yield* this.streamCompletion(
+      providerRequest.request,
+      structuredClone(
+        providerRequest.completionParams
+      ) as OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming,
+      apiKey,
+      options
+    );
+  }
+
   /**
    * Sends a chat message to OpenAI's API
    *
@@ -68,6 +179,7 @@ export class OpenAIClientAdapter implements ILLMClientAdapter {
     apiKey: string,
     options?: AdapterRequestOptions
   ): Promise<LLMResponse | LLMFailureResponse> {
+    request = applyPromptStructuredOutput(request);
     try {
       const { openai, completionParams } = this.prepareCompletionRequest(request, apiKey);
 
@@ -108,7 +220,22 @@ export class OpenAIClientAdapter implements ILLMClientAdapter {
     request: InternalLLMChatRequest,
     apiKey: string,
     options?: AdapterRequestOptions
-  ): AsyncIterable<LLMStreamEvent> {
+  ): AsyncIterable<AdapterLLMStreamEvent> {
+    request = applyPromptStructuredOutput(request);
+    const completionParams = {
+      ...this.prepareCompletionParams(request),
+      stream: true,
+      stream_options: { include_usage: true },
+    } as OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming;
+    yield* this.streamCompletion(request, completionParams, apiKey, options);
+  }
+
+  private async *streamCompletion(
+    request: InternalLLMChatRequest,
+    streamParams: OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming,
+    apiKey: string,
+    options?: AdapterRequestOptions
+  ): AsyncIterable<AdapterLLMStreamEvent> {
     const choiceStates = new Map<number, OpenAIStreamChoiceState>();
     let responseId = "";
     let responseModel = request.modelId;
@@ -116,12 +243,7 @@ export class OpenAIClientAdapter implements ILLMClientAdapter {
     let usage: OpenAI.Completions.CompletionUsage | undefined;
 
     try {
-      const { openai, completionParams } = this.prepareCompletionRequest(request, apiKey);
-      const streamParams = {
-        ...completionParams,
-        stream: true,
-        stream_options: { include_usage: true },
-      } as OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming;
+      const openai = this.createClient(apiKey);
       const transportOptions = this.createTransportOptions(options);
       const stream =
         Object.keys(transportOptions).length > 0
@@ -133,7 +255,106 @@ export class OpenAIClientAdapter implements ILLMClientAdapter {
         responseId = chunk.id || responseId;
         responseModel = chunk.model || responseModel;
         created = chunk.created || created;
+        const evidenceEvents: AdapterLLMStreamEvent[] = [];
+        const publicEvents: AdapterLLMStreamEvent[] = [];
 
+        if (chunk.usage) {
+          usage = chunk.usage;
+          const normalized = normalizeUsage(
+            chunk.usage as unknown as Record<string, unknown>,
+            {
+              prompt: ["prompt_tokens"],
+              completion: ["completion_tokens"],
+              total: ["total_tokens"],
+            }
+          );
+          if (normalized.usage) {
+            evidenceEvents.push({
+              type: "adapter_evidence",
+              observedEvidence: {
+                usage: normalized.usage,
+                usageEvidence: normalized.usageEvidence,
+              },
+            });
+            publicEvents.push({
+              type: "usage",
+              usage: normalized.usage,
+              observedEvidence: {
+                usageEvidence: normalized.usageEvidence,
+              },
+            });
+          }
+        }
+
+        for (const choice of chunk.choices || []) {
+          const state = this.getStreamChoiceState(choiceStates, choice.index);
+          state.finishReason = choice.finish_reason ?? state.finishReason;
+          if (choice.finish_reason != null) {
+            evidenceEvents.push({
+              type: "adapter_evidence",
+              observedEvidence: {
+                choice: {
+                  index: choice.index,
+                  finishReason: choice.finish_reason,
+                  termination: normalizeTermination(choice.finish_reason),
+                },
+              },
+            });
+          }
+          const delta = choice.delta as any;
+
+          const reasoningDelta = delta?.reasoning ?? delta?.reasoning_content;
+          if (typeof reasoningDelta === "string" && reasoningDelta.length > 0) {
+            state.reasoning += reasoningDelta;
+            evidenceEvents.push({
+              type: "adapter_evidence",
+              observedEvidence: {
+                choice: {
+                  index: choice.index,
+                  rawContentParts: [{
+                    type: "reasoning",
+                    text: reasoningDelta,
+                    reasoning: true,
+                  }],
+                },
+              },
+            });
+            if (request.settings.reasoning?.exclude !== true) {
+              publicEvents.push({
+                type: "reasoning_delta",
+                delta: reasoningDelta,
+                index: choice.index,
+              });
+            }
+          }
+
+          if (typeof delta?.content === "string" && delta.content.length > 0) {
+            state.content += delta.content;
+            evidenceEvents.push({
+              type: "adapter_evidence",
+              observedEvidence: {
+                choice: {
+                  index: choice.index,
+                  rawContentDelta: delta.content,
+                },
+              },
+            });
+            publicEvents.push({
+              type: "content_delta",
+              delta: delta.content,
+              index: choice.index,
+            });
+          }
+
+          const mappedLogprobs = mapOpenAIChatLogprobs(choice.logprobs);
+          if (mappedLogprobs) {
+            state.logprobs.push(...((choice.logprobs as any)?.content || []));
+          }
+        }
+
+        for (const event of evidenceEvents) {
+          yield event;
+        }
         if (!started) {
           started = true;
           yield {
@@ -144,49 +365,8 @@ export class OpenAIClientAdapter implements ILLMClientAdapter {
             created,
           };
         }
-
-        if (chunk.usage) {
-          usage = chunk.usage;
-          yield {
-            type: "usage",
-            usage: {
-              prompt_tokens: chunk.usage.prompt_tokens,
-              completion_tokens: chunk.usage.completion_tokens,
-              total_tokens: chunk.usage.total_tokens,
-            },
-          };
-        }
-
-        for (const choice of chunk.choices || []) {
-          const state = this.getStreamChoiceState(choiceStates, choice.index);
-          state.finishReason = choice.finish_reason ?? state.finishReason;
-          const delta = choice.delta as any;
-
-          const reasoningDelta = delta?.reasoning ?? delta?.reasoning_content;
-          if (typeof reasoningDelta === "string" && reasoningDelta.length > 0) {
-            state.reasoning += reasoningDelta;
-            if (request.settings.reasoning?.exclude !== true) {
-              yield {
-                type: "reasoning_delta",
-                delta: reasoningDelta,
-                index: choice.index,
-              };
-            }
-          }
-
-          if (typeof delta?.content === "string" && delta.content.length > 0) {
-            state.content += delta.content;
-            yield {
-              type: "content_delta",
-              delta: delta.content,
-              index: choice.index,
-            };
-          }
-
-          const mappedLogprobs = mapOpenAIChatLogprobs(choice.logprobs);
-          if (mappedLogprobs) {
-            state.logprobs.push(...((choice.logprobs as any)?.content || []));
-          }
+        for (const event of publicEvents) {
+          yield event;
         }
       }
 
@@ -225,6 +405,24 @@ export class OpenAIClientAdapter implements ILLMClientAdapter {
           created: partial.created,
           choices: partial.choices,
           usage: partial.usage,
+          usageEvidence: partial.usageEvidence,
+        };
+      } else if (usage) {
+        const normalizedUsage = normalizeUsage(
+          usage as unknown as Record<string, unknown>,
+          {
+            prompt: ["prompt_tokens"],
+            completion: ["completion_tokens"],
+            total: ["total_tokens"],
+          }
+        );
+        errorResponse.partialResponse = {
+          id: responseId,
+          provider: request.providerId,
+          model: responseModel,
+          created,
+          choices: [],
+          ...normalizedUsage,
         };
       }
       yield { type: "error", error: errorResponse };
@@ -257,12 +455,23 @@ export class OpenAIClientAdapter implements ILLMClientAdapter {
     request: InternalLLMChatRequest,
     apiKey: string
   ): OpenAICompletionRequest {
-    const openai = new OpenAI({
+    return {
+      openai: this.createClient(apiKey),
+      completionParams: this.prepareCompletionParams(request),
+    };
+  }
+
+  private createClient(apiKey: string): OpenAI {
+    return new OpenAI({
       apiKey,
       ...(this.baseURL && { baseURL: this.baseURL }),
       maxRetries: 0, // retries are owned by the unified LLMService retry layer
     });
+  }
 
+  private prepareCompletionParams(
+    request: InternalLLMChatRequest
+  ): OpenAI.Chat.Completions.ChatCompletionCreateParams {
     const messages = this.formatMessages(request);
     const completionParams: OpenAI.Chat.Completions.ChatCompletionCreateParams =
       {
@@ -303,7 +512,11 @@ export class OpenAIClientAdapter implements ILLMClientAdapter {
       }
     }
 
-    if (request.settings.structuredOutput?.schema && request.settings.structuredOutput.enabled !== false) {
+    if (
+      request.settings.structuredOutput?.schema &&
+      request.settings.structuredOutput.enabled !== false &&
+      request.settings.structuredOutput.delivery !== "prompt"
+    ) {
       const so = request.settings.structuredOutput;
       // OpenAI strict mode additionally requires `required` to list every
       // property of each object schema.
@@ -320,7 +533,7 @@ export class OpenAIClientAdapter implements ILLMClientAdapter {
       } as any;
     }
 
-    return { openai, completionParams };
+    return completionParams;
   }
 
   private createTransportOptions(options?: AdapterRequestOptions) {
@@ -472,7 +685,9 @@ export class OpenAIClientAdapter implements ILLMClientAdapter {
         role: choice.message.role as "assistant",
         content: choice.message.content || "",
       },
+      rawContent: choice.message.content || "",
       finish_reason: choice.finish_reason,
+      termination: normalizeTermination(choice.finish_reason),
       index: choice.index,
     };
 
@@ -489,19 +704,22 @@ export class OpenAIClientAdapter implements ILLMClientAdapter {
       responseChoice.logprobs = logprobs;
     }
 
+    const normalizedUsage = normalizeUsage(
+      completion.usage as unknown as Record<string, unknown> | undefined,
+      {
+        prompt: ["prompt_tokens"],
+        completion: ["completion_tokens"],
+        total: ["total_tokens"],
+      }
+    );
+
     return {
       id: completion.id,
       provider: request.providerId,
       model: completion.model || request.modelId,
       created: completion.created,
       choices: [responseChoice],
-      usage: completion.usage
-        ? {
-            prompt_tokens: completion.usage.prompt_tokens,
-            completion_tokens: completion.usage.completion_tokens,
-            total_tokens: completion.usage.total_tokens,
-          }
-        : undefined,
+      ...normalizedUsage,
       object: "chat.completion",
     };
   }

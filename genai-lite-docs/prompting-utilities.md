@@ -17,6 +17,13 @@ Helper functions for working with prompts, templates, and LLM responses.
 genai-lite provides utilities for prompt engineering and content manipulation via the `genai-lite/prompting` subpath.
 
 **Template & Content**: `renderTemplate`, `countTokens`, `getSmartPreview`
+
+For evidence-bearing model profiles and certified structural bounds, use
+`countTextTokens`, `resolveTokenProfile`, `retokenizationUpperBound`, and
+`codePointBoundToTokenUpperBound`. `countTokens` remains the compatible numeric
+wrapper and can fall back to a heuristic. Content-only counts are distinct from
+fully prepared message accounting; see
+[Prepared Calls and Token Accounting](prepared-calls-and-accounting.md).
 **Prompt Engineering**: `parseRoleTags`, `parseStructuredContent`, `extractRandomVariables`, `parseTemplateWithMetadata`, `extractInitialTaggedContent`, `extractMarkerDelimitedContent`
 
 **Note**: For model-aware message creation, use `LLMService.createMessages()` which combines these utilities with model context. See [LLM Service - Creating Messages from Templates](llm-service.md#creating-messages-from-templates).

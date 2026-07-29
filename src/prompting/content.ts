@@ -6,7 +6,17 @@
  * help prepare the "ingredients" that will be used in prompt construction.
  */
 
-import { Tiktoken, encodingForModel, TiktokenModel } from 'js-tiktoken';
+import {
+  Tiktoken,
+  encodingForModel,
+  getEncodingNameForModel,
+  TiktokenModel,
+} from 'js-tiktoken';
+import {
+  countTextTokens,
+  getTokenProfileById,
+  type TokenProfileId,
+} from "../llm/tokenization";
 
 const tokenizerCache = new Map<TiktokenModel, Tiktoken>();
 
@@ -29,6 +39,16 @@ function getTokenizer(model: TiktokenModel): Tiktoken {
 export function countTokens(text: string, model: TiktokenModel = 'gpt-4'): number {
   if (!text) return 0;
   try {
+    const encoding = getEncodingNameForModel(model);
+    if (encoding === "cl100k_base" || encoding === "o200k_base") {
+      const profile = getTokenProfileById(encoding as TokenProfileId);
+      if (profile) {
+        const result = countTextTokens(text, profile);
+        if (result.status === "available") {
+          return result.count.tokens;
+        }
+      }
+    }
     const tokenizer = getTokenizer(model);
     return tokenizer.encode(text).length;
   } catch (error) {

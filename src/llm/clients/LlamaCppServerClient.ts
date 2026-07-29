@@ -45,9 +45,29 @@ export interface LlamaCppInfillResponse {
 export interface LlamaCppPropsResponse {
   assistant_name?: string;
   user_name?: string;
-  default_generation_settings?: Record<string, any>;
+  default_generation_settings?: Record<string, unknown>;
   total_slots?: number;
-  [key: string]: any;
+  model_alias?: string;
+  model_path?: string;
+  chat_template?: string;
+  chat_template_caps?: Record<string, unknown>;
+  bos_token?: string;
+  eos_token?: string;
+  build_info?: Record<string, unknown> | string;
+  [key: string]: unknown;
+}
+
+/** Response from /v1/chat/completions/input_tokens. */
+export interface LlamaCppChatInputTokensResponse {
+  input_tokens: number;
+  object?: string;
+}
+
+/** Transport and router-selection options for utility/preflight requests. */
+export interface LlamaCppUtilityRequestOptions {
+  signal?: AbortSignal;
+  timeoutMs?: number;
+  model?: string;
 }
 
 /**
@@ -82,7 +102,9 @@ export interface LlamaCppModel {
   object?: string;
   created?: number;
   owned_by?: string;
-  [key: string]: any;
+  aliases?: string[];
+  meta?: Record<string, unknown>;
+  [key: string]: unknown;
 }
 
 /**
@@ -126,6 +148,24 @@ export class LlamaCppServerClient {
   constructor(baseURL: string) {
     // Remove trailing slash if present
     this.baseURL = baseURL.replace(/\/$/, '');
+  }
+
+  private createFetchSignal(
+    options?: LlamaCppUtilityRequestOptions
+  ): AbortSignal | undefined {
+    if (options?.signal && options.timeoutMs !== undefined) {
+      return AbortSignal.any([
+        options.signal,
+        AbortSignal.timeout(options.timeoutMs),
+      ]);
+    }
+    if (options?.signal) {
+      return options.signal;
+    }
+    if (options?.timeoutMs !== undefined) {
+      return AbortSignal.timeout(options.timeoutMs);
+    }
+    return undefined;
   }
 
   /**
@@ -248,8 +288,16 @@ export class LlamaCppServerClient {
    * @returns Promise resolving to server properties
    * @throws Error if the request fails
    */
-  async getProps(): Promise<LlamaCppPropsResponse> {
-    const response = await fetch(`${this.baseURL}/props`);
+  async getProps(
+    options?: LlamaCppUtilityRequestOptions
+  ): Promise<LlamaCppPropsResponse> {
+    const query = options?.model
+      ? `?model=${encodeURIComponent(options.model)}`
+      : "";
+    const signal = this.createFetchSignal(options);
+    const response = signal
+      ? await fetch(`${this.baseURL}/props${query}`, { signal })
+      : await fetch(`${this.baseURL}/props${query}`);
 
     if (!response.ok) {
       throw new Error(`Get props failed: ${response.status} ${response.statusText}`);
@@ -323,13 +371,49 @@ export class LlamaCppServerClient {
    * // Output: "Qwen2.5-7B-Instruct-Q4_K_M.gguf"
    * ```
    */
-  async getModels(): Promise<LlamaCppModelsResponse> {
-    const response = await fetch(`${this.baseURL}/v1/models`);
+  async getModels(
+    options?: LlamaCppUtilityRequestOptions
+  ): Promise<LlamaCppModelsResponse> {
+    const signal = this.createFetchSignal(options);
+    const response = signal
+      ? await fetch(`${this.baseURL}/v1/models`, { signal })
+      : await fetch(`${this.baseURL}/v1/models`);
 
     if (!response.ok) {
       throw new Error(`Get models failed: ${response.status} ${response.statusText}`);
     }
 
     return await response.json();
+  }
+
+  /**
+   * Counts input tokens after the active llama.cpp chat template is applied.
+   * The body must be the final semantic /v1/chat/completions payload.
+   */
+  async countChatCompletionInputTokens(
+    finalBody: Record<string, unknown>,
+    options?: LlamaCppUtilityRequestOptions
+  ): Promise<LlamaCppChatInputTokensResponse> {
+    const signal = this.createFetchSignal(options);
+    const response = await fetch(
+      `${this.baseURL}/v1/chat/completions/input_tokens`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(finalBody),
+        ...(signal && { signal }),
+      }
+    );
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(
+        `Chat input token count failed: ${response.status} ${response.statusText} - ${errorText}`
+      );
+    }
+    const result = (await response.json()) as LlamaCppChatInputTokensResponse;
+    if (!Number.isSafeInteger(result.input_tokens) || result.input_tokens < 0) {
+      throw new Error("llama.cpp returned an invalid input_tokens value.");
+    }
+    return result;
   }
 }

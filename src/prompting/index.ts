@@ -8,10 +8,26 @@
  */
 
 // Template rendering
-export { renderTemplate } from './template';
+export { renderTemplate } from "./template";
 
 // Content preparation utilities
-export { countTokens, getSmartPreview, extractRandomVariables } from './content';
+export { countTokens, getSmartPreview, extractRandomVariables } from "./content";
+export {
+  codePointBoundToTokenUpperBound,
+  countTextTokens,
+  estimateTextTokens,
+  getTokenProfileById,
+  resolveTokenProfile,
+  retokenizationUpperBound,
+  TOKEN_PROFILE_MAPPING_REVISION
+} from "../llm/tokenization";
+export type {
+  TokenBoundResult,
+  TokenCountResult,
+  TokenProfile,
+  TokenProfileId,
+  TokenProfileResolution
+} from "../llm/tokenization";
 
 // Response parsing
 export {
@@ -20,7 +36,7 @@ export {
   extractMarkerDelimitedContent,
   parseRoleTags,
   parseTemplateWithMetadata
-} from './parser';
+} from "./parser";
 
 // Types
-export type { TemplateMetadata } from './parser';
+export type { TemplateMetadata } from "./parser";

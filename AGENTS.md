@@ -283,7 +283,15 @@ The `examples/chat-demo` application provides a quick way to test library change
   - `npm audit --omit=dev --audit-level=high` - check for vulnerabilities. This is the blocking CI gate: production deps only, since those are the only ones consumers inherit. CI also runs the full-tree audit non-blocking, because dev-only advisories are often unfixable from here (they sit behind pinned toolchain ranges — e.g. jest pins `glob@10`, which pulls a `brace-expansion` flagged by GHSA-mh99-v99m-4gvg)
   - `npm run build && npm pack --dry-run` - validate package
 - **Dependency updates**: Dependabot will create PRs weekly
-- **Note on versioning**: Production deps use `^`, dev deps use `>=`. Consequence worth knowing: a `>=` range admits majors, so what you actually get is decided by the lockfile and by npm's peer resolution, not by package.json. With `typescript: ">=5.3.3"`, a fresh `npm install` resolves TypeScript to 6.x — capped below 7 by `ts-jest`'s `typescript: ">=4.3 <7"` peer range — even though the lockfile pins 5.9.3. When bumping a dev dep, check what resolution actually picks rather than assuming the lockfile value
+- **Note on versioning**: Production deps normally use `^`, except `js-tiktoken`,
+  which is intentionally pinned exactly because public token-bound certificates
+  bind to its bundled rank artifacts. Dev deps use `>=`. Consequence worth
+  knowing: a `>=` range admits majors, so what you actually get is decided by
+  the lockfile and by npm's peer resolution, not by package.json. With
+  `typescript: ">=5.3.3"`, a fresh `npm install` resolves TypeScript to 6.x —
+  capped below 7 by `ts-jest`'s `typescript: ">=4.3 <7"` peer range — even
+  though the lockfile pins 5.9.3. When bumping a dev dep, check what resolution
+  actually picks rather than assuming the lockfile value
 
 **Still Missing:**
 - Linting configuration (ESLint/Prettier)
@@ -464,7 +472,7 @@ These summary files provide hierarchical context throughout the project:
 
 The summaries enable efficient navigation and understanding of the codebase without processing every file. They include cross-references, usage examples, and architectural decisions at each level.
 
-Last Context Build: 2026-07-03
+Last Context Build: 2026-07-29
 
 ## Commit Guidelines
 

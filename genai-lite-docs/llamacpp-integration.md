@@ -157,40 +157,35 @@ export LLAMACPP_API_BASE_URL=http://127.0.0.1:8080  # Default
 
 ### Multiple Servers
 
-```typescript
-import { LLMService, LlamaCppClientAdapter } from 'genai-lite';
-
-const service = new LLMService(async () => 'not-needed');
-
-service.registerAdapter(
-  'llamacpp-small',
-  new LlamaCppClientAdapter({ baseURL: 'http://127.0.0.1:8080' })
-);
-
-service.registerAdapter(
-  'llamacpp-large',
-  new LlamaCppClientAdapter({ baseURL: 'http://localhost:8081' })
-);
-
-const response = await service.sendMessage({
-  providerId: 'llamacpp-small',
-  modelId: 'llamacpp',
-  messages: [{ role: 'user', content: 'Hello!' }]
-});
-```
+`LLMService` does not expose a public adapter-registration method. Configure
+`LLAMACPP_API_BASE_URL` before constructing the service. Applications that need
+simultaneous differently configured local endpoints should isolate those
+configurations in separate processes or use the lower-level exported adapter
+interface deliberately.
 
 ### Health Checking
 
 ```typescript
-import { LlamaCppClientAdapter } from 'genai-lite';
+import { LlamaCppServerClient, LLMService } from 'genai-lite';
 
-const adapter = new LlamaCppClientAdapter({
-  baseURL: 'http://127.0.0.1:8080',
-  checkHealth: true
-});
+const server = new LlamaCppServerClient('http://127.0.0.1:8080');
+const health = await server.getHealth();
+if (health.status !== 'ok') throw new Error(`llama.cpp: ${health.status}`);
 
-service.registerAdapter('llamacpp', adapter);
+const service = new LLMService(async () => 'not-needed');
 ```
+
+### Exact Prepared-Message Counting
+
+Raw `/tokenize` counts content only and does not apply the active chat template.
+`prepareMessage()` instead sends the final mode-bound completion body to
+`/v1/chat/completions/input_tokens`. When the current server exposes the
+required `/props` and `/v1/models` state, inspection reports an exact prompt
+count plus server/template fingerprints. `sendPrepared()` and
+`streamPrepared()` re-read those observable fields and reject changed state
+before inference.
+
+See [Prepared Calls and Token Accounting](prepared-calls-and-accounting.md).
 
 ## Automatic Capability Detection
 

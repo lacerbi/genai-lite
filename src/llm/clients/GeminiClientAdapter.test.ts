@@ -837,7 +837,7 @@ describe('GeminiClientAdapter', () => {
         thinkingBudget: -1,
         includeThoughts: true
       });
-      expect(events[0]).toMatchObject({
+      expect(events.find((event) => event.type === "start")).toMatchObject({
         type: 'start',
         provider: 'gemini',
         model: 'gemini-2.5-pro'
@@ -864,6 +864,49 @@ describe('GeminiClientAdapter', () => {
         expect(complete.response.choices[0].finish_reason).toBe('stop');
         expect(complete.response.usage?.total_tokens).toBe(7);
       }
+    });
+
+    it("keeps non-text streaming evidence typed by its provider part", async () => {
+      mockGenerateContentStream.mockResolvedValueOnce(streamFrom([{
+        modelUsed: "gemini-2.5-pro",
+        candidates: [{
+          finishReason: "STOP",
+          content: {
+            role: "model",
+            parts: [{
+              functionCall: {
+                name: "lookup",
+                args: { city: "Paris" },
+              },
+            }],
+          },
+        }],
+      }]));
+
+      const events = await collectEvents();
+      const evidence = events.find(
+        (event) =>
+          event.type === "adapter_evidence" &&
+          event.observedEvidence.choice?.rawContentParts?.length
+      );
+
+      expect(evidence).toMatchObject({
+        type: "adapter_evidence",
+        observedEvidence: {
+          choice: {
+            index: 0,
+            rawContentParts: [{
+              type: "functionCall",
+              value: {
+                functionCall: {
+                  name: "lookup",
+                  args: { city: "Paris" },
+                },
+              },
+            }],
+          },
+        },
+      });
     });
 
     it('should preserve transport options and request configuration', async () => {
