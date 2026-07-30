@@ -116,7 +116,7 @@ export function getTokenProfileById(
   return profile;
 }
 
-function mappedProfileId(
+export function getMappedTokenProfileId(
   provider: ApiProviderId,
   model: string
 ): TokenProfileId | undefined {
@@ -157,7 +157,7 @@ export function resolveTokenProfile(
   provider: ApiProviderId,
   model: string
 ): TokenProfileResolution {
-  const id = mappedProfileId(provider, model);
+  const id = getMappedTokenProfileId(provider, model);
   const profile = id ? getTokenProfileById(id) : undefined;
   if (!profile) {
     return {

@@ -42,13 +42,28 @@ import {
 
 // Evidence-bearing token profiles and structural certificates
 import {
+  computeContentTokenizerSemanticRevision,
+  countContentTextTokens,
   countTextTokens,
   estimateTextTokens,
+  getContentTokenProfileById,
+  getContentTokenProfileMappingRevision,
+  registerContentTokenProfileConfiguration,
+  resolveContentTokenProfile,
   resolveTokenProfile,
   getTokenProfileById,
   codePointBoundToTokenUpperBound,
   retokenizationUpperBound
 } from 'genai-lite';
+
+// Optional local tokenizer initialization (peer loaded only on function call)
+import {
+  ContentTokenizerLoaderError,
+  loadContentTokenizerProfile
+} from 'genai-lite/tokenizer-loader';
+import {
+  GEMMA_4_IT_CONTENT_TOKENIZER_RECIPE
+} from 'genai-lite/tokenizer-recipes';
 
 // llama.cpp
 import { LlamaCppClientAdapter, LlamaCppServerClient } from 'genai-lite';
@@ -96,6 +111,16 @@ import type {
   LLMUsageEvidence,
   TokenProfile,
   TokenProfileResolution,
+  ContentTokenProfileIdentity,
+  ContentTokenProfile,
+  ContentTokenProfileResolution,
+  ContentTokenProfileAlias,
+  ContentTokenProfileConfiguration,
+  ContentTokenizerSemanticArtifact,
+  ContentTokenizerSemanticProvenance,
+  ContentTokenizerRuntimeProvenance,
+  ContentTokenizerBackendProvenance,
+  RegisteredContentTokenizerBackend,
   TokenCountResult,
   TokenBoundResult,
   LLMError,
@@ -124,6 +149,21 @@ import type {
   CreateMessagesResult,
   TemplateMetadata
 } from 'genai-lite';
+
+import type {
+  ContentTokenizerLoaderKind,
+  ContentTokenizerRecipe,
+  ContentTokenizerRecipeArtifact,
+  ContentTokenizerRecipeLoaderInput,
+  ContentTokenizerRecipeSelfTest,
+  ContentTokenizerRecipeSelfTestName,
+  ContentTokenizerCoverageEvidence,
+  LoadContentTokenizerProfileOptions
+} from 'genai-lite/tokenizer-recipes';
+
+import type {
+  ContentTokenizerLoaderErrorCode
+} from 'genai-lite/tokenizer-loader';
 
 // Retry utilities (runtime + types)
 import { withRetry, DEFAULT_RETRY_POLICY } from 'genai-lite';
@@ -392,6 +432,20 @@ interface StructuredOutputSupport {
 
 interface ModelCapabilities {
   structuredOutput: StructuredOutputSupport;
+  contentTokenCounting?:
+    | 'exact'
+    | 'model'
+    | 'heuristic'
+    | 'unavailable'
+    | 'runtime';
+  preparedMessageTokenCounting?:
+    | 'exact'
+    | 'model'
+    | 'heuristic'
+    | 'unavailable'
+    | 'runtime';
+  tokenProfileId?: string;
+  tokenProfileMappingRevision?: string;
 }
 
 interface ModelCapabilitiesResult {
@@ -424,6 +478,133 @@ type LLMRequestCapabilityValidationResult =
 ```
 
 `unknown` means genai-lite has no explicit metadata for that capability. It is not automatically rejected by `validateRequestCapabilities()`; callers decide policy.
+
+### Content-token profiles
+
+```typescript
+interface ContentTokenProfileIdentity {
+  id: string;
+  tokenizerId: string;
+  revision: string;
+}
+
+interface ContentTokenProfile extends ContentTokenProfileIdentity {
+  quality: 'exact' | 'model';
+  origin: 'builtin' | 'registered';
+}
+
+interface ContentTokenizerSemanticArtifact {
+  role: string;
+  sha256: string;
+}
+
+interface ContentTokenizerSemanticProvenance {
+  tokenizerImplementation: string;
+  textPolicy: 'ordinary-text-no-specials-v1';
+  artifacts: ContentTokenizerSemanticArtifact[];
+}
+
+interface ContentTokenizerRuntimeProvenance {
+  packageName: string;
+  packageVersion: string;
+  loaderImplementationRevision: string;
+}
+
+interface ContentTokenizerBackendProvenance {
+  semantic: ContentTokenizerSemanticProvenance;
+  runtime?: ContentTokenizerRuntimeProvenance;
+}
+
+type ContentTokenProfileResolution =
+  | {
+      status: 'available';
+      provider: string;
+      model: string;
+      mappingRevision: string;
+      profile: ContentTokenProfile;
+    }
+  | {
+      status: 'unavailable';
+      provider: string;
+      model: string;
+      mappingRevision: string;
+      reason: string;
+    };
+
+interface RegisteredContentTokenizerBackend {
+  id: string;
+  tokenizerId: string;
+  revision: string;
+  provenance: ContentTokenizerBackendProvenance;
+  countTextTokens(text: string): number;
+}
+
+interface ContentTokenProfileAlias {
+  providerId: string;
+  modelId: string;
+  profileId: string;
+}
+
+interface ContentTokenProfileConfiguration {
+  backends: RegisteredContentTokenizerBackend[];
+  aliases: ContentTokenProfileAlias[];
+}
+```
+
+Core functions:
+
+```typescript
+computeContentTokenizerSemanticRevision(semanticProvenance): string;
+registerContentTokenProfileConfiguration(configuration): void;
+resolveContentTokenProfile(providerId, modelId): ContentTokenProfileResolution;
+getContentTokenProfileById(profileId): ContentTokenProfile | undefined;
+countContentTextTokens(text, profile): TokenCountResult;
+getContentTokenProfileMappingRevision(): string;
+```
+
+The production registry freezes on its first content read. Registered backends
+are always `model` quality. The legacy certified `TokenProfile` APIs remain
+separate and accept only canonical built-in certificate profiles.
+
+Optional loader types and values are exported from exact subpaths:
+
+```typescript
+type ContentTokenizerLoaderKind = 'huggingface-tokenizer-json-v1';
+
+interface ContentTokenizerRecipe {
+  id: string;
+  tokenizerId: string;
+  semanticRevision: string;
+  loaderKind: ContentTokenizerLoaderKind;
+  loaderInput: ContentTokenizerRecipeLoaderInput;
+  textPolicy: 'ordinary-text-no-specials-v1';
+  selfTest: ContentTokenizerRecipeSelfTest[];
+  coverageRequiredRoles: string[];
+  coverageEvidence: ContentTokenizerCoverageEvidence[];
+}
+
+loadContentTokenizerProfile(
+  recipe: ContentTokenizerRecipe,
+  options: LoadContentTokenizerProfileOptions
+): Promise<RegisteredContentTokenizerBackend>;
+```
+
+`ContentTokenizerRecipeArtifact`, `ContentTokenizerRecipeLoaderInput`,
+`ContentTokenizerRecipeSelfTest`, and `ContentTokenizerCoverageEvidence`
+describe the pinned loader manifest, required regression corpus, and claimed
+immutable model coverage. `ContentTokenizerRecipeSelfTestName` is the union of
+the six required test categories.
+
+`ContentTokenizerLoaderError.code` has type
+`ContentTokenizerLoaderErrorCode`, one of
+`TOKENIZER_PEER_MISSING`, `TOKENIZER_PEER_VERSION_UNSUPPORTED`,
+`TOKENIZER_RECIPE_INVALID`, `TOKENIZER_ARTIFACT_UNAVAILABLE`,
+`TOKENIZER_ARTIFACT_INTEGRITY`, `TOKENIZER_LOAD_FAILED`,
+`TOKENIZER_SELF_TEST_FAILED`, or `TOKENIZER_ABORTED`.
+
+See [Prepared Calls and Token Accounting](prepared-calls-and-accounting.md#content-token-profiles)
+for initialization order, exact aliases, cache guarantees, recipes, and
+bundler configuration.
 
 ### Settings Types
 

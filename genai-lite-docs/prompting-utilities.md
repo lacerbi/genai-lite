@@ -18,11 +18,13 @@ genai-lite provides utilities for prompt engineering and content manipulation vi
 
 **Template & Content**: `renderTemplate`, `countTokens`, `getSmartPreview`
 
-For evidence-bearing model profiles and certified structural bounds, use
-`countTextTokens`, `resolveTokenProfile`, `retokenizationUpperBound`, and
-`codePointBoundToTokenUpperBound`. `countTokens` remains the compatible numeric
-wrapper and can fall back to a heuristic. Content-only counts are distinct from
-fully prepared message accounting; see
+For built-in certified profiles, use `countTextTokens`,
+`resolveTokenProfile`, `retokenizationUpperBound`, and
+`codePointBoundToTokenUpperBound`. For built-in exact and host-registered
+model-quality ordinary-text tokenizers, use `resolveContentTokenProfile()` and
+`countContentTextTokens()`. `countTokens` remains the compatible numeric wrapper
+and can fall back to a heuristic. Content-only counts are distinct from fully
+prepared message accounting; see
 [Prepared Calls and Token Accounting](prepared-calls-and-accounting.md).
 
 `retokenizationUpperBound()` is a proof-oriented worst-case certificate, not a
@@ -156,6 +158,24 @@ while (countTokens(prompt) > maxTokens) {
 ```
 
 **Note**: Uses `js-tiktoken` library. Supports all models with tiktoken encodings.
+
+### Registered content tokenizers
+
+Applications can asynchronously load an optional recipe backend during startup,
+register exact model aliases, and then count synchronously:
+
+```typescript
+import {
+  countContentTextTokens,
+  registerContentTokenProfileConfiguration,
+  resolveContentTokenProfile,
+} from "genai-lite";
+```
+
+Registered profiles are model evidence, not certificates. Registration must
+finish before the first content-profile read. See
+[Content-token profiles](prepared-calls-and-accounting.md#content-token-profiles)
+for the loader, recipes, cache, alias, and trust-boundary contracts.
 
 ---
 

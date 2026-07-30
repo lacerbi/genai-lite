@@ -35,6 +35,25 @@ function validateNonnegativeSafeInteger(
 function validateProfile(
   profile: TokenProfile
 ): { profile: TokenProfile } | { reason: string } {
+  const expectedKeys = [
+    "byteComplete",
+    "encoding",
+    "id",
+    "maximumDecodedBytesPerToken",
+    "ordinaryTextOnly",
+    "rankHash",
+    "revision",
+    "tokenizerId",
+  ];
+  if (
+    typeof profile !== "object" ||
+    profile === null ||
+    Object.keys(profile).sort().join("\u0000") !== expectedKeys.join("\u0000")
+  ) {
+    return {
+      reason: "The supplied token profile is not a canonical certified profile.",
+    };
+  }
   const current = getTokenProfileById(profile.id);
   if (
     !current ||

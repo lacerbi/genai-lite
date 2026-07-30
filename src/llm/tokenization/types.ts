@@ -39,6 +39,80 @@ export type TokenCountResult =
   | { status: "available"; count: PreparedPromptTokenCount }
   | { status: "unavailable"; reason: string };
 
+export interface ContentTokenProfileIdentity {
+  id: string;
+  tokenizerId: string;
+  revision: string;
+}
+
+export interface ContentTokenProfile extends ContentTokenProfileIdentity {
+  quality: "exact" | "model";
+  origin: "builtin" | "registered";
+}
+
+export type ContentTokenProfileResolution =
+  | {
+      status: "available";
+      provider: ApiProviderId;
+      model: string;
+      mappingRevision: string;
+      profile: ContentTokenProfile;
+    }
+  | {
+      status: "unavailable";
+      provider: ApiProviderId;
+      model: string;
+      mappingRevision: string;
+      reason: string;
+    };
+
+export interface ContentTokenizerSemanticArtifact {
+  role: string;
+  sha256: string;
+}
+
+export interface ContentTokenizerSemanticProvenance {
+  tokenizerImplementation: string;
+  textPolicy: "ordinary-text-no-specials-v1";
+  artifacts: ContentTokenizerSemanticArtifact[];
+}
+
+export interface ContentTokenizerRuntimeProvenance {
+  packageName: string;
+  packageVersion: string;
+  loaderImplementationRevision: string;
+}
+
+export interface ContentTokenizerBackendProvenance {
+  semantic: ContentTokenizerSemanticProvenance;
+  runtime?: ContentTokenizerRuntimeProvenance;
+}
+
+export interface RegisteredContentTokenizerBackend
+  extends ContentTokenProfileIdentity {
+  /**
+   * Canonical tokenizer semantics. Runtime and deployment details belong in
+   * `runtime` and do not change the stable profile revision.
+   */
+  provenance: ContentTokenizerBackendProvenance;
+  /**
+   * Counts ordinary JavaScript string text synchronously without BOS/EOS,
+   * postprocessor tokens, or special-token interpretation.
+   */
+  countTextTokens(text: string): number;
+}
+
+export interface ContentTokenProfileAlias {
+  providerId: ApiProviderId;
+  modelId: string;
+  profileId: string;
+}
+
+export interface ContentTokenProfileConfiguration {
+  backends: RegisteredContentTokenizerBackend[];
+  aliases: ContentTokenProfileAlias[];
+}
+
 export type TokenBoundResult =
   | {
       status: "available";

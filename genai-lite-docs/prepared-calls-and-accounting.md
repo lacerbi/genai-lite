@@ -184,6 +184,117 @@ llama.cpp model/build/template state before and after each exact prompt count.
 An incorrect host assertion still fails closed at live dispatch revalidation;
 it never authorizes a send against a detected stale binding.
 
+## Content-token profiles
+
+Content-token profiles count ordinary JavaScript string text without chat
+framing, BOS/EOS insertion, postprocessor tokens, or special-token
+interpretation. They are useful for retained answer text and advisory sizing;
+they do not replace prepared-message counting.
+
+The content API has two trust levels:
+
+- `exact`: built-in hash-verified js-tiktoken profiles;
+- `model`: host-registered synchronous tokenizers, including recipe-loaded
+  tokenizers.
+
+`ContentTokenProfile` is intentionally separate from the certified
+`TokenProfile` type. Registered profiles are always forced to `model` quality
+and certificate functions reject them, including through runtime casts. A
+recipe hash and passing self-tests prove reproducibility, not a structural
+token-bound certificate.
+
+Registration is process-global, transactional, and startup-only. Register the
+complete backend and exact-alias set before the first content-profile lookup,
+resolution, count, mapping-revision read, capability query, preparation, or
+send:
+
+```typescript
+import {
+  registerContentTokenProfileConfiguration,
+  resolveContentTokenProfile,
+} from "genai-lite";
+import {
+  loadContentTokenizerProfile,
+} from "genai-lite/tokenizer-loader";
+import {
+  GEMMA_4_IT_CONTENT_TOKENIZER_RECIPE,
+} from "genai-lite/tokenizer-recipes";
+
+const backend = await loadContentTokenizerProfile(
+  GEMMA_4_IT_CONTENT_TOKENIZER_RECIPE,
+  {
+    cacheDir: "/application-owned/tokenizer-cache",
+    allowDownload: true,
+  }
+);
+
+registerContentTokenProfileConfiguration({
+  backends: [backend],
+  aliases: [
+    {
+      providerId: "llamacpp",
+      modelId: "gemma-4-12b-it-IQ4_XS.gguf",
+      profileId: backend.id,
+    },
+  ],
+});
+
+const resolved = resolveContentTokenProfile(
+  "llamacpp",
+  "gemma-4-12b-it-IQ4_XS.gguf"
+);
+```
+
+The first content-profile read freezes the registry. Module import and
+certified-bound calls do not freeze it. Failed multi-backend registration
+commits nothing.
+
+Aliases are exact, case-sensitive `(providerId, modelId)` tuples. There is no
+family inference or GGUF-name normalization. An alias may target a built-in
+exact profile or a registered model-quality profile. The profile's stable
+semantic revision is separate from the runtime mapping revision, which also
+binds exact aliases and validated runtime package provenance.
+
+### Optional loader and recipes
+
+The loader runtime is an optional peer:
+
+```bash
+npm install @huggingface/tokenizers@^0.1.3
+```
+
+Importing `genai-lite`, `genai-lite/tokenizer-recipes`, or
+`genai-lite/tokenizer-loader` does not load that peer. Only
+`loadContentTokenizerProfile()` resolves it. A missing, indeterminate, or
+unsupported runtime fails at that call with an actionable typed error.
+
+Recipe loading is an explicit asynchronous startup step. It:
+
+- validates the complete recipe before filesystem or network work;
+- requires a caller-selected cache and explicit download permission;
+- verifies SHA-256 on downloads and every warm-cache use;
+- quarantines corrupt blobs and publishes verified downloads atomically;
+- runs fixed ordinary-text regression tests before returning;
+- returns a synchronous backend whose ordinary counts perform no filesystem,
+  network, dynamic-import, or subprocess work.
+
+The Gemma 4 IT recipe records coverage for the official E4B, 12B, 26B-A4B,
+and 31B instruction-tuned repositories at immutable revisions. Coverage is
+provenance, not an alias allowlist. Aliasing another model or quantized GGUF is
+the caller's equivalence assertion.
+
+For a local GGUF, use a lifecycle-stable exact slug rather than a mutable ID
+such as `llamacpp`. Before registering an out-of-coverage alias, compare a
+representative ordinary-text corpus with the active server's `/tokenize`
+endpoint using no BOS and no special parsing. Continue to prefer
+llama.cpp's active-template prepared count as hard prompt evidence; a local
+content profile remains model evidence.
+
+For Vite/esbuild-style application bundles, externalize
+`@huggingface/tokenizers` and preserve the loader's runtime import.
+Externalizing `genai-lite/tokenizer-loader` itself is the simplest safe option
+when the bundler cannot preserve optional dynamic dependencies.
+
 ## Certified structural bounds and margins
 
 `countTextTokens()` returns exact ordinary-text evidence for a pinned profile.

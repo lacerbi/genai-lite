@@ -10,9 +10,11 @@ performance issue, and one documentation hazard. Items 1, 2, 4, and 5 form one
 small compatible release. Item 3 is a larger additive registry and loader
 release and does not block the first release.
 
-Implementation note (2026-07-30): items 1, 2, 4, and 5 are implemented and
-pass the repository's focused, full, packed-consumer, audit, and package
-verification gates. They remain unreleased; item 3 remains open.
+Implementation note (2026-07-30): all five items are implemented and pass the
+repository's focused, full, packed-consumer, audit, package, documentation-link,
+upstream recipe, and local llama.cpp parity verification gates. They remain
+unreleased, so the issue stays open until explicit release approval, installed
+package verification, and archival.
 
 ## 1. RequestValidator rejects legitimate empty-string message content (bug; trivial; high priority)
 

@@ -24,7 +24,7 @@ Full-featured React + Express application demonstrating integration patterns for
 - Provide interactive testing for library changes
 - Showcase advanced features (reasoning, thinking extraction, templates)
 
-**For full setup details**, see the demo's own [README](../../examples/chat-demo/README.md).
+**For full setup details**, see the demo's own [README](../examples/chat-demo/README.md).
 
 ## Features
 
@@ -380,7 +380,7 @@ npm run dev
 # Backend: http://localhost:3000
 ```
 
-For complete setup details, configuration options, and troubleshooting, see the demo's [README](../../examples/chat-demo/README.md).
+For complete setup details, configuration options, and troubleshooting, see the demo's [README](../examples/chat-demo/README.md).
 
 ## Using for Testing
 

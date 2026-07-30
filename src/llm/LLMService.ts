@@ -72,8 +72,8 @@ import { withRetry, type RetryPolicy } from "../shared/services/withRetry";
 import { ADAPTER_ERROR_CODES } from "./clients/types";
 import { deepFreeze } from "./clients/preparedAdapterUtils";
 import {
-  countTextTokens,
-  resolveTokenProfile,
+  countContentTextTokens,
+  resolveContentTokenProfile,
 } from "./tokenization";
 
 // Re-export PresetMode for backward compatibility
@@ -969,7 +969,7 @@ export class LLMService {
     source: CapabilitySource
   ): ModelCapabilities {
     const structuredOutput = this.getStructuredOutputSupport(modelInfo, source);
-    const tokenProfile = resolveTokenProfile(
+    const tokenProfile = resolveContentTokenProfile(
       modelInfo.providerId,
       modelInfo.id
     );
@@ -989,7 +989,9 @@ export class LLMService {
         },
       }),
       contentTokenCounting:
-        tokenProfile.status === "available" ? "exact" : "unavailable",
+        tokenProfile.status === "available"
+          ? tokenProfile.profile.quality
+          : "unavailable",
       preparedMessageTokenCounting:
         modelInfo.providerId === "llamacpp" ? "runtime" : "unavailable",
       ...(tokenProfile.status === "available" && {
@@ -2181,7 +2183,7 @@ export class LLMService {
       return { ...result, partialResponse };
     }
 
-    const tokenProfile = resolveTokenProfile(
+    const tokenProfile = resolveContentTokenProfile(
       prepared.providerId,
       prepared.modelId
     );
@@ -2193,7 +2195,10 @@ export class LLMService {
         tokenProfile.status === "available" &&
         !choice.answerAccounting?.rawContent
       ) {
-        const counted = countTextTokens(rawContent, tokenProfile.profile);
+        const counted = countContentTextTokens(
+          rawContent,
+          tokenProfile.profile
+        );
         if (counted.status === "available") {
           const rawAccounting: LLMRawAnswerAccounting = {
             tokens: counted.count.tokens,

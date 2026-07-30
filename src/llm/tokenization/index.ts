@@ -1,4 +1,14 @@
 export type {
+  ContentTokenProfile,
+  ContentTokenProfileAlias,
+  ContentTokenProfileConfiguration,
+  ContentTokenProfileIdentity,
+  ContentTokenProfileResolution,
+  ContentTokenizerBackendProvenance,
+  ContentTokenizerRuntimeProvenance,
+  ContentTokenizerSemanticArtifact,
+  ContentTokenizerSemanticProvenance,
+  RegisteredContentTokenizerBackend,
   TokenBoundResult,
   TokenCountResult,
   TokenProfile,
@@ -12,6 +22,14 @@ export {
   getTokenProfileById,
   resolveTokenProfile,
 } from "./profiles";
+export {
+  computeContentTokenizerSemanticRevision,
+  countContentTextTokens,
+  getContentTokenProfileById,
+  getContentTokenProfileMappingRevision,
+  registerContentTokenProfileConfiguration,
+  resolveContentTokenProfile,
+} from "./contentProfiles";
 export {
   codePointBoundToTokenUpperBound,
   retokenizationUpperBound,

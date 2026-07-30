@@ -22,16 +22,31 @@ explicit Gemini exclusion-proof contingency described in Phase 3.
 
 ### Release B: item 3
 
-- [ ] Phase 9: Add the generic content-profile registry
-- [ ] Phase 10: Add exact aliases and runtime mapping provenance
-- [ ] Phase 11: Preserve the certificate trust boundary
-- [ ] Phase 12: Add the optional local loader and self-verifying recipes
-- [ ] Phase 13: Integrate, document, verify, publish, and close
+- [x] Phase 9: Add the generic content-profile registry
+- [x] Phase 10: Add exact aliases and runtime mapping provenance
+- [x] Phase 11: Preserve the certificate trust boundary
+- [x] Phase 12: Add the optional local loader and self-verifying recipes
+- [~] Phase 13: Integrate, document, verify, publish, and close
 
 ## Handoff / Pickup Point
 
 Recorded: 2026-07-30
 Branch: `answer-accounting-token-profiles`
+
+**Current implementation state (supersedes the earlier pickup instructions
+below):**
+
+- Release B implementation, documentation, upstream recipe validation, and
+  local llama.cpp parity checks are complete.
+- Final gates pass: 47 Jest suites / 1,098 tests, TypeScript build,
+  packed-consumer verification with and without the optional peer, production
+  audit, package dry-run, runtime export smoke check, and Markdown link check.
+- The Release B working tree is intentionally uncommitted and unreleased.
+  Versioning, DCO-signed release commits, push/tag/publish, installed-version
+  verification, issue closure, and archival require explicit publication
+  approval. Those are the only unfinished Phase 13 steps.
+
+**Earlier Release A handoff (historical):**
 
 - Release A (items 1, 2, 4, and 5) is implemented, double-checked, and pushed.
   Its non-release gates pass: 43 Jest suites / 1,061 tests, TypeScript build,
@@ -51,6 +66,27 @@ Branch: `answer-accounting-token-profiles`
 - From a clean checkout: switch to this branch, read this plan and
   `ISSUE-answer-accounting-and-token-profiles.md`, then read the repository
   summary files required by `AGENTS.md` before starting Phase 9.
+
+**Release execution (2026-07-30):**
+
+- [x] Confirm branch, remote, tags, npm registry state, credentials, and the
+  combined release version.
+- [!] The earlier two-release publication sequence is superseded by the
+  user-approved single-release amendment below.
+- [ ] Resolve and archive the issue and plan, then push the closure commit.
+
+**Single-release amendment (2026-07-30):**
+
+The user explicitly directed one combined release after both implementation
+sets were complete. The release therefore contains all five issue items in one
+minor version; the earlier Release A / Release B sequencing remains above as
+historical implementation structure.
+
+- [~] Commit the complete release-ready implementation with DCO sign-off.
+- [ ] Add and commit the separate combined-release version bump.
+- [ ] Push, open or reuse the pull request, require green CI, and merge.
+- [ ] Tag the recorded merge commit and publish the GitHub release.
+- [ ] Verify the release and hand off npm publication separately.
 
 ## Summary
 
@@ -806,6 +842,9 @@ node -e "const lib = require('./dist'); console.log('Exports:', Object.keys(lib)
 
 ### Phase 9: Add the Generic Content-Profile Registry
 
+- [x] Core registry, canonical provenance, content counting, and public exports
+  compile; focused registry tests pass.
+
 **Files:**
 
 - `src/llm/tokenization/profiles.ts`
@@ -843,15 +882,15 @@ node -e "const lib = require('./dist'); console.log('Exports:', Object.keys(lib)
 
 **Verification:**
 
-- [ ] Built-in exact behavior and revisions remain unchanged.
-- [ ] Multiple arbitrary model-quality backends coexist.
-- [ ] Two different declared semantic provenances cannot reuse one registered
+- [x] Built-in exact behavior and revisions remain unchanged.
+- [x] Multiple arbitrary model-quality backends coexist.
+- [x] Two different declared semantic provenances cannot reuse one registered
       profile revision, and equivalent reordered artifact inputs canonicalize
       identically.
-- [ ] Failed batch registration commits nothing.
-- [ ] Import does not freeze; first content read does.
-- [ ] Invalid callbacks remain unavailable.
-- [ ] Existing packed consumers remain source-compatible.
+- [x] Failed batch registration commits nothing.
+- [x] Import does not freeze; first content read does.
+- [x] Invalid callbacks remain unavailable.
+- [x] Existing packed consumers remain source-compatible.
 
 ### Phase 10: Add Exact Aliases and Runtime Mapping Provenance
 
@@ -885,16 +924,16 @@ node -e "const lib = require('./dist'); console.log('Exports:', Object.keys(lib)
 
 **Verification:**
 
-- [ ] Exact aliases may intentionally share one profile.
-- [ ] Different profiles and aliases remain distinct.
-- [ ] Near matches and case changes remain unavailable.
-- [ ] Registration order does not affect revision.
-- [ ] Any semantic provenance, resolved runtime version, or alias change affects
+- [x] Exact aliases may intentionally share one profile.
+- [x] Different profiles and aliases remain distinct.
+- [x] Near matches and case changes remain unavailable.
+- [x] Registration order does not affect revision.
+- [x] Any semantic provenance, resolved runtime version, or alias change affects
       mapping revision.
-- [ ] Mapping changes do not mutate profile semantic revision.
-- [ ] Paths, callback source text, object identity, and registration order do
+- [x] Mapping changes do not mutate profile semantic revision.
+- [x] Paths, callback source text, object identity, and registration order do
       not affect either revision.
-- [ ] The local-GGUF example uses an exact stable slug, treats out-of-coverage
+- [x] The local-GGUF example uses an exact stable slug, treats out-of-coverage
       equivalence as caller authority, and warns against mutable generic IDs.
 
 ### Phase 11: Preserve the Certificate Trust Boundary
@@ -918,16 +957,26 @@ node -e "const lib = require('./dist'); console.log('Exports:', Object.keys(lib)
 
 **Verification:**
 
-- [ ] Existing certified profile and bound fixtures remain byte-for-byte stable.
-- [ ] Registered/model-quality content profiles are rejected at compile-time
+- [x] Existing certified profile and bound fixtures remain byte-for-byte stable.
+- [x] Registered/model-quality content profiles are rejected at compile-time
       where possible and at runtime when passed through casts.
-- [ ] Forged profiles with copied rank hashes, byte-completeness flags, or
+- [x] Forged profiles with copied rank hashes, byte-completeness flags, or
       maximum-byte values cannot enter a certificate path.
-- [ ] Overflow, invalid-byte replacement, certificate ID, and 384,000-token
+- [x] Overflow, invalid-byte replacement, certificate ID, and 384,000-token
       regression tests pass unchanged.
-- [ ] No same-profile generation-budget identity shortcut exists.
+- [x] No same-profile generation-budget identity shortcut exists.
 
 ### Phase 12: Add Optional Loader and Self-Verifying Recipes
+
+- [x] Revalidated `@huggingface/tokenizers@0.1.3`, Apache-2.0 licensing,
+  official Gemma 4 IT repository heads, and complete file manifests on
+  2026-07-30; artifact-role equivalence and self-test counts remain.
+- [x] Generic loader/cache and peer-free recipe modules compile; 54 focused
+  registry, certificate, loader, cache, sanitizer, and recipe tests pass.
+- [x] The real Gemma 4 recipe passes offline hash and self-test verification
+  against the immutable 32 MB artifact with runtime version `0.1.3`.
+- [x] All six Gemma recipe counts match the active llama.cpp 12B tokenizer
+  with aligned `add_special: false` / `parse_special: false` options.
 
 **Files:**
 
@@ -1058,69 +1107,82 @@ node -e "const lib = require('./dist'); console.log('Exports:', Object.keys(lib)
 
 **Verification:**
 
-- [ ] Root and exact `genai-lite/tokenizer-recipes` CJS/ESM imports work without
+- [x] Root and exact `genai-lite/tokenizer-recipes` CJS/ESM imports work without
       the peer.
-- [ ] Isolated packed CJS `require("genai-lite/tokenizer-loader")` and ESM
+- [x] Isolated packed CJS `require("genai-lite/tokenizer-loader")` and ESM
       `import("genai-lite/tokenizer-loader")` succeed without the peer; only a
       subsequent loader call gives the exact late actionable error.
-- [ ] The same packed CJS and ESM consumers load a warm local fixture when the
+- [x] The same packed CJS and ESM consumers load a warm local fixture when the
       optional peer is installed and its version is resolved through hoisting.
-- [ ] Indeterminate/out-of-range runtime versions and unrelated module
+- [x] Indeterminate/out-of-range runtime versions and unrelated module
       evaluation failures fail closed without being mislabeled as missing peer.
-- [ ] Hash mismatch, incomplete cache, download denial, abort, and concurrent
+- [x] Hash mismatch, incomplete cache, download denial, abort, and concurrent
       load cases fail safely.
-- [ ] Warm-cache offline load rehashes every blob and succeeds only when intact.
-- [ ] A corrupt correctly named warm-cache blob is quarantined and fails
+- [x] Warm-cache offline load rehashes every blob and succeeds only when intact.
+- [x] A corrupt correctly named warm-cache blob is quarantined and fails
       offline; download-enabled mode replaces it only after successful rehash.
-- [ ] Self-test mismatch fails closed.
-- [ ] Adding or changing a self-test, coverage requirement, or coverage claim
+- [x] Self-test mismatch fails closed.
+- [x] Adding or changing a self-test, coverage requirement, or coverage claim
       leaves semantic profile identity unchanged.
-- [ ] Resolved runtime version affects mapping provenance, not semantic profile
+- [x] Resolved runtime version affects mapping provenance, not semantic profile
       identity.
-- [ ] Two unrelated synthetic recipes prove genericity.
-- [ ] Gemma recipe coverage is evidence-backed for all claimed variants.
-- [ ] No tokenizer artifact, ONNX runtime, native binding, or Transformers
+- [x] Two unrelated synthetic recipes prove genericity.
+- [x] Gemma recipe coverage is evidence-backed for all claimed variants.
+- [x] No tokenizer artifact, ONNX runtime, native binding, or Transformers
       runtime is bundled or installed by genai-lite itself.
 
 ### Phase 13: Integrate, Document, Verify, Publish, and Close
 
+- [x] Fixed two pre-existing broken portable-doc links discovered by the
+  Phase 13 internal-link gate.
+- [x] TypeScript build and package-content dry run pass; the package has no
+  bundled tokenizer artifact or heavyweight tokenizer runtime.
+- [x] Full Jest suite passes: 47 suites, 1,098 tests.
+- [x] Packed CJS/ESM consumers pass with and without the optional peer,
+  including loader failure discrimination and warm-cache success.
+- [x] The production-dependency high-severity audit reports zero
+  vulnerabilities, and the built root exports pass the runtime smoke check.
+- [x] Final double-check removed host-locale dependence from canonical
+  revisions, typed mid-body download aborts, tightened immutable revision-path
+  validation, and added regression coverage for each edge.
+
 **Documentation:**
 
-- Update prepared-calls/accounting docs with startup ordering:
+- [x] Update prepared-calls/accounting docs with startup ordering:
   async load, synchronous register, then first read/freeze.
-- Document the generic registry and exact alias semantics.
-- Document certified versus exact content versus model-quality profiles.
-- Document semantic profile revision, resolved runtime provenance, and runtime
+- [x] Document the generic registry and exact alias semantics.
+- [x] Document certified versus exact content versus model-quality profiles.
+- [x] Document semantic profile revision, resolved runtime provenance, and runtime
   mapping revision.
-- Document optional-peer installation and late failure.
-- Document bundler configuration: externalize `@huggingface/tokenizers` and
+- [x] Document optional-peer installation and late failure.
+- [x] Document bundler configuration: externalize `@huggingface/tokenizers` and
   preserve the loader's runtime import. Note that externalizing
   `genai-lite/tokenizer-loader` is a simple safe option for Vite/esbuild-style
   application bundles.
-- Document explicit download permission, caller-selected cache, pinned hash,
+- [x] Document explicit download permission, caller-selected cache, pinned hash,
   offline reuse, and lack of network during counting.
-- Document recipe self-tests as regression evidence only.
-- Document coverage evidence and out-of-coverage aliases as caller authority.
-- Include a worked local-GGUF example: exact lifecycle-stable slug, explicit
+- [x] Document recipe self-tests as regression evidence only.
+- [x] Document coverage evidence and out-of-coverage aliases as caller authority.
+- [x] Include a worked local-GGUF example: exact lifecycle-stable slug, explicit
   out-of-coverage alias assertion, consumer-side parity check against the local
   tokenize endpoint, and a warning not to alias a mutable generic local ID.
-- Add recipe-authoring guidance for future selected tokenizer families.
-- Update README, TypeScript reference, prompting utilities, provider
+- [x] Add recipe-authoring guidance for future selected tokenizer families.
+- [x] Update README, TypeScript reference, prompting utilities, provider
   development guide, certificate guide, and relevant summary files.
 
 **Verification:**
 
-- [ ] Every new public type, subpath, option, error, and startup-order
+- [x] Every new public type, subpath, option, error, and startup-order
       requirement appears in the TypeScript and task-oriented documentation.
-- [ ] Bundler guidance names the optional peer exactly and explains that the
+- [x] Bundler guidance names the optional peer exactly and explains that the
       dynamic runtime import must remain external.
-- [ ] The local-GGUF example distinguishes recipe coverage from caller alias
+- [x] The local-GGUF example distinguishes recipe coverage from caller alias
       authority and keeps active-server counts as the hard-evidence path.
-- [ ] Documentation consistently labels recipe self-tests and local tokenizer
+- [x] Documentation consistently labels recipe self-tests and local tokenizer
       counts as model evidence, never certificates.
-- [ ] Root, loader, and recipe subpath examples are checked against the packed
+- [x] Root, loader, and recipe subpath examples are checked against the packed
       package with and without the optional peer.
-- [ ] All internal links and copied portable-doc links resolve.
+- [x] All internal links and copied portable-doc links resolve.
 
 **Focused checks:**
 
@@ -1157,6 +1219,12 @@ node -e "const lib = require('./dist'); console.log('Exports:', Object.keys(lib)
 9. Tick tracking and acceptance checkboxes.
 10. Move both records to `docs/archive/` and update references.
 11. Commit and push the closure/archive change with DCO sign-off.
+
+**Closure tracking:**
+
+- [x] Issue criteria, package contents, and clean consumers are audited.
+- [!] Versioning, release commits, publication, clean-install verification,
+  final status changes, and archival await explicit release direction.
 
 ## Cross-Cutting Testing Strategy
 

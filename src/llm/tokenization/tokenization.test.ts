@@ -7,6 +7,7 @@ import {
   retokenizationUpperBound,
 } from ".";
 import type { TokenProfile } from ".";
+import type { ContentTokenProfile } from ".";
 
 describe("token profiles and certified structural bounds", () => {
   const cl100k = getTokenProfileById("cl100k_base")!;
@@ -111,6 +112,20 @@ describe("token profiles and certified structural bounds", () => {
     }
   });
 
+  it("preserves the proof-oriented 384,000-token certificate regression", () => {
+    const crossProfile = retokenizationUpperBound(1000, o200k, cl100k);
+    const sameProfile = retokenizationUpperBound(1000, o200k, o200k);
+
+    expect(crossProfile).toMatchObject({
+      status: "available",
+      upperBound: { tokens: 384000 },
+    });
+    expect(sameProfile).toMatchObject({
+      status: "available",
+      upperBound: { tokens: 384000 },
+    });
+  });
+
   it("proves the consumer heuristic margin cannot be charged twice", () => {
     // The certified API accepts only structural inputs: 175 code points and a
     // target profile. It has no consumer/session margin parameter.
@@ -203,6 +218,42 @@ describe("token profiles and certified structural bounds", () => {
       status: "unavailable",
     });
     expect(codePointBoundToTokenUpperBound(10, forged)).toMatchObject({
+      status: "unavailable",
+    });
+  });
+
+  it("rejects model-quality content profiles at the certificate boundary", () => {
+    const registeredLookingProfile: ContentTokenProfile = {
+      id: cl100k.id,
+      tokenizerId: cl100k.tokenizerId,
+      revision: cl100k.revision,
+      quality: "model",
+      origin: "registered",
+    };
+
+    // @ts-expect-error Content profiles are intentionally not certificate inputs.
+    retokenizationUpperBound(1, registeredLookingProfile, o200k);
+    expect(
+      retokenizationUpperBound(
+        1,
+        registeredLookingProfile as unknown as TokenProfile,
+        o200k
+      )
+    ).toMatchObject({ status: "unavailable" });
+  });
+
+  it("rejects registered-looking casts even when certificate fields are copied", () => {
+    const forged = {
+      ...cl100k,
+      quality: "model",
+      origin: "registered",
+    } as unknown as TokenProfile;
+
+    expect(retokenizationUpperBound(1, forged, o200k)).toMatchObject({
+      status: "unavailable",
+      reason: expect.stringContaining("canonical certified profile"),
+    });
+    expect(codePointBoundToTokenUpperBound(1, forged)).toMatchObject({
       status: "unavailable",
     });
   });
