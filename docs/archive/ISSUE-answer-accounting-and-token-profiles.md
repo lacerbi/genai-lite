@@ -1,7 +1,7 @@
 # ISSUE: Answer accounting, token profiles, and prepare-path fixes
 
 Created: 2026-07-30
-Status: OPEN
+Status: RESOLVED — 2026-07-30 (v0.17.0)
 Package: genai-lite (v0.16.0 at filing)
 
 A review of the v0.15/v0.16 prepared-call, accounting, and tokenization APIs
@@ -10,11 +10,9 @@ performance issue, and one documentation hazard. Items 1, 2, 4, and 5 form one
 small compatible release. Item 3 is a larger additive registry and loader
 release and does not block the first release.
 
-Implementation note (2026-07-30): all five items are implemented and pass the
-repository's focused, full, packed-consumer, audit, package, documentation-link,
-upstream recipe, and local llama.cpp parity verification gates. They remain
-unreleased, so the issue stays open until explicit release approval, installed
-package verification, and archival.
+Implementation note (2026-07-30): all five items were released together in
+v0.17.0 after passing the repository's focused, full, packed-consumer, audit,
+package, documentation-link, upstream recipe, and local llama.cpp parity gates.
 
 ## 1. RequestValidator rejects legitimate empty-string message content (bug; trivial; high priority)
 
@@ -208,3 +206,21 @@ enforcement-style proofs; note that `codePointBoundToTokenUpperBound`
 (codePoints × 4) is the useful conversion for code-point-bounded text and
 document it as such. A tighter certified tier (e.g. corpus-ratio certificates)
 is optional future work, not requested here.
+
+## Resolution
+
+Resolved on 2026-07-30 in v0.17.0 and published to GitHub and npm.
+
+- [x] Empty-string message content is accepted during preparation.
+- [x] Scoped raw-content and provider-output accounting is implemented across
+      built-in adapters without manufacturing ambiguous evidence.
+- [x] Generic content-token profiles, exact aliases, the optional loader, and
+      the self-verifying Gemma 4 IT recipe are implemented.
+- [x] Authoritative-revision llama.cpp preparation caching is available as an
+      explicit opt-in while dispatch revalidation remains live.
+- [x] Documentation distinguishes certified enforcement bounds from practical
+      capacity sizing.
+
+Verification completed with 47 Jest suites / 1,098 tests, a strict TypeScript
+build, production dependency audit, packed-consumer verification, npm package
+dry-run, and a green Node 20/22/24 CI matrix on Ubuntu, macOS, and Windows.
