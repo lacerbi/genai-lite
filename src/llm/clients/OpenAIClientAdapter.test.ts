@@ -496,6 +496,15 @@ describe('OpenAIClientAdapter', () => {
         type: 'usage',
         usage: { prompt_tokens: 2, completion_tokens: 3, total_tokens: 5 }
       });
+      const accountingEvidenceIndex = events.findIndex(
+        (event) =>
+          event.type === "adapter_evidence" &&
+          event.observedEvidence.choice?.answerAccounting?.providerOutput
+            ?.tokens === 3
+      );
+      const usageIndex = events.findIndex((event) => event.type === "usage");
+      expect(accountingEvidenceIndex).toBeGreaterThanOrEqual(0);
+      expect(accountingEvidenceIndex).toBeLessThan(usageIndex);
 
       const complete = events.find((event) => event.type === 'complete');
       expect(complete).toBeDefined();
@@ -503,6 +512,12 @@ describe('OpenAIClientAdapter', () => {
         expect(complete.response.id).toBe('chatcmpl-stream');
         expect(complete.response.choices[0].message.content).toBe('Hello world');
         expect(complete.response.choices[0].finish_reason).toBe('stop');
+        expect(
+          complete.response.choices[0].answerAccounting?.providerOutput
+        ).toMatchObject({
+          tokens: 3,
+          reasoning: "included_native",
+        });
         expect(complete.response.usage?.total_tokens).toBe(5);
       }
     });
@@ -692,6 +707,18 @@ describe('OpenAIClientAdapter', () => {
           created: 1234567890,
           model: 'gpt-4.1',
           choices: [{ index: 0, delta: { content: 'partial' }, finish_reason: null }]
+        },
+        {
+          id: 'chatcmpl-partial',
+          object: 'chat.completion.chunk',
+          created: 1234567890,
+          model: 'gpt-4.1',
+          choices: [],
+          usage: {
+            prompt_tokens: 2,
+            completion_tokens: 3,
+            total_tokens: 5,
+          },
         }
       ], new Error('stream interrupted')));
 
@@ -702,6 +729,13 @@ describe('OpenAIClientAdapter', () => {
       if (error?.type === 'error') {
         expect(error.error.partialResponse?.id).toBe('chatcmpl-partial');
         expect(error.error.partialResponse?.choices[0].message.content).toBe('partial');
+        expect(
+          error.error.partialResponse?.choices[0].answerAccounting
+            ?.providerOutput
+        ).toMatchObject({
+          tokens: 3,
+          reasoning: "included_native",
+        });
       }
     });
   });

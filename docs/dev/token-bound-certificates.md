@@ -19,6 +19,14 @@ Keep the tokenizer profile revision separate from the model-to-profile mapping
 revision. If an installed rank hash differs, the profile and its certificates
 must become unavailable rather than silently using the new data.
 
+The parallel `ContentTokenProfile` registry is not a certificate registry.
+Built-in exact content profiles may wrap the canonical certified profiles for
+ordinary counting, but registered/recipe-loaded profiles are forced to
+`quality: "model"`. Certificate functions validate the complete canonical
+built-in profile shape and reject content profiles passed through runtime
+casts. Do not add host callbacks, recipe self-tests, coverage claims, or runtime
+package provenance to this trust boundary.
+
 ## Current derivations
 
 The `cl100k_base` and `o200k_base` profiles are pinned to the bundled
@@ -45,6 +53,25 @@ This is intentionally conservative. Do not replace it with a same-profile
 invalid bytes, terminal flush, cross-token composition, and special-token
 exclusions.
 
+## Proof bounds versus capacity sizing
+
+`retokenizationUpperBound()` certifies a worst case; it is not a realistic
+capacity estimator. The production derivation for 1,000 `o200k_base` source
+tokens retokenized to `cl100k_base` is **384,000 target tokens**:
+
+```text
+1000 source tokens * 128 maximum decoded bytes/token * 3 replacement expansion
+```
+
+Keep that bound for enforcement-style proofs over the function's declared
+source-token domain. For application sizing, treat shared profile identity and
+empirical cross-route ratios as advisory estimates rather than certificates.
+Do not feed a generation budget into a same-profile identity shortcut.
+
+When the source contract is a Unicode code-point bound, use
+`codePointBoundToTokenUpperBound()` instead. Its `codePoints * 4` derivation is
+the appropriate certified conversion for code-point-bounded text.
+
 ## Verification
 
 Tests must cover:
@@ -61,3 +88,7 @@ Tests must cover:
 The numeric margin fixture must obtain its structural bound from the production
 certificate API and prove that the application formula applies the heuristic
 margin once. Certificate functions must not accept a margin parameter.
+
+Also keep an explicit runtime-cast regression showing that a registered-looking
+profile cannot enter certificate functions even when it copies rank,
+byte-completeness, and maximum-byte fields.

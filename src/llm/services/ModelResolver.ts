@@ -52,6 +52,12 @@ export interface ModelResolutionOptions {
    * no-network/no-adapter.
    */
   detectLocalCapabilities?: boolean;
+  /**
+   * Exact opaque snapshot already captured by the service for this
+   * preparation. When provided, llama.cpp resolution must not read a second
+   * snapshot.
+   */
+  adapterPreparationState?: unknown;
 }
 
 /**
@@ -118,9 +124,13 @@ export class ModelResolver {
       // which model is actually loaded, regardless of the preset's modelId)
       let adapterPreparationState: unknown;
       if (preset.providerId === 'llamacpp' && detectLocalCapabilities) {
-        const detected = await this.detectLlamaCppCapabilities(
-          preset.modelId
-        );
+        const detected =
+          resolutionOptions.adapterPreparationState !== undefined
+            ? this.readLlamaCppPreparationState(
+                resolutionOptions.adapterPreparationState,
+                preset.modelId
+              )
+            : await this.detectLlamaCppCapabilities(preset.modelId);
         if (detected.capabilities) {
           modelInfo = { ...modelInfo, ...detected.capabilities };
         }
@@ -186,9 +196,13 @@ export class ModelResolver {
     let detectedCapabilities: Partial<ModelInfo> | undefined;
     let adapterPreparationState: unknown;
     if (options.providerId === 'llamacpp' && detectLocalCapabilities) {
-      const detected = await this.detectLlamaCppCapabilities(
-        options.modelId
-      );
+      const detected =
+        resolutionOptions.adapterPreparationState !== undefined
+          ? this.readLlamaCppPreparationState(
+              resolutionOptions.adapterPreparationState,
+              options.modelId
+            )
+          : await this.detectLlamaCppCapabilities(options.modelId);
       detectedCapabilities = detected.capabilities;
       adapterPreparationState = detected.preparationState;
     }
@@ -271,5 +285,27 @@ export class ModelResolver {
       this.logger.warn('Failed to detect GGUF model capabilities:', error);
     }
     return {};
+  }
+
+  private readLlamaCppPreparationState(
+    preparationState: unknown,
+    selectedModel: string
+  ): {
+    capabilities?: Partial<ModelInfo>;
+    preparationState: unknown;
+  } {
+    const snapshot = preparationState as {
+      kind?: unknown;
+      detectedCaps?: Partial<ModelInfo> | null;
+    };
+    return {
+      ...(snapshot?.kind === "llamacpp-preparation-v1" &&
+        (snapshot as { selectedModel?: unknown }).selectedModel ===
+          selectedModel &&
+        snapshot.detectedCaps && {
+          capabilities: snapshot.detectedCaps,
+        }),
+      preparationState,
+    };
   }
 }

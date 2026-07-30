@@ -1,6 +1,7 @@
 import { LLMService } from './LLMService';
 import { MockClientAdapter } from './clients/MockClientAdapter';
 import { AnthropicClientAdapter } from './clients/AnthropicClientAdapter';
+import { OpenAIClientAdapter } from './clients/OpenAIClientAdapter';
 import type { ApiKeyProvider } from '../types';
 import type { LLMChatRequest, LLMResponse, LLMFailureResponse } from './types';
 
@@ -27,7 +28,24 @@ describe('LLMService', () => {
 
     it('should lazy-load client adapters on first use', async () => {
       mockApiKeyProvider.mockResolvedValueOnce('sk-test-key-12345678901234567890');
-      
+      const response: LLMResponse = {
+        id: 'lazy-load-test',
+        provider: 'openai',
+        model: 'gpt-4.1',
+        created: 1,
+        choices: [{
+          index: 0,
+          message: { role: 'assistant', content: 'OK' },
+          rawContent: 'OK',
+          finish_reason: 'stop'
+        }],
+        object: 'chat.completion'
+      };
+      const sendSpy = jest.spyOn(
+        OpenAIClientAdapter.prototype,
+        'sendPrepared'
+      ).mockResolvedValue(response);
+
       // First request should create the adapter
       const request: LLMChatRequest = {
         providerId: 'openai',
@@ -35,10 +53,15 @@ describe('LLMService', () => {
         messages: [{ role: 'user', content: 'Hello' }]
       };
 
-      await service.sendMessage(request);
-      
-      // Verify API key provider was called
-      expect(mockApiKeyProvider).toHaveBeenCalledWith('openai');
+      try {
+        await service.sendMessage(request);
+
+        // Verify API key provider was called
+        expect(mockApiKeyProvider).toHaveBeenCalledWith('openai');
+        expect(sendSpy).toHaveBeenCalledTimes(1);
+      } finally {
+        sendSpy.mockRestore();
+      }
     });
   });
 
@@ -394,19 +417,16 @@ describe('LLMService', () => {
         expect(errorResponse.error.message).toContain('Invalid message role');
       });
 
-      it('should return validation error for empty message content', async () => {
+      it('should accept empty-string message content', async () => {
         const request: LLMChatRequest = {
-          providerId: 'openai',
-          modelId: 'gpt-4.1',
+          providerId: 'mock',
+          modelId: 'mock-model',
           messages: [{ role: 'user', content: '' }]
         };
 
         const response = await service.sendMessage(request);
 
-        expect(response.object).toBe('error');
-        const errorResponse = response as LLMFailureResponse;
-        expect(errorResponse.error.code).toBe('INVALID_MESSAGE');
-        expect(errorResponse.error.message).toContain('Message at index 0 must have both');
+        expect(response.object).toBe('chat.completion');
       });
     });
 

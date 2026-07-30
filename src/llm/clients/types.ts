@@ -3,6 +3,7 @@
 
 import type {
   LLMChatRequest,
+  LLMAnswerAccountingByScope,
   LLMResponse,
   LLMFailureResponse,
   LLMRawAnswerAccounting,
@@ -13,6 +14,7 @@ import type {
   LLMUsage,
   LLMUsageEvidence,
   ModelInfo,
+  ProviderEndpointRevision,
   PreparedCallMode,
   PreparedPromptAccounting,
   PreparedProviderRequestView,
@@ -48,6 +50,10 @@ export interface AdapterStreamObservedEvidence {
     index: number;
     rawContentDelta?: string;
     rawContentParts?: LLMRawContentPart[];
+    answerAccounting?: LLMAnswerAccountingByScope;
+    /**
+     * @deprecated Use `answerAccounting.rawContent`.
+     */
     rawAnswerAccounting?: LLMRawAnswerAccounting;
     finishReason?: string | null;
     termination?: LLMTermination;
@@ -77,6 +83,13 @@ export interface AdapterPreparationContext {
   mode: PreparedCallMode;
   modelInfo: ModelInfo;
   outputTokenLimit?: EffectiveOutputTokenLimit;
+  /** Authoritative endpoint revision captured before preparation, when known. */
+  providerEndpointRevision?: ProviderEndpointRevision;
+  /**
+   * Whether the host asserts that endpoint revision fully covers cached
+   * model/build/template state for this preparation.
+   */
+  cachePreparationStateByEndpointRevision?: boolean;
   /** Opaque adapter-owned state captured during dynamic model resolution. */
   providerState?: unknown;
 }
@@ -112,6 +125,19 @@ export type AdapterRevalidationResult =
  * - Managing provider-specific authentication
  */
 export interface ILLMClientAdapter {
+  /**
+   * Optional credential-free provider-state snapshot shared by model
+   * resolution and adapter preparation.
+   */
+  getPreparationSnapshot?(selectedModel: string): Promise<unknown>;
+  /**
+   * Whether a successful snapshot is safe to retain under an authoritative
+   * endpoint revision. Absence means snapshots remain per-preparation only.
+   */
+  isPreparationSnapshotCacheable?(
+    snapshot: unknown,
+    selectedModel?: string
+  ): boolean;
   /**
    * Sends a chat message to the LLM provider
    *

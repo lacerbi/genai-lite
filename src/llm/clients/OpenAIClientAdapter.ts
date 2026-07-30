@@ -16,6 +16,7 @@ import { ADAPTER_ERROR_CODES } from "./types";
 import { getCommonMappedErrorDetails } from "../../shared/adapters/errorUtils";
 import { mapOpenAIChatLogprobs } from "../../shared/adapters/logprobsUtils";
 import {
+  createProviderOutputAccounting,
   normalizeTermination,
   normalizeUsage,
 } from "../../shared/adapters/usageUtils";
@@ -48,8 +49,19 @@ const OPENAI_REQUEST_SHAPE_REVISION = "openai-chat-completions-v1";
 interface OpenAIStreamChoiceState {
   content: string;
   reasoning: string;
+  hasGeneratedOutput: boolean;
   finishReason: string | null;
   logprobs: any[];
+}
+
+function hasPositiveOpenAIReasoningTokens(usage: unknown): boolean {
+  const reasoningTokens = (usage as any)?.completion_tokens_details
+    ?.reasoning_tokens;
+  return (
+    typeof reasoningTokens === "number" &&
+    Number.isSafeInteger(reasoningTokens) &&
+    reasoningTokens > 0
+  );
 }
 
 /**
@@ -302,10 +314,17 @@ export class OpenAIClientAdapter implements ILLMClientAdapter {
             });
           }
           const delta = choice.delta as any;
+          if (
+            Boolean(delta?.tool_calls?.length) ||
+            Boolean(delta?.function_call)
+          ) {
+            state.hasGeneratedOutput = true;
+          }
 
           const reasoningDelta = delta?.reasoning ?? delta?.reasoning_content;
           if (typeof reasoningDelta === "string" && reasoningDelta.length > 0) {
             state.reasoning += reasoningDelta;
+            state.hasGeneratedOutput = true;
             evidenceEvents.push({
               type: "adapter_evidence",
               observedEvidence: {
@@ -330,6 +349,7 @@ export class OpenAIClientAdapter implements ILLMClientAdapter {
 
           if (typeof delta?.content === "string" && delta.content.length > 0) {
             state.content += delta.content;
+            state.hasGeneratedOutput = true;
             evidenceEvents.push({
               type: "adapter_evidence",
               observedEvidence: {
@@ -349,6 +369,34 @@ export class OpenAIClientAdapter implements ILLMClientAdapter {
           const mappedLogprobs = mapOpenAIChatLogprobs(choice.logprobs);
           if (mappedLogprobs) {
             state.logprobs.push(...((choice.logprobs as any)?.content || []));
+          }
+        }
+
+        if (chunk.usage && choiceStates.size === 1) {
+          const [index, state] = choiceStates.entries().next().value as [
+            number,
+            OpenAIStreamChoiceState,
+          ];
+          const providerOutput = createProviderOutputAccounting({
+            source:
+              chunk.usage as unknown as Record<string, unknown>,
+            directFields: ["completion_tokens"],
+            choiceCount: 1,
+            hasGeneratedOutput:
+              state.hasGeneratedOutput ||
+              hasPositiveOpenAIReasoningTokens(chunk.usage),
+            reasoning: "included_native",
+          });
+          if (providerOutput) {
+            evidenceEvents.push({
+              type: "adapter_evidence",
+              observedEvidence: {
+                choice: {
+                  index,
+                  answerAccounting: { providerOutput },
+                },
+              },
+            });
           }
         }
 
@@ -552,6 +600,7 @@ export class OpenAIClientAdapter implements ILLMClientAdapter {
       state = {
         content: "",
         reasoning: "",
+        hasGeneratedOutput: false,
         finishReason: null,
         logprobs: [],
       };
@@ -702,6 +751,23 @@ export class OpenAIClientAdapter implements ILLMClientAdapter {
     const logprobs = mapOpenAIChatLogprobs((choice as any).logprobs);
     if (logprobs) {
       responseChoice.logprobs = logprobs;
+    }
+
+    const providerOutput = createProviderOutputAccounting({
+      source:
+        completion.usage as unknown as Record<string, unknown> | undefined,
+      directFields: ["completion_tokens"],
+      choiceCount: completion.choices.length,
+      hasGeneratedOutput:
+        responseChoice.rawContent.length > 0 ||
+        Boolean(reasoning) ||
+        Boolean((choice.message as any).tool_calls?.length) ||
+        Boolean((choice.message as any).function_call) ||
+        hasPositiveOpenAIReasoningTokens(completion.usage),
+      reasoning: "included_native",
+    });
+    if (providerOutput) {
+      responseChoice.answerAccounting = { providerOutput };
     }
 
     const normalizedUsage = normalizeUsage(

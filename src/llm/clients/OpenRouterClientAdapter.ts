@@ -16,6 +16,7 @@ import { ADAPTER_ERROR_CODES } from "./types";
 import { getCommonMappedErrorDetails } from "../../shared/adapters/errorUtils";
 import { mapOpenAIChatLogprobs } from "../../shared/adapters/logprobsUtils";
 import {
+  createProviderOutputAccounting,
   normalizeTermination,
   normalizeUsage,
 } from "../../shared/adapters/usageUtils";
@@ -62,8 +63,19 @@ interface OpenRouterStreamChoiceState {
   content: string;
   reasoning: string;
   reasoningDetails?: any;
+  hasGeneratedOutput: boolean;
   finishReason: string | null;
   logprobs: any[];
+}
+
+function hasPositiveOpenRouterReasoningTokens(usage: unknown): boolean {
+  const reasoningTokens = (usage as any)?.completion_tokens_details
+    ?.reasoning_tokens;
+  return (
+    typeof reasoningTokens === "number" &&
+    Number.isSafeInteger(reasoningTokens) &&
+    reasoningTokens > 0
+  );
 }
 
 /**
@@ -340,10 +352,17 @@ export class OpenRouterClientAdapter implements ILLMClientAdapter {
             });
           }
           const delta = choice.delta as any;
+          if (
+            Boolean(delta?.tool_calls?.length) ||
+            Boolean(delta?.function_call)
+          ) {
+            state.hasGeneratedOutput = true;
+          }
 
           const reasoningDelta = delta?.reasoning ?? delta?.reasoning_content;
           if (typeof reasoningDelta === "string" && reasoningDelta.length > 0) {
             state.reasoning += reasoningDelta;
+            state.hasGeneratedOutput = true;
             evidenceEvents.push({
               type: "adapter_evidence",
               observedEvidence: {
@@ -368,10 +387,12 @@ export class OpenRouterClientAdapter implements ILLMClientAdapter {
 
           if (delta?.reasoning_details) {
             state.reasoningDetails = delta.reasoning_details;
+            state.hasGeneratedOutput = true;
           }
 
           if (typeof delta?.content === "string" && delta.content.length > 0) {
             state.content += delta.content;
+            state.hasGeneratedOutput = true;
             evidenceEvents.push({
               type: "adapter_evidence",
               observedEvidence: {
@@ -391,6 +412,34 @@ export class OpenRouterClientAdapter implements ILLMClientAdapter {
           const mappedLogprobs = mapOpenAIChatLogprobs(choice.logprobs);
           if (mappedLogprobs) {
             state.logprobs.push(...((choice.logprobs as any)?.content || []));
+          }
+        }
+
+        if (chunk.usage && choiceStates.size === 1) {
+          const [index, state] = choiceStates.entries().next().value as [
+            number,
+            OpenRouterStreamChoiceState,
+          ];
+          const providerOutput = createProviderOutputAccounting({
+            source:
+              chunk.usage as unknown as Record<string, unknown>,
+            directFields: ["completion_tokens"],
+            choiceCount: 1,
+            hasGeneratedOutput:
+              state.hasGeneratedOutput ||
+              hasPositiveOpenRouterReasoningTokens(chunk.usage),
+            reasoning: "included_native",
+          });
+          if (providerOutput) {
+            evidenceEvents.push({
+              type: "adapter_evidence",
+              observedEvidence: {
+                choice: {
+                  index,
+                  answerAccounting: { providerOutput },
+                },
+              },
+            });
           }
         }
 
@@ -611,6 +660,7 @@ export class OpenRouterClientAdapter implements ILLMClientAdapter {
       state = {
         content: "",
         reasoning: "",
+        hasGeneratedOutput: false,
         finishReason: null,
         logprobs: [],
       };
@@ -808,6 +858,26 @@ export class OpenRouterClientAdapter implements ILLMClientAdapter {
         const logprobs = mapOpenAIChatLogprobs((c as any).logprobs);
         if (logprobs) {
           mappedChoice.logprobs = logprobs;
+        }
+
+        const providerOutput = createProviderOutputAccounting({
+          source:
+            completion.usage as unknown as
+              | Record<string, unknown>
+              | undefined,
+          directFields: ["completion_tokens"],
+          choiceCount: completion.choices.length,
+          hasGeneratedOutput:
+            mappedChoice.rawContent.length > 0 ||
+            Boolean(messageReasoning) ||
+            Boolean(reasoningDetails) ||
+            Boolean((c.message as any).tool_calls?.length) ||
+            Boolean((c.message as any).function_call) ||
+            hasPositiveOpenRouterReasoningTokens(completion.usage),
+          reasoning: "included_native",
+        });
+        if (providerOutput) {
+          mappedChoice.answerAccounting = { providerOutput };
         }
 
         return mappedChoice;

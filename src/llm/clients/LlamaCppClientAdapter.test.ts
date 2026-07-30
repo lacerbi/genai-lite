@@ -1007,6 +1007,12 @@ describe('LlamaCppClientAdapter', () => {
       const complete = events[events.length - 1] as any;
       expect(complete.type).toBe('complete');
       expect(complete.response.choices[0].message.content).toBe('Hello world');
+      expect(
+        complete.response.choices[0].answerAccounting?.providerOutput
+      ).toMatchObject({
+        tokens: 3,
+        reasoning: "included_native",
+      });
       expect(complete.response.usage).toEqual({
         prompt_tokens: 2,
         completion_tokens: 3,

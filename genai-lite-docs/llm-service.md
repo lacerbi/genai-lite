@@ -85,6 +85,10 @@ if (response.object === 'chat.completion') {
 }
 ```
 
+Message `content` must be a string, but an empty string is valid for `system`,
+`user`, and `assistant` messages. Missing, `null`, and non-string content still
+fail structural validation.
+
 ### Provider and Model Discovery
 
 ```typescript
@@ -136,15 +140,24 @@ if (preflight.object === 'error') {
 }
 ```
 
-Capability calls are static and side-effect free:
+Capability calls perform no external I/O:
 - no API key lookup
 - no provider adapter call
 - no network I/O
+
+The first capability call that resolves content-token counting freezes the
+process-global content-profile registry. Load and register any optional local
+tokenizer backends before capability queries, preparation, or sends.
 
 Structured-output support is reported as:
 - `supported`: genai-lite has metadata that native structured output is available.
 - `unsupported`: genai-lite has metadata that native structured output is unavailable.
 - `unknown`: genai-lite has no explicit metadata. This is not treated as failure by default; callers decide whether to allow it, reject it, or use a prompt-text fallback.
+
+`capabilities.contentTokenCounting` reports `exact` for built-in hash-verified
+profiles, `model` for host-registered tokenizers, and `unavailable` when no
+exact `(providerId, modelId)` alias exists. See
+[Content-token profiles](prepared-calls-and-accounting.md#content-token-profiles).
 
 `validateRequestCapabilities()` returns the same validation diagnostic shape as `sendMessage()` where possible. For example, Gemini-hosted Gemma models return `type: 'validation_error'` and `code: 'structured_output_not_supported'` when structured output is requested.
 

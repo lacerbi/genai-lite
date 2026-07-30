@@ -18,12 +18,23 @@ genai-lite provides utilities for prompt engineering and content manipulation vi
 
 **Template & Content**: `renderTemplate`, `countTokens`, `getSmartPreview`
 
-For evidence-bearing model profiles and certified structural bounds, use
-`countTextTokens`, `resolveTokenProfile`, `retokenizationUpperBound`, and
-`codePointBoundToTokenUpperBound`. `countTokens` remains the compatible numeric
-wrapper and can fall back to a heuristic. Content-only counts are distinct from
-fully prepared message accounting; see
+For built-in certified profiles, use `countTextTokens`,
+`resolveTokenProfile`, `retokenizationUpperBound`, and
+`codePointBoundToTokenUpperBound`. For built-in exact and host-registered
+model-quality ordinary-text tokenizers, use `resolveContentTokenProfile()` and
+`countContentTextTokens()`. `countTokens` remains the compatible numeric wrapper
+and can fall back to a heuristic. Content-only counts are distinct from fully
+prepared message accounting; see
 [Prepared Calls and Token Accounting](prepared-calls-and-accounting.md).
+
+`retokenizationUpperBound()` is a proof-oriented worst-case certificate, not a
+capacity-sizing estimate. Even 1,000 `o200k_base` source tokens certify to
+384,000 `cl100k_base` target tokens under the invalid-byte replacement proof.
+For advisory sizing, use known profile identity or an explicitly
+application-owned estimate. For text bounded by Unicode code points, use
+`codePointBoundToTokenUpperBound()` for the useful certified
+`codePoints * 4` conversion.
+
 **Prompt Engineering**: `parseRoleTags`, `parseStructuredContent`, `extractRandomVariables`, `parseTemplateWithMetadata`, `extractInitialTaggedContent`, `extractMarkerDelimitedContent`
 
 **Note**: For model-aware message creation, use `LLMService.createMessages()` which combines these utilities with model context. See [LLM Service - Creating Messages from Templates](llm-service.md#creating-messages-from-templates).
@@ -147,6 +158,24 @@ while (countTokens(prompt) > maxTokens) {
 ```
 
 **Note**: Uses `js-tiktoken` library. Supports all models with tiktoken encodings.
+
+### Registered content tokenizers
+
+Applications can asynchronously load an optional recipe backend during startup,
+register exact model aliases, and then count synchronously:
+
+```typescript
+import {
+  countContentTextTokens,
+  registerContentTokenProfileConfiguration,
+  resolveContentTokenProfile,
+} from "genai-lite";
+```
+
+Registered profiles are model evidence, not certificates. Registration must
+finish before the first content-profile read. See
+[Content-token profiles](prepared-calls-and-accounting.md#content-token-profiles)
+for the loader, recipes, cache, alias, and trust-boundary contracts.
 
 ---
 

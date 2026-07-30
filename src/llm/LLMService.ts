@@ -31,6 +31,8 @@ import type {
   PreparedRequestInspection,
   EffectiveOutputTokenLimit,
   PreparedPromptAccounting,
+  LLMAnswerAccountingByScope,
+  LLMChoice,
   LLMRawAnswerAccounting,
   LLMRawContentPart,
   LLMTermination,
@@ -70,8 +72,8 @@ import { withRetry, type RetryPolicy } from "../shared/services/withRetry";
 import { ADAPTER_ERROR_CODES } from "./clients/types";
 import { deepFreeze } from "./clients/preparedAdapterUtils";
 import {
-  countTextTokens,
-  resolveTokenProfile,
+  countContentTextTokens,
+  resolveContentTokenProfile,
 } from "./tokenization";
 
 // Re-export PresetMode for backward compatibility
@@ -110,6 +112,15 @@ export interface LLMServiceOptions {
    * captured when the service or prepared call was created.
    */
   providerEndpointRevisionProvider?: ProviderEndpointRevisionProvider;
+  /**
+   * Reuse adapter preparation snapshots under the authoritative endpoint
+   * revision. Requires `providerEndpointRevisionProvider`.
+   *
+   * The host asserts that the revision changes whenever cached model, server
+   * build, or template state changes. Dispatch revalidation remains live.
+   * @default false
+   */
+  cachePreparationStateByEndpointRevision?: boolean;
 }
 
 /**
@@ -182,6 +193,7 @@ interface StreamPartialChoiceState {
   reasoning: string;
   rawContent?: string;
   rawContentParts?: LLMRawContentPart[];
+  answerAccounting?: LLMAnswerAccountingByScope;
   rawAnswerAccounting?: LLMRawAnswerAccounting;
   finishReason?: string | null;
   termination?: LLMTermination;
@@ -196,6 +208,60 @@ interface StreamPartialState {
   choices: Map<number, StreamPartialChoiceState>;
   usage?: LLMUsage;
   usageEvidence?: LLMUsageEvidence;
+}
+
+interface PreparationStateCacheEntry {
+  key: string;
+  endpointKey: string;
+  adapter: ILLMClientAdapter;
+  providerId: ApiProviderId;
+  modelId: string;
+  revision: ProviderEndpointRevision;
+  statePromise: Promise<unknown>;
+  state?: unknown;
+  published: boolean;
+  activeLeases: number;
+}
+
+interface PreparationStateCacheLease {
+  entry: PreparationStateCacheEntry;
+  state: unknown;
+  released: boolean;
+}
+
+const PREPARATION_STATE_CACHE_MAX_ENDPOINTS = 32;
+
+function mergeAnswerAccountingByScope(
+  current: LLMAnswerAccountingByScope | undefined,
+  incoming: LLMAnswerAccountingByScope | undefined,
+  incomingLegacyRaw?: LLMRawAnswerAccounting
+): LLMAnswerAccountingByScope | undefined {
+  const rawContent =
+    incoming?.rawContent ?? incomingLegacyRaw ?? current?.rawContent;
+  const providerOutput =
+    incoming?.providerOutput ?? current?.providerOutput;
+  if (!rawContent && !providerOutput) {
+    return undefined;
+  }
+  return {
+    ...(rawContent && { rawContent }),
+    ...(providerOutput && { providerOutput }),
+  };
+}
+
+function canonicalizeChoiceAnswerAccounting(choice: LLMChoice): void {
+  const accounting = mergeAnswerAccountingByScope(
+    undefined,
+    choice.answerAccounting,
+    choice.rawAnswerAccounting
+  );
+  if (!accounting) {
+    return;
+  }
+  choice.answerAccounting = accounting;
+  if (accounting.rawContent) {
+    choice.rawAnswerAccounting = accounting.rawContent;
+  }
 }
 
 /**
@@ -221,14 +287,30 @@ export class LLMService {
   private retryOptions: LLMServiceOptions['retry'];
   private defaultTimeoutMs?: number;
   private providerEndpointRevisionProvider?: ProviderEndpointRevisionProvider;
+  private cachePreparationStateByEndpointRevision: boolean;
+  private preparationStateCache = new Map<string, PreparationStateCacheEntry>();
+  private preparationStateAdapterIds =
+    new WeakMap<ILLMClientAdapter, number>();
+  private nextPreparationStateAdapterId = 1;
   private preparedCalls = new WeakMap<object, PreparedLLMRequest>();
 
   constructor(getApiKey: ApiKeyProvider, options: LLMServiceOptions = {}) {
+    if (
+      options.cachePreparationStateByEndpointRevision === true &&
+      !options.providerEndpointRevisionProvider
+    ) {
+      throw new TypeError(
+        "cachePreparationStateByEndpointRevision requires " +
+          "providerEndpointRevisionProvider."
+      );
+    }
     this.getApiKey = getApiKey;
     this.retryOptions = options.retry;
     this.defaultTimeoutMs = options.timeoutMs;
     this.providerEndpointRevisionProvider =
       options.providerEndpointRevisionProvider;
+    this.cachePreparationStateByEndpointRevision =
+      options.cachePreparationStateByEndpointRevision === true;
 
     // Initialize logger - custom logger takes precedence over logLevel
     this.logger = options.logger ?? createDefaultLogger(options.logLevel);
@@ -790,6 +872,7 @@ export class LLMService {
     options: {
       validateStructure: boolean;
       detectLocalCapabilities: boolean;
+      adapterPreparationState?: unknown;
     }
   ): Promise<
     { context: CapabilityValidationContext } |
@@ -797,6 +880,9 @@ export class LLMService {
   > {
     const resolved = await this.modelResolver.resolve(request, {
       detectLocalCapabilities: options.detectLocalCapabilities,
+      ...(options.adapterPreparationState !== undefined && {
+        adapterPreparationState: options.adapterPreparationState,
+      }),
     });
     if (resolved.error) {
       return { error: resolved.error };
@@ -883,7 +969,7 @@ export class LLMService {
     source: CapabilitySource
   ): ModelCapabilities {
     const structuredOutput = this.getStructuredOutputSupport(modelInfo, source);
-    const tokenProfile = resolveTokenProfile(
+    const tokenProfile = resolveContentTokenProfile(
       modelInfo.providerId,
       modelInfo.id
     );
@@ -903,7 +989,9 @@ export class LLMService {
         },
       }),
       contentTokenCounting:
-        tokenProfile.status === "available" ? "exact" : "unavailable",
+        tokenProfile.status === "available"
+          ? tokenProfile.profile.quality
+          : "unavailable",
       preparedMessageTokenCounting:
         modelInfo.providerId === "llamacpp" ? "runtime" : "unavailable",
       ...(tokenProfile.status === "available" && {
@@ -1104,10 +1192,32 @@ export class LLMService {
         options
       );
       if (!result.valid) {
+        if (
+          result.error.error.code ===
+          ADAPTER_ERROR_CODES.PREPARED_CALL_STALE
+        ) {
+          this.evictPreparationStateCache(
+            prepared.providerId,
+            prepared.modelId,
+            prepared.clientAdapter
+          );
+        }
         return result.error;
       }
     }
-    return this.revalidateProviderEndpointRevision(prepared);
+    const endpointError =
+      await this.revalidateProviderEndpointRevision(prepared);
+    if (
+      endpointError?.error.code ===
+      ADAPTER_ERROR_CODES.PREPARED_CALL_STALE
+    ) {
+      this.evictPreparationStateCache(
+        prepared.providerId,
+        prepared.modelId,
+        prepared.clientAdapter
+      );
+    }
+    return endpointError;
   }
 
   private isValidProviderEndpointRevision(
@@ -1133,6 +1243,179 @@ export class LLMService {
       "validation_error",
       cause
     );
+  }
+
+  private getPreparationStateAdapterId(
+    adapter: ILLMClientAdapter
+  ): number {
+    let id = this.preparationStateAdapterIds.get(adapter);
+    if (id === undefined) {
+      id = this.nextPreparationStateAdapterId;
+      this.nextPreparationStateAdapterId += 1;
+      this.preparationStateAdapterIds.set(adapter, id);
+    }
+    return id;
+  }
+
+  private encodeProviderEndpointRevision(
+    revision: ProviderEndpointRevision
+  ): string {
+    if (typeof revision === "string") {
+      return `string:${JSON.stringify(revision)}`;
+    }
+    return Object.is(revision, -0)
+      ? "number:-0"
+      : `number:${String(revision)}`;
+  }
+
+  private getPreparationStateCacheKeys(
+    adapter: ILLMClientAdapter,
+    providerId: ApiProviderId,
+    modelId: string,
+    revision: ProviderEndpointRevision
+  ): { key: string; endpointKey: string } {
+    const endpointKey = JSON.stringify([
+      this.getPreparationStateAdapterId(adapter),
+      providerId,
+      modelId,
+    ]);
+    return {
+      endpointKey,
+      key: `${endpointKey}:${this.encodeProviderEndpointRevision(revision)}`,
+    };
+  }
+
+  private evictPreparationStateCache(
+    providerId: ApiProviderId,
+    modelId: string,
+    adapter?: ILLMClientAdapter
+  ): void {
+    for (const [key, entry] of this.preparationStateCache) {
+      if (
+        entry.providerId === providerId &&
+        entry.modelId === modelId &&
+        (adapter === undefined || entry.adapter === adapter)
+      ) {
+        this.preparationStateCache.delete(key);
+      }
+    }
+  }
+
+  private trimPreparationStateCache(): void {
+    while (
+      this.preparationStateCache.size >
+      PREPARATION_STATE_CACHE_MAX_ENDPOINTS
+    ) {
+      const oldestKey = this.preparationStateCache.keys().next().value;
+      if (oldestKey === undefined) {
+        return;
+      }
+      this.preparationStateCache.delete(oldestKey);
+    }
+  }
+
+  private async acquirePreparationStateCacheLease(
+    adapter: ILLMClientAdapter,
+    providerId: ApiProviderId,
+    modelId: string,
+    revision: ProviderEndpointRevision
+  ): Promise<PreparationStateCacheLease | undefined> {
+    if (!adapter.getPreparationSnapshot) {
+      return undefined;
+    }
+
+    const { key, endpointKey } = this.getPreparationStateCacheKeys(
+      adapter,
+      providerId,
+      modelId,
+      revision
+    );
+    for (const [cachedKey, cached] of this.preparationStateCache) {
+      const replacedAdapter =
+        cached.providerId === providerId && cached.adapter !== adapter;
+      const olderRevision =
+        cached.endpointKey === endpointKey &&
+        !Object.is(cached.revision, revision);
+      if (replacedAdapter || olderRevision) {
+        this.preparationStateCache.delete(cachedKey);
+      }
+    }
+
+    let entry = this.preparationStateCache.get(key);
+    if (!entry) {
+      const getSnapshot = adapter.getPreparationSnapshot.bind(adapter);
+      const statePromise = Promise.resolve().then(() =>
+        getSnapshot(modelId)
+      );
+      entry = {
+        key,
+        endpointKey,
+        adapter,
+        providerId,
+        modelId,
+        revision,
+        statePromise,
+        published: false,
+        activeLeases: 0,
+      };
+      this.preparationStateCache.set(key, entry);
+      this.trimPreparationStateCache();
+    } else {
+      this.preparationStateCache.delete(key);
+      this.preparationStateCache.set(key, entry);
+    }
+
+    entry.activeLeases += 1;
+    try {
+      const state = entry.state ?? await entry.statePromise;
+      entry.state = state;
+      return { entry, state, released: false };
+    } catch (error) {
+      entry.activeLeases -= 1;
+      if (this.preparationStateCache.get(key) === entry) {
+        this.preparationStateCache.delete(key);
+      }
+      throw error;
+    }
+  }
+
+  private releasePreparationStateCacheLease(
+    lease: PreparationStateCacheLease | undefined,
+    publish: boolean
+  ): void {
+    if (!lease || lease.released) {
+      return;
+    }
+    lease.released = true;
+    const { entry, state } = lease;
+    let cacheable = false;
+    if (publish) {
+      try {
+        cacheable =
+          entry.adapter.isPreparationSnapshotCacheable?.(
+            state,
+            entry.modelId
+          ) === true;
+      } catch {
+        cacheable = false;
+      }
+    }
+    if (
+      cacheable &&
+      this.preparationStateCache.get(entry.key) === entry
+    ) {
+      entry.published = true;
+      this.preparationStateCache.delete(entry.key);
+      this.preparationStateCache.set(entry.key, entry);
+    }
+    entry.activeLeases -= 1;
+    if (
+      !entry.published &&
+      entry.activeLeases === 0 &&
+      this.preparationStateCache.get(entry.key) === entry
+    ) {
+      this.preparationStateCache.delete(entry.key);
+    }
   }
 
   private async captureProviderEndpointRevision(
@@ -1268,9 +1551,17 @@ export class LLMService {
           ...observed.choice.rawContentParts,
         ];
       }
-      if (observed.choice.rawAnswerAccounting) {
+      if (
+        observed.choice.answerAccounting ||
+        observed.choice.rawAnswerAccounting
+      ) {
+        choice.answerAccounting = mergeAnswerAccountingByScope(
+          choice.answerAccounting,
+          observed.choice.answerAccounting,
+          observed.choice.rawAnswerAccounting
+        );
         choice.rawAnswerAccounting =
-          observed.choice.rawAnswerAccounting;
+          choice.answerAccounting?.rawContent;
       }
       if (observed.choice.finishReason !== undefined) {
         choice.finishReason = observed.choice.finishReason;
@@ -1383,6 +1674,9 @@ export class LLMService {
         ...(choice.rawContentParts && {
           rawContentParts: choice.rawContentParts,
         }),
+        ...(choice.answerAccounting && {
+          answerAccounting: choice.answerAccounting,
+        }),
         ...(choice.rawAnswerAccounting && {
           rawAnswerAccounting: choice.rawAnswerAccounting,
         }),
@@ -1417,6 +1711,11 @@ export class LLMService {
     for (const [position, choice] of provided.choices.entries()) {
       const index = choice.index ?? position;
       const prior = choicesByIndex.get(index);
+      const answerAccounting = mergeAnswerAccountingByScope(
+        prior?.answerAccounting,
+        choice.answerAccounting,
+        choice.rawAnswerAccounting
+      );
       choicesByIndex.set(index, {
         ...(prior ?? {}),
         ...choice,
@@ -1428,6 +1727,12 @@ export class LLMService {
           prior?.rawContentParts && {
             rawContentParts: prior.rawContentParts,
           }),
+        ...(answerAccounting && {
+          answerAccounting,
+          ...(answerAccounting.rawContent && {
+            rawAnswerAccounting: answerAccounting.rawContent,
+          }),
+        }),
       });
     }
     const usage = {
@@ -1563,9 +1868,111 @@ export class LLMService {
       return { error: endpointRevision };
     }
 
+    let cacheLease: PreparationStateCacheLease | undefined;
+    let cacheAdapter: ILLMClientAdapter | undefined;
+    try {
+      if (
+        this.cachePreparationStateByEndpointRevision &&
+        endpointRevisionContext &&
+        endpointRevision !== undefined
+      ) {
+        cacheAdapter = this.adapterRegistry.getAdapter(
+          endpointRevisionContext.providerId
+        );
+        cacheLease = await this.acquirePreparationStateCacheLease(
+          cacheAdapter,
+          endpointRevisionContext.providerId,
+          endpointRevisionContext.modelId,
+          endpointRevision
+        );
+      }
+
+      const result = await this.prepareCanonicalRequestWithRevision(
+        request,
+        mode,
+        endpointRevision,
+        cacheLease?.state,
+        cacheAdapter
+      );
+      if ("error" in result) {
+        if (
+          result.error.error.code ===
+            ADAPTER_ERROR_CODES.PREPARED_CALL_STALE &&
+          endpointRevisionContext
+        ) {
+          this.evictPreparationStateCache(
+            endpointRevisionContext.providerId,
+            endpointRevisionContext.modelId,
+            cacheAdapter
+          );
+        }
+        this.releasePreparationStateCacheLease(cacheLease, false);
+        return result;
+      }
+
+      if (
+        this.cachePreparationStateByEndpointRevision &&
+        endpointRevisionContext &&
+        endpointRevision !== undefined
+      ) {
+        const endingRevision =
+          await this.captureProviderEndpointRevision(
+            endpointRevisionContext.providerId,
+            endpointRevisionContext.modelId
+          );
+        if (
+          this.isFailureResponse(endingRevision) ||
+          endingRevision === undefined ||
+          !Object.is(endingRevision, endpointRevision)
+        ) {
+          this.evictPreparationStateCache(
+            endpointRevisionContext.providerId,
+            endpointRevisionContext.modelId,
+            cacheAdapter
+          );
+          this.releasePreparationStateCacheLease(cacheLease, false);
+          return {
+            error: this.isFailureResponse(endingRevision)
+              ? endingRevision
+              : this.createStaleEndpointRevisionFailure(
+                  endpointRevisionContext.providerId,
+                  endpointRevisionContext.modelId,
+                  "The provider endpoint revision changed during preparation."
+                ),
+          };
+        }
+        this.releasePreparationStateCacheLease(cacheLease, true);
+      }
+
+      return result;
+    } catch (error) {
+      this.releasePreparationStateCacheLease(cacheLease, false);
+      return {
+        error: this.createPreparedFailure(
+          endpointRevisionContext?.providerId ?? request.providerId ?? "unknown",
+          endpointRevisionContext?.modelId ?? request.modelId ?? "unknown",
+          ADAPTER_ERROR_CODES.PROVIDER_ERROR,
+          "The provider preparation state could not be captured.",
+          "server_error",
+          error
+        ),
+      };
+    }
+  }
+
+  private async prepareCanonicalRequestWithRevision(
+    request: LLMChatRequest | LLMChatRequestWithPreset,
+    mode: PreparedCallMode,
+    endpointRevision: ProviderEndpointRevision | undefined,
+    cachedPreparationState?: unknown,
+    expectedAdapter?: ILLMClientAdapter
+  ): Promise<{ prepared: PreparedLLMRequest } | { error: LLMFailureResponse }> {
     const validation = await this.resolveAndValidateCapabilities(request, {
       validateStructure: true,
       detectLocalCapabilities: true,
+      ...(cachedPreparationState !== undefined && {
+        adapterPreparationState: cachedPreparationState,
+      }),
     });
     if ("error" in validation) {
       return { error: validation.error };
@@ -1633,6 +2040,15 @@ export class LLMService {
 
     // Get client adapter
     const clientAdapter = this.adapterRegistry.getAdapter(providerId);
+    if (expectedAdapter && clientAdapter !== expectedAdapter) {
+      return {
+        error: this.createStaleEndpointRevisionFailure(
+          providerId,
+          modelId,
+          "The provider adapter changed during preparation."
+        ),
+      };
+    }
 
     if (!clientAdapter.prepareRequest) {
       return {
@@ -1651,10 +2067,28 @@ export class LLMService {
         mode,
         modelInfo,
         outputTokenLimit,
+        ...(endpointRevision !== undefined && {
+          providerEndpointRevision: endpointRevision,
+        }),
+        ...(this.cachePreparationStateByEndpointRevision && {
+          cachePreparationStateByEndpointRevision: true,
+        }),
         ...(adapterPreparationState !== undefined && {
           providerState: adapterPreparationState,
         }),
       });
+      if (
+        expectedAdapter &&
+        this.adapterRegistry.getAdapter(providerId) !== expectedAdapter
+      ) {
+        return {
+          error: this.createStaleEndpointRevisionFailure(
+            providerId,
+            modelId,
+            "The provider adapter changed during preparation."
+          ),
+        };
+      }
       if ("error" in adapterResult) {
         return { error: adapterResult.error };
       }
@@ -1749,29 +2183,39 @@ export class LLMService {
       return { ...result, partialResponse };
     }
 
-    const tokenProfile = resolveTokenProfile(
+    const tokenProfile = resolveContentTokenProfile(
       prepared.providerId,
       prepared.modelId
     );
-    if (tokenProfile.status === "available") {
-      for (const choice of result.choices) {
-        const rawContent = choice.rawContent ?? choice.message.content;
-        choice.rawContent ??= rawContent;
-        if (!choice.rawAnswerAccounting) {
-          const counted = countTextTokens(rawContent, tokenProfile.profile);
-          if (counted.status === "available") {
-            choice.rawAnswerAccounting = {
-              tokens: counted.count.tokens,
-              method: counted.count.method,
-              source: "library",
-              tokenizerId: counted.count.tokenizerId,
-              tokenProfileRevision: counted.count.tokenProfileRevision,
-              reasoning:
-                choice.reasoning && choice.reasoning.length > 0
-                  ? "excluded"
-                  : "unknown",
-            };
-          }
+    for (const choice of result.choices) {
+      canonicalizeChoiceAnswerAccounting(choice);
+      const rawContent = choice.rawContent ?? choice.message.content;
+      choice.rawContent ??= rawContent;
+      if (
+        tokenProfile.status === "available" &&
+        !choice.answerAccounting?.rawContent
+      ) {
+        const counted = countContentTextTokens(
+          rawContent,
+          tokenProfile.profile
+        );
+        if (counted.status === "available") {
+          const rawAccounting: LLMRawAnswerAccounting = {
+            tokens: counted.count.tokens,
+            method: counted.count.method,
+            source: "library",
+            tokenizerId: counted.count.tokenizerId,
+            tokenProfileRevision: counted.count.tokenProfileRevision,
+            reasoning:
+              choice.reasoning && choice.reasoning.length > 0
+                ? "excluded"
+                : "unknown",
+          };
+          choice.answerAccounting = mergeAnswerAccountingByScope(
+            choice.answerAccounting,
+            { rawContent: rawAccounting }
+          );
+          choice.rawAnswerAccounting = rawAccounting;
         }
       }
     }
@@ -1812,8 +2256,19 @@ export class LLMService {
             choice.reasoning = extracted;
           }
           choice.message.content = remaining;
-          if (choice.rawAnswerAccounting) {
-            choice.rawAnswerAccounting.reasoning = "included_extracted";
+          const rawAccounting =
+            choice.answerAccounting?.rawContent ??
+            choice.rawAnswerAccounting;
+          if (rawAccounting) {
+            const extractedAccounting = {
+              ...rawAccounting,
+              reasoning: "included_extracted" as const,
+            };
+            choice.answerAccounting = mergeAnswerAccountingByScope(
+              choice.answerAccounting,
+              { rawContent: extractedAccounting }
+            );
+            choice.rawAnswerAccounting = extractedAccounting;
           }
         } else {
           // Tag was not found

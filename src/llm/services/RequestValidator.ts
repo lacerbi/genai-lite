@@ -54,7 +54,10 @@ export class RequestValidator {
     // Validate message structure
     for (let i = 0; i < request.messages.length; i++) {
       const message = request.messages[i];
-      if (!message.role || !message.content) {
+      if (
+        typeof message?.role !== "string" ||
+        typeof message.content !== "string"
+      ) {
         return {
           provider: request.providerId || ('presetId' in request ? request.presetId : undefined) || 'unknown',
           model: request.modelId || ('presetId' in request ? request.presetId : undefined) || 'unknown',

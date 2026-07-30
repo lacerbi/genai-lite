@@ -634,6 +634,53 @@ a caller may abort immediately after any public event, so evidence that was
 already present in the received provider chunk must not remain behind that
 yield.
 
+Response mappers must keep answer measurement spaces separate. Put counts over
+retained pre-normalization text in `answerAccounting.rawContent` and mirror that
+record to deprecated `rawAnswerAccounting`. Put provider-native output usage in
+`answerAccounting.providerOutput` only when it is a nonnegative safe integer
+attributable to exactly one physical choice; include all required native
+reasoning components. Never copy provider output into the legacy field, derive
+it from total usage, divide an aggregate across choices, or substitute a byte
+estimate. Missing or ambiguous evidence remains absent. Use
+`createProviderOutputAccounting()` from `shared/adapters/usageUtils.ts` in
+built-in adapters so zero, component, and cardinality rules stay aligned.
+
+Local adapters may optionally expose `getPreparationSnapshot()` and
+`isPreparationSnapshotCacheable()`. Cacheability is useful only when the host
+also supplies an authoritative endpoint revision and explicitly enables
+`cachePreparationStateByEndpointRevision`; prompt counting and dispatch
+revalidation must remain live. The cacheability predicate receives the exact
+selected model and must reject snapshots captured for any other model.
+
+### Adding content-tokenizer recipes
+
+Use the generic content-profile registry for selected tokenizer families; do
+not add family-specific matching logic.
+
+1. Choose a versioned loader kind whose ordinary-text/no-special behavior is
+   already proven.
+2. Pin every loader-input artifact to an immutable source revision and SHA-256.
+3. Compute `semanticRevision` only from loader kind, fixed text policy, and
+   sorted semantic artifact role/digest pairs.
+4. Add all required regression categories: ASCII/whitespace, dense
+   multilingual text, combining forms, emoji/ZWJ, controls/NUL, and real
+   special-token-looking literals.
+5. For each claimed repository revision, audit and record every
+   behavior-relevant role/path/digest. Generic validation checks the declared
+   role set but cannot infer repository completeness.
+6. Cross-check counts against a reference implementation and, for GGUF use,
+   llama.cpp `/tokenize` with aligned no-BOS/no-special behavior.
+7. Keep self-tests and coverage evidence out of semantic identity. They are
+   regression/applicability evidence and never mint a certificate.
+8. Do not bundle tokenizer artifacts. Verify cold download, rehashed warm
+   cache, corruption quarantine/recovery, offline denial, abort, concurrency,
+   and packed consumers with and without the optional peer.
+
+Coverage evidence is not an alias allowlist. A caller may register an exact
+out-of-coverage alias, but that is the caller's equivalence assertion. For GGUF
+aliases, document an exact lifecycle-stable slug and warn against mutable
+generic IDs.
+
 ## Adding New Image Providers
 
 For entirely new image generation providers:

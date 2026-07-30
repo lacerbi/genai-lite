@@ -665,7 +665,7 @@ describe('GeminiClientAdapter', () => {
         expect(callArgs.config.thinkingConfig?.thinkingBudget).toBe(-1);
       });
 
-      it('should exclude thinking config when reasoning.exclude is true', async () => {
+      it('should keep thinking enabled but omit summaries when reasoning.exclude is true', async () => {
         const requestWithExclude = {
           ...basicRequest,
           settings: {
@@ -693,7 +693,49 @@ describe('GeminiClientAdapter', () => {
         await adapter.sendMessage(requestWithExclude, 'test-api-key');
 
         const callArgs = mockGenerateContent.mock.calls[0][0];
-        expect(callArgs.config.thinkingConfig).toBeUndefined();
+        expect(callArgs.config.thinkingConfig).toEqual({
+          thinkingBudget: 5000,
+          includeThoughts: false
+        });
+      });
+
+      it('should send a zero budget only for verified disable-capable models', async () => {
+        const disabled = {
+          ...basicRequest,
+          modelId: 'gemini-2.5-flash',
+          settings: {
+            ...basicRequest.settings,
+            reasoning: {
+              enabled: false,
+              maxTokens: undefined as any,
+              effort: undefined as any,
+              exclude: false
+            }
+          }
+        };
+        mockGenerateContent.mockResolvedValue({
+          candidates: [{
+            finishReason: 'STOP',
+            content: { parts: [{ text: 'Response' }] }
+          }],
+          usageMetadata: { candidatesTokenCount: 2 }
+        });
+
+        await adapter.sendMessage(disabled, 'test-api-key');
+        await adapter.sendMessage(
+          { ...disabled, modelId: 'gemini-3-flash-preview' },
+          'test-api-key'
+        );
+
+        expect(
+          mockGenerateContent.mock.calls[0][0].config.thinkingConfig
+        ).toEqual({
+          thinkingBudget: 0,
+          includeThoughts: false
+        });
+        expect(
+          mockGenerateContent.mock.calls[1][0].config.thinkingConfig
+        ).toBeUndefined();
       });
     });
 
@@ -813,7 +855,8 @@ describe('GeminiClientAdapter', () => {
           usageMetadata: {
             promptTokenCount: 3,
             candidatesTokenCount: 4,
-            totalTokenCount: 7
+            thoughtsTokenCount: 1,
+            totalTokenCount: 8
           }
         }
       ]));
@@ -851,7 +894,7 @@ describe('GeminiClientAdapter', () => {
         .toBe('Hello world');
       expect(events.find((event) => event.type === 'usage')).toMatchObject({
         type: 'usage',
-        usage: { prompt_tokens: 3, completion_tokens: 4, total_tokens: 7 }
+        usage: { prompt_tokens: 3, completion_tokens: 4, total_tokens: 8 }
       });
 
       const complete = events.find((event) => event.type === 'complete');
@@ -862,7 +905,13 @@ describe('GeminiClientAdapter', () => {
         expect(complete.response.choices[0].message.content).toBe('Hello world');
         expect(complete.response.choices[0].reasoning).toBe('thinking ');
         expect(complete.response.choices[0].finish_reason).toBe('stop');
-        expect(complete.response.usage?.total_tokens).toBe(7);
+        expect(
+          complete.response.choices[0].answerAccounting?.providerOutput
+        ).toMatchObject({
+          tokens: 5,
+          reasoning: "included_native",
+        });
+        expect(complete.response.usage?.total_tokens).toBe(8);
       }
     });
 
@@ -907,6 +956,93 @@ describe('GeminiClientAdapter', () => {
           },
         },
       });
+    });
+
+    it("combines Gemini output components arriving in separate stream fragments", async () => {
+      mockGenerateContentStream.mockResolvedValueOnce(streamFrom([
+        {
+          modelUsed: "gemini-2.5-pro",
+          candidates: [{
+            index: 0,
+            content: { role: "model", parts: [{ text: "answer" }] },
+          }],
+          usageMetadata: { candidatesTokenCount: 4 },
+        },
+        {
+          modelUsed: "gemini-2.5-pro",
+          candidates: [{
+            index: 0,
+            finishReason: "STOP",
+            content: { role: "model", parts: [] },
+          }],
+          usageMetadata: {
+            thoughtsTokenCount: 2,
+          },
+        },
+      ]));
+      basicRequest.settings.reasoning = {
+        enabled: true,
+        effort: undefined as any,
+        maxTokens: undefined as any,
+        exclude: false,
+      };
+
+      const events = await collectEvents();
+      const complete = events.find((event) => event.type === "complete");
+
+      expect(
+        events.some(
+          (event) =>
+            event.type === "adapter_evidence" &&
+            event.observedEvidence.choice?.answerAccounting
+              ?.providerOutput?.tokens === 6
+        )
+      ).toBe(true);
+      if (complete?.type === "complete") {
+        expect(
+          complete.response.choices[0].answerAccounting?.providerOutput
+        ).toMatchObject({
+          tokens: 6,
+          reasoning: "included_native",
+        });
+      }
+    });
+
+    it("does not assign aggregate stream usage to multiple candidates", async () => {
+      mockGenerateContentStream.mockResolvedValueOnce(streamFrom([{
+        modelUsed: "gemma-3-27b-it",
+        candidates: [
+          {
+            index: 0,
+            finishReason: "STOP",
+            content: { role: "model", parts: [{ text: "one" }] },
+          },
+          {
+            index: 1,
+            finishReason: "STOP",
+            content: { role: "model", parts: [{ text: "two" }] },
+          },
+        ],
+        usageMetadata: { candidatesTokenCount: 4 },
+      }]));
+      basicRequest.modelId = "gemma-3-27b-it";
+
+      const events = await collectEvents();
+      const complete = events.find((event) => event.type === "complete");
+
+      expect(
+        events.some(
+          (event) =>
+            event.type === "adapter_evidence" &&
+            event.observedEvidence.choice?.answerAccounting
+              ?.providerOutput
+        )
+      ).toBe(false);
+      if (complete?.type === "complete") {
+        expect(
+          complete.response.choices[0].answerAccounting
+        ).toBeUndefined();
+      }
     });
 
     it('should preserve transport options and request configuration', async () => {

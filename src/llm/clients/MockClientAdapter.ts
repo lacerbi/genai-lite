@@ -334,6 +334,16 @@ export class MockClientAdapter implements ILLMClientAdapter {
       }
 
       observedRawContent += chunk;
+      const rawContentAccounting = {
+        tokens: Math.floor(observedRawContent.length / 4),
+        method: "heuristic" as const,
+        source: "library" as const,
+        tokenizerId: MOCK_HEURISTIC_ID,
+        tokenProfileRevision: MOCK_HEURISTIC_REVISION,
+        reasoning: choice?.reasoning
+          ? "excluded" as const
+          : "unknown" as const,
+      };
       yield {
         type: "content_delta",
         delta: chunk,
@@ -342,14 +352,10 @@ export class MockClientAdapter implements ILLMClientAdapter {
           choice: {
             index: choice?.index ?? 0,
             rawContentDelta: chunk,
-            rawAnswerAccounting: {
-              tokens: Math.floor(observedRawContent.length / 4),
-              method: "heuristic",
-              source: "library",
-              tokenizerId: MOCK_HEURISTIC_ID,
-              tokenProfileRevision: MOCK_HEURISTIC_REVISION,
-              reasoning: choice?.reasoning ? "excluded" : "unknown",
+            answerAccounting: {
+              rawContent: rawContentAccounting,
             },
+            rawAnswerAccounting: rawContentAccounting,
           },
         },
       };
@@ -489,6 +495,16 @@ export class MockClientAdapter implements ILLMClientAdapter {
 
     // Check if we need to add reasoning to the response
     const isReasoningTest = userContent.includes("test_reasoning:");
+    const rawContentAccounting = {
+      tokens: mockTokenCount,
+      method: "heuristic" as const,
+      source: "library" as const,
+      tokenizerId: MOCK_HEURISTIC_ID,
+      tokenProfileRevision: MOCK_HEURISTIC_REVISION,
+      reasoning: isReasoningTest
+        ? "excluded" as const
+        : "unknown" as const,
+    };
     
     const choice: any = {
       message: {
@@ -496,14 +512,10 @@ export class MockClientAdapter implements ILLMClientAdapter {
         content: responseContent,
       },
       rawContent: responseContent,
-      rawAnswerAccounting: {
-        tokens: mockTokenCount,
-        method: "heuristic",
-        source: "library",
-        tokenizerId: MOCK_HEURISTIC_ID,
-        tokenProfileRevision: MOCK_HEURISTIC_REVISION,
-        reasoning: isReasoningTest ? "excluded" : "unknown",
+      answerAccounting: {
+        rawContent: rawContentAccounting,
       },
+      rawAnswerAccounting: rawContentAccounting,
       finish_reason: finishReason,
       termination: normalizeTermination(finishReason),
       index: 0,
