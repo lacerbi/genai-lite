@@ -86,6 +86,8 @@ historical implementation structure.
 - [x] Add and commit the separate combined-release version bump.
 - [x] Run every blocking local release gate for `v0.17.0`.
 - [~] Push, open or reuse the pull request, require green CI, and merge.
+- [~] PR `#118` is open; final-head CI and authoritative DCO verification are
+  pending.
 - [ ] Tag the recorded merge commit and publish the GitHub release.
 - [ ] Verify the release and hand off npm publication separately.
 
