@@ -24,6 +24,9 @@ publication to the user unless they separately and explicitly authorize it.
 - Name releases `vX.Y.Z — concise release theme`.
 - Structure release notes with `Highlights`, `Verification`, and
   `Full implementation: #PR`.
+- Use exactly one pull request for a release. Resolve and archive any completed
+  root issue/plan records on the release branch before final CI and merge.
+  Never open a follow-up pull request solely for post-release archival.
 - Require every GitHub check to pass before merging.
 - Treat npm publication as a manual handoff by default.
 
@@ -131,6 +134,20 @@ git add package.json package-lock.json
 git commit -s -m "chore: bump version to X.Y.Z"
 ```
 
+Before the first push—or before final CI when reusing an open PR—close any root
+`ISSUE-*.md` / `PLAN-*.md` records completed by this release:
+
+- Add the target version and release date, tick acceptance/tracking items, and
+  add the required resolution text.
+- Move both records to `docs/archive/` and update repository references.
+- Describe the target release honestly; do not claim that GitHub or npm
+  publication has already occurred.
+- Validate the documentation diff, then commit it separately with DCO sign-off,
+  for example `docs: archive vX.Y.Z release records`.
+
+Include this closure commit in the same release branch and pull request. Do not
+defer archival until after publication and create a second pull request.
+
 Before pushing, enumerate every commit introduced by the branch relative to
 `origin/main`. Require a nonempty `Signed-off-by` trailer on every implementation,
 fix, merge, and version commit—not only the version bump.
@@ -157,6 +174,7 @@ Otherwise create a PR targeting `main` with:
 - A title describing the release's main feature or fix, or
   `chore: release vX.Y.Z` for a version-only branch
 - A concise summary and version bump
+- Any issue/plan resolution and archival included in the release
 - Actual local verification results
 
 Capture its number and URL.
@@ -175,6 +193,10 @@ Immediately before merging, inspect the authoritative PR commit list with
 `gh pr view <PR> --json commits`. Require a `Signed-off-by` trailer on every PR
 commit. Stop for repair if any commit is unsigned; CI does not currently enforce
 this repository requirement.
+
+Confirm that any completed release issue/plan records are already resolved and
+archived in this PR. Do not merge with the intention of opening a separate
+archival PR afterward.
 
 Merge with `gh pr merge <PR> --merge`. Verify the PR state is `MERGED` and
 record the merge commit.
@@ -250,8 +272,13 @@ optionally verify it with `npm view genai-lite@X.Y.Z version`.
 Only publish to npm when the user separately and explicitly authorizes that
 external action and npm authentication is available.
 
+Do not edit archived release records or open another pull request merely to
+record later npm publication; report and verify that external state in the
+release handoff.
+
 ## 12. Report completion
 
 Report the version and classification, PR and release URLs, merge commit,
 annotated tag, branch cleanup, clean synchronized `main`, local and CI
-verification, and npm publication status or handoff.
+verification, npm publication status or handoff, and confirmation that release
+records were archived in the single release PR.
