@@ -1,8 +1,8 @@
 # Plan: Answer Accounting and Token Profiles
 
 Created: 2026-07-30
-Status: IN PROGRESS
-Issue: `ISSUE-answer-accounting-and-token-profiles.md`
+Status: COMPLETE — 2026-07-30 (v0.17.0)
+Issue: [`ISSUE-answer-accounting-and-token-profiles.md`](ISSUE-answer-accounting-and-token-profiles.md)
 
 ## Implementation Tracking
 
@@ -18,7 +18,7 @@ explicit Gemini exclusion-proof contingency described in Phase 3.
 - [x] Phase 5: Accept empty-string message content
 - [x] Phase 6: Add authoritative-revision preparation caching for llama.cpp
 - [x] Phase 7: Document accounting scopes and proof-versus-sizing guidance
-- [~] Phase 8: Verify, publish, and record Release A
+- [x] Phase 8: Verify, publish, and record Release A
 
 ### Release B: item 3
 
@@ -26,7 +26,7 @@ explicit Gemini exclusion-proof contingency described in Phase 3.
 - [x] Phase 10: Add exact aliases and runtime mapping provenance
 - [x] Phase 11: Preserve the certificate trust boundary
 - [x] Phase 12: Add the optional local loader and self-verifying recipes
-- [~] Phase 13: Integrate, document, verify, publish, and close
+- [x] Phase 13: Integrate, document, verify, publish, and close
 
 ## Handoff / Pickup Point
 
@@ -73,7 +73,7 @@ below):**
   combined release version.
 - [!] The earlier two-release publication sequence is superseded by the
   user-approved single-release amendment below.
-- [ ] Resolve and archive the issue and plan, then push the closure commit.
+- [x] Resolve and archive the issue and plan, then push the closure commit.
 
 **Single-release amendment (2026-07-30):**
 
@@ -85,14 +85,14 @@ historical implementation structure.
 - [x] Commit the complete release-ready implementation with DCO sign-off.
 - [x] Add and commit the separate combined-release version bump.
 - [x] Run every blocking local release gate for `v0.17.0`.
-- [~] Push, open or reuse the pull request, require green CI, and merge.
-- [~] PR `#118` is open; final-head CI and authoritative DCO verification are
-  pending.
+- [x] Push, open the pull request, require green CI, and merge.
+- [x] PR `#118` passed all checks and DCO verification and was merged as
+  `7fb96fa56dd8ce1087e88533bfa9dd36b7fcf6c5`.
 - [x] Repair the macOS cold-run network-dependent lazy-load test and the
   fresh-lockfile cache-key collision between parallel Node matrix jobs; the
   focused `LLMService` suite and full 47-suite/1,098-test run pass locally.
-- [ ] Tag the recorded merge commit and publish the GitHub release.
-- [ ] Verify the release and hand off npm publication separately.
+- [x] Tag the recorded merge commit and publish the GitHub `v0.17.0` release.
+- [x] Verify the release; npm `genai-lite@0.17.0` was published by the user.
 
 ## Summary
 
@@ -1229,8 +1229,8 @@ node -e "const lib = require('./dist'); console.log('Exports:', Object.keys(lib)
 **Closure tracking:**
 
 - [x] Issue criteria, package contents, and clean consumers are audited.
-- [!] Versioning, release commits, publication, clean-install verification,
-  final status changes, and archival await explicit release direction.
+- [x] Versioning, release commits, GitHub/npm publication, final status
+      changes, and archival are complete for v0.17.0.
 
 ## Cross-Cutting Testing Strategy
 
