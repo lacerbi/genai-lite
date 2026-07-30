@@ -634,6 +634,24 @@ a caller may abort immediately after any public event, so evidence that was
 already present in the received provider chunk must not remain behind that
 yield.
 
+Response mappers must keep answer measurement spaces separate. Put counts over
+retained pre-normalization text in `answerAccounting.rawContent` and mirror that
+record to deprecated `rawAnswerAccounting`. Put provider-native output usage in
+`answerAccounting.providerOutput` only when it is a nonnegative safe integer
+attributable to exactly one physical choice; include all required native
+reasoning components. Never copy provider output into the legacy field, derive
+it from total usage, divide an aggregate across choices, or substitute a byte
+estimate. Missing or ambiguous evidence remains absent. Use
+`createProviderOutputAccounting()` from `shared/adapters/usageUtils.ts` in
+built-in adapters so zero, component, and cardinality rules stay aligned.
+
+Local adapters may optionally expose `getPreparationSnapshot()` and
+`isPreparationSnapshotCacheable()`. Cacheability is useful only when the host
+also supplies an authoritative endpoint revision and explicitly enables
+`cachePreparationStateByEndpointRevision`; prompt counting and dispatch
+revalidation must remain live. The cacheability predicate receives the exact
+selected model and must reject snapshots captured for any other model.
+
 ## Adding New Image Providers
 
 For entirely new image generation providers:

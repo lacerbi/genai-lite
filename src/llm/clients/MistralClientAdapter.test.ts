@@ -550,6 +550,12 @@ describe('MistralClientAdapter', () => {
         expect(complete.response.id).toBe('mistral-stream');
         expect(complete.response.choices[0].message.content).toBe('Hello Mistral');
         expect(complete.response.choices[0].finish_reason).toBe('stop');
+        expect(
+          complete.response.choices[0].answerAccounting?.providerOutput
+        ).toMatchObject({
+          tokens: 3,
+          reasoning: "unknown",
+        });
         expect(complete.response.usage?.total_tokens).toBe(5);
       }
     });

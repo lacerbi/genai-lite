@@ -3,6 +3,7 @@
 
 import { GoogleGenAI } from "@google/genai";
 import type {
+  LLMAnswerAccounting,
   LLMResponse,
   LLMFailureResponse,
   GeminiSafetySetting,
@@ -19,6 +20,7 @@ import type {
 import { ADAPTER_ERROR_CODES } from "./types";
 import { getCommonMappedErrorDetails } from "../../shared/adapters/errorUtils";
 import {
+  createProviderOutputAccounting,
   mergeUsageRecords,
   normalizeTermination,
   normalizeUsage,
@@ -67,6 +69,30 @@ interface GeminiPreparedProviderRequest {
 
 const GEMINI_ADAPTER_REVISION = "gemini-adapter-v1";
 const GEMINI_REQUEST_SHAPE_REVISION = "gemini-generate-content-v1";
+const GEMINI_THINKING_BUDGET_ZERO_MODELS = new Set([
+  "gemini-2.5-flash",
+  "gemini-2.5-flash-lite",
+]);
+const GEMINI_NO_NATIVE_THINKING_MODELS = new Set([
+  "gemma-3-27b-it",
+  "gemma-4-26b-a4b-it",
+  "gemma-4-31b-it",
+]);
+
+function supportsGeminiThinkingBudgetZero(modelId: string): boolean {
+  return GEMINI_THINKING_BUDGET_ZERO_MODELS.has(modelId);
+}
+
+function isGeminiThinkingExcluded(
+  modelId: string,
+  semanticParams: any
+): boolean {
+  return (
+    GEMINI_NO_NATIVE_THINKING_MODELS.has(modelId) ||
+    (supportsGeminiThinkingBudgetZero(modelId) &&
+      semanticParams?.config?.thinkingConfig?.thinkingBudget === 0)
+  );
+}
 
 interface GeminiStreamAccumulator {
   responseId: string;
@@ -75,8 +101,28 @@ interface GeminiStreamAccumulator {
   contentParts: string[];
   thoughtParts: string[];
   rawParts: Record<string, unknown>[];
+  candidateIndexes: Set<number>;
+  maxCandidateCount: number;
+  candidateCardinalityAmbiguous: boolean;
+  hasGeneratedOutput: boolean;
   finishReason: string | null;
   usageMetadata?: any;
+}
+
+function hasGeminiGeneratedPart(part: unknown): boolean {
+  if (!part || typeof part !== "object") {
+    return false;
+  }
+  const candidate = part as Record<string, unknown>;
+  if (typeof candidate.text === "string") {
+    return candidate.text.length > 0;
+  }
+  return Object.entries(candidate).some(
+    ([key, value]) =>
+      key !== "thought" &&
+      value !== undefined &&
+      value !== null
+  );
 }
 
 function getGeminiRawPartType(part: Record<string, unknown>): string {
@@ -187,7 +233,11 @@ export class GeminiClientAdapter implements ILLMClientAdapter {
       );
       const genAI = new GoogleGenAI({ apiKey });
       const result = await genAI.models.generateContent(params);
-      return this.createSuccessResponse(result, request);
+      return this.createSuccessResponse(
+        result,
+        request,
+        providerRequest.params
+      );
     } catch (error) {
       this.logger.error("Gemini prepared API error:", error);
       return this.createErrorResponse(
@@ -256,7 +306,7 @@ export class GeminiClientAdapter implements ILLMClientAdapter {
       this.logger.info(`Gemini API call successful, processing response`);
 
       // Convert to standardized response format
-      return this.createSuccessResponse(result, request);
+      return this.createSuccessResponse(result, request, prepared.params);
     } catch (error) {
       this.logger.error("Gemini API error:", error);
       return this.createErrorResponse(
@@ -292,6 +342,10 @@ export class GeminiClientAdapter implements ILLMClientAdapter {
       contentParts: [],
       thoughtParts: [],
       rawParts: [],
+      candidateIndexes: new Set<number>(),
+      maxCandidateCount: 0,
+      candidateCardinalityAmbiguous: false,
+      hasGeneratedOutput: false,
       finishReason: null,
     };
     let transportState: GeminiTransportState | undefined;
@@ -316,7 +370,8 @@ export class GeminiClientAdapter implements ILLMClientAdapter {
         const chunkEvents = this.processGeminiStreamChunk(
           accumulator,
           chunk,
-          request
+          request,
+          semanticParams
         );
 
         for (const event of chunkEvents) {
@@ -345,7 +400,8 @@ export class GeminiClientAdapter implements ILLMClientAdapter {
 
       const response = this.createSuccessResponse(
         this.createSyntheticGeminiResponse(accumulator),
-        request
+        request,
+        semanticParams
       );
       yield { type: "complete", response };
     } catch (error) {
@@ -359,7 +415,8 @@ export class GeminiClientAdapter implements ILLMClientAdapter {
       if (sawChunk || accumulator.contentParts.length > 0 || accumulator.thoughtParts.length > 0) {
         const partial = this.createSuccessResponse(
           this.createSyntheticGeminiResponse(accumulator),
-          request
+          request,
+          semanticParams
         );
         errorResponse.partialResponse = {
           id: partial.id,
@@ -520,7 +577,22 @@ export class GeminiClientAdapter implements ILLMClientAdapter {
     chunk: any
   ): void {
     accumulator.model = chunk.modelUsed || accumulator.model;
-    const candidate = chunk.candidates?.[0];
+    const candidates = Array.isArray(chunk.candidates)
+      ? chunk.candidates
+      : [];
+    accumulator.maxCandidateCount = Math.max(
+      accumulator.maxCandidateCount,
+      candidates.length
+    );
+    if (candidates.length > 1) {
+      accumulator.candidateCardinalityAmbiguous = true;
+    }
+    for (const [position, candidate] of candidates.entries()) {
+      accumulator.candidateIndexes.add(
+        Number.isInteger(candidate?.index) ? candidate.index : position
+      );
+    }
+    const candidate = candidates[0];
     accumulator.finishReason = candidate?.finishReason ?? accumulator.finishReason;
     if (chunk.usageMetadata) {
       accumulator.usageMetadata = mergeUsageRecords(
@@ -533,7 +605,8 @@ export class GeminiClientAdapter implements ILLMClientAdapter {
   private processGeminiStreamChunk(
     accumulator: GeminiStreamAccumulator,
     chunk: any,
-    request: InternalLLMChatRequest
+    request: InternalLLMChatRequest,
+    semanticParams: any
   ): AdapterLLMStreamEvent[] {
     const events: AdapterLLMStreamEvent[] = [];
     const candidate = chunk.candidates?.[0];
@@ -556,6 +629,9 @@ export class GeminiClientAdapter implements ILLMClientAdapter {
     }
 
     for (const part of parts) {
+      if (hasGeminiGeneratedPart(part)) {
+        accumulator.hasGeneratedOutput = true;
+      }
       const rawPart = toPreparedRequestValue(part);
       if (
         rawPart &&
@@ -613,14 +689,34 @@ export class GeminiClientAdapter implements ILLMClientAdapter {
         completion: ["candidatesTokenCount"],
         total: ["totalTokenCount"],
       });
-      if (normalized.usage) {
+      const providerOutput =
+        this.createGeminiProviderOutputAccounting(
+          accumulator.usageMetadata,
+          accumulator.candidateCardinalityAmbiguous
+            ? Math.max(2, accumulator.maxCandidateCount)
+            : accumulator.candidateIndexes.size,
+          accumulator.hasGeneratedOutput,
+          request.modelId,
+          semanticParams
+        );
+      if (normalized.usage || providerOutput) {
         events.push({
           type: "adapter_evidence",
           observedEvidence: {
-            usage: normalized.usage,
-            usageEvidence: normalized.usageEvidence,
+            ...(normalized.usage && { usage: normalized.usage }),
+            ...(normalized.usageEvidence && {
+              usageEvidence: normalized.usageEvidence,
+            }),
+            ...(providerOutput && {
+              choice: {
+                index: 0,
+                answerAccounting: { providerOutput },
+              },
+            }),
           },
         });
+      }
+      if (normalized.usage) {
         events.push({
           type: "usage",
           usage: normalized.usage,
@@ -634,22 +730,79 @@ export class GeminiClientAdapter implements ILLMClientAdapter {
     return events;
   }
 
+  private createGeminiProviderOutputAccounting(
+    usageMetadata: Record<string, unknown> | undefined,
+    candidateCount: number,
+    hasGeneratedOutput: boolean,
+    modelId: string,
+    semanticParams: any
+  ): LLMAnswerAccounting | undefined {
+    const thinkingExcluded = isGeminiThinkingExcluded(
+      modelId,
+      semanticParams
+    );
+    const reportedThoughts = usageMetadata?.thoughtsTokenCount;
+    const positiveThoughtsReported =
+      typeof reportedThoughts === "number" &&
+      Number.isFinite(reportedThoughts) &&
+      reportedThoughts > 0;
+    if (thinkingExcluded && positiveThoughtsReported) {
+      this.logger.warn(
+        "Gemini reported thought tokens despite verified thinking-exclusion " +
+          "evidence; provider-output accounting includes the reported thoughts."
+      );
+    }
+
+    return usageMetadata?.candidatesTokenCount !== undefined &&
+      usageMetadata?.thoughtsTokenCount !== undefined
+      ? createProviderOutputAccounting({
+          source: usageMetadata,
+          componentFields: [
+            "candidatesTokenCount",
+            "thoughtsTokenCount",
+          ],
+          choiceCount: candidateCount,
+          hasGeneratedOutput,
+          reasoning:
+            thinkingExcluded && !positiveThoughtsReported
+              ? "excluded"
+              : "included_native",
+        })
+      : thinkingExcluded && !positiveThoughtsReported
+        ? createProviderOutputAccounting({
+            source: usageMetadata,
+            directFields: ["candidatesTokenCount"],
+            choiceCount: candidateCount,
+            hasGeneratedOutput,
+            reasoning: "excluded",
+          })
+        : undefined;
+  }
+
   private createSyntheticGeminiResponse(
     accumulator: GeminiStreamAccumulator
   ): any {
     const parts = accumulator.rawParts;
+    const candidateCount = accumulator.candidateCardinalityAmbiguous
+      ? Math.max(2, accumulator.maxCandidateCount)
+      : accumulator.candidateIndexes.size;
+    const candidates = Array.from(
+      { length: candidateCount },
+      (_, index) => ({
+        index,
+        finishReason: accumulator.finishReason,
+        content: {
+          role: "model",
+          parts: index === 0 ? parts : [],
+        },
+      })
+    );
 
     return {
       responseId: accumulator.responseId,
       created: accumulator.created,
       modelUsed: accumulator.model,
-      candidates: [{
-        finishReason: accumulator.finishReason,
-        content: {
-          role: "model",
-          parts,
-        },
-      }],
+      candidates,
       usageMetadata: accumulator.usageMetadata,
     };
   }
@@ -744,13 +897,20 @@ export class GeminiClientAdapter implements ILLMClientAdapter {
         }),
     };
 
-    // Handle reasoning/thinking configuration
-    if (request.settings.reasoning && !request.settings.reasoning.exclude) {
+    // Handle reasoning/thinking configuration. A zero budget is exclusion
+    // proof only for exact models whose current wire contract supports it.
+    if (request.settings.reasoning) {
       const reasoning = request.settings.reasoning;
       let thinkingBudget: number | undefined;
 
-      // Convert reasoning settings to Gemini's thinkingConfig
-      if (reasoning.maxTokens !== undefined) {
+      if (
+        reasoning.enabled === false &&
+        supportsGeminiThinkingBudgetZero(request.modelId)
+      ) {
+        thinkingBudget = 0;
+      } else if (reasoning.enabled === false) {
+        thinkingBudget = undefined;
+      } else if (reasoning.maxTokens !== undefined) {
         thinkingBudget = reasoning.maxTokens;
       } else if (reasoning.effort) {
         // Convert effort levels to token budgets
@@ -769,15 +929,16 @@ export class GeminiClientAdapter implements ILLMClientAdapter {
             thinkingBudget = Math.floor(maxBudget * 0.2);
             break;
         }
-      } else if (reasoning.enabled !== false) {
+      } else {
         // Use model default or dynamic budget (-1)
         thinkingBudget = -1; // Let model decide
       }
 
       if (thinkingBudget !== undefined) {
         generationConfig.thinkingConfig = {
-          thinkingBudget: thinkingBudget,
-          includeThoughts: true  // Request thought summaries in response
+          thinkingBudget,
+          includeThoughts:
+            thinkingBudget !== 0 && reasoning.exclude !== true,
         };
       }
     }
@@ -818,7 +979,8 @@ export class GeminiClientAdapter implements ILLMClientAdapter {
    */
   private createSuccessResponse(
     response: any,
-    request: InternalLLMChatRequest
+    request: InternalLLMChatRequest,
+    semanticParams?: any
   ): LLMResponse {
     // Extract content from the response object
     const candidate = response.candidates?.[0];
@@ -877,6 +1039,28 @@ export class GeminiClientAdapter implements ILLMClientAdapter {
     // Include reasoning if available and not excluded
     if (reasoning && request.settings.reasoning && !request.settings.reasoning.exclude) {
       choice.reasoning = reasoning;
+    }
+
+    const usageMetadata =
+      response.usageMetadata as Record<string, unknown> | undefined;
+    const candidateCount = Array.isArray(response.candidates)
+      ? response.candidates.length
+      : 0;
+    const hasGeneratedOutput =
+      content.length > 0 ||
+      Boolean(reasoning) ||
+      (candidate?.content?.parts ?? []).some(
+        (part: unknown) => hasGeminiGeneratedPart(part)
+      );
+    const providerOutput = this.createGeminiProviderOutputAccounting(
+      usageMetadata,
+      candidateCount,
+      hasGeneratedOutput,
+      request.modelId,
+      semanticParams
+    );
+    if (providerOutput) {
+      choice.answerAccounting = { providerOutput };
     }
 
     const normalizedUsage = normalizeUsage(response.usageMetadata, {

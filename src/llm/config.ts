@@ -1148,7 +1148,7 @@ export const SUPPORTED_MODELS: ModelInfo[] = [
     reasoning: {
       supported: true,
       enabledByDefault: true,
-      canDisable: true,
+      canDisable: false,
       minBudget: 1024,
       maxBudget: 24576,
       defaultBudget: -1,

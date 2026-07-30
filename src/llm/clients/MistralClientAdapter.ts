@@ -15,6 +15,7 @@ import type {
 import { ADAPTER_ERROR_CODES } from "./types";
 import { getCommonMappedErrorDetails } from "../../shared/adapters/errorUtils";
 import {
+  createProviderOutputAccounting,
   normalizeTermination,
   normalizeUsage,
 } from "../../shared/adapters/usageUtils";
@@ -47,8 +48,44 @@ const MISTRAL_REQUEST_SHAPE_REVISION = "mistral-chat-v1";
 interface MistralStreamChoiceState {
   content: string;
   reasoning: string;
+  hasGeneratedOutput: boolean;
   finishReason: string | null;
   rawContentParts: unknown[];
+}
+
+function hasMistralGeneratedContent(content: unknown): boolean {
+  if (typeof content === "string") {
+    return content.length > 0;
+  }
+  if (!Array.isArray(content)) {
+    return false;
+  }
+  return content.some((part: any) => {
+    if (typeof part === "string") {
+      return part.length > 0;
+    }
+    if (!part || typeof part !== "object") {
+      return false;
+    }
+    if (typeof part.text === "string" && part.text.length > 0) {
+      return true;
+    }
+    if (
+      Array.isArray(part.thinking) &&
+      part.thinking.some(
+        (item: any) =>
+          typeof item?.text === "string" && item.text.length > 0
+      )
+    ) {
+      return true;
+    }
+    return Object.entries(part).some(
+      ([key, value]) =>
+        !["type", "text", "thinking"].includes(key) &&
+        value !== undefined &&
+        value !== null
+    );
+  });
 }
 
 /**
@@ -255,6 +292,7 @@ export class MistralClientAdapter implements ILLMClientAdapter {
     let responseModel = request.modelId;
     let created = Math.floor(Date.now() / 1000);
     let usage: any | undefined;
+    let choiceCardinalityAmbiguous = false;
 
     try {
       const mistral = this.createClient(apiKey);
@@ -296,7 +334,16 @@ export class MistralClientAdapter implements ILLMClientAdapter {
           }
         }
 
-        for (const choice of chunk?.choices || []) {
+        const chunkChoices = chunk?.choices || [];
+        if (
+          chunkChoices.length > 1 &&
+          chunkChoices.some(
+            (choice: any) => !Number.isInteger(choice.index)
+          )
+        ) {
+          choiceCardinalityAmbiguous = true;
+        }
+        for (const choice of chunkChoices) {
           const index = choice.index ?? 0;
           const state = this.getStreamChoiceState(choiceStates, index);
           const rawFinishReason =
@@ -360,6 +407,9 @@ export class MistralClientAdapter implements ILLMClientAdapter {
             );
           }
           const deltas = this.extractMistralContentDeltas(rawDelta);
+          if (hasMistralGeneratedContent(rawDelta)) {
+            state.hasGeneratedOutput = true;
+          }
           if (rawContentParts.length > 0) {
             evidenceEvents.push({
               type: "adapter_evidence",
@@ -391,6 +441,35 @@ export class MistralClientAdapter implements ILLMClientAdapter {
               type: "content_delta",
               delta: contentDelta,
               index,
+            });
+          }
+        }
+
+        if (
+          chunk?.usage &&
+          !choiceCardinalityAmbiguous &&
+          choiceStates.size === 1
+        ) {
+          const [index, state] = choiceStates.entries().next().value as [
+            number,
+            MistralStreamChoiceState,
+          ];
+          const providerOutput = createProviderOutputAccounting({
+            source: chunk.usage,
+            directFields: ["completionTokens", "completion_tokens"],
+            choiceCount: 1,
+            hasGeneratedOutput: state.hasGeneratedOutput,
+            reasoning: "unknown",
+          });
+          if (providerOutput) {
+            evidenceEvents.push({
+              type: "adapter_evidence",
+              observedEvidence: {
+                choice: {
+                  index,
+                  answerAccounting: { providerOutput },
+                },
+              },
             });
           }
         }
@@ -562,6 +641,7 @@ export class MistralClientAdapter implements ILLMClientAdapter {
       state = {
         content: "",
         reasoning: "",
+        hasGeneratedOutput: false,
         finishReason: null,
         rawContentParts: [],
       };
@@ -786,6 +866,20 @@ export class MistralClientAdapter implements ILLMClientAdapter {
           extractedContent.reasoning.join("");
         if (reasoning && request.settings.reasoning && !request.settings.reasoning.exclude) {
           responseChoice.reasoning = reasoning;
+        }
+
+        const providerOutput = createProviderOutputAccounting({
+          source: completion.usage,
+          directFields: ["completionTokens", "completion_tokens"],
+          choiceCount: completion.choices.length,
+          hasGeneratedOutput:
+            rawContent.length > 0 ||
+            Boolean(reasoning) ||
+            hasMistralGeneratedContent(providerContent),
+          reasoning: "unknown",
+        });
+        if (providerOutput) {
+          responseChoice.answerAccounting = { providerOutput };
         }
 
         return responseChoice;

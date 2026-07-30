@@ -54,7 +54,7 @@ describe("LlamaCppClientAdapter prepared state", () => {
   }
 
   it("counts the exact final mode-bound body including template kwargs", async () => {
-    const { adapter } = adapterWithServer();
+    const { adapter, server } = adapterWithServer();
     const plain = await adapter.prepareRequest(request(false), {
       mode: "complete",
       modelInfo: {} as any,
@@ -80,6 +80,79 @@ describe("LlamaCppClientAdapter prepared state", () => {
         thinking.prepared.requestView.extensions?.chat_template_kwargs
       ).toEqual({ enable_thinking: true });
     }
+    expect(server.getProps).toHaveBeenCalledTimes(4);
+    expect(server.getModels).toHaveBeenCalledTimes(4);
+  });
+
+  it("uses endpoint-revision authority instead of a post-count state reread", async () => {
+    const { adapter, server } = adapterWithServer();
+    const snapshot = await adapter.getPreparationSnapshot("llamacpp");
+    server.getProps.mockClear();
+    server.getModels.mockClear();
+    server.countChatCompletionInputTokens.mockClear();
+
+    const result = await adapter.prepareRequest(request(false), {
+      mode: "complete",
+      modelInfo: {} as any,
+      providerState: snapshot,
+      providerEndpointRevision: "generation-a",
+      cachePreparationStateByEndpointRevision: true,
+    });
+
+    expect(
+      "prepared" in result && result.prepared.promptAccounting
+    ).toMatchObject({
+      status: "available",
+      count: { tokens: 21, method: "exact" },
+    });
+    expect(server.countChatCompletionInputTokens).toHaveBeenCalledTimes(1);
+    expect(server.getProps).not.toHaveBeenCalled();
+    expect(server.getModels).not.toHaveBeenCalled();
+  });
+
+  it("binds cacheable snapshots to the exact selected model", async () => {
+    const { adapter } = adapterWithServer();
+    const snapshot = await adapter.getPreparationSnapshot("llamacpp");
+
+    expect(
+      adapter.isPreparationSnapshotCacheable(snapshot, "llamacpp")
+    ).toBe(true);
+    expect(
+      adapter.isPreparationSnapshotCacheable(snapshot, "other-model")
+    ).toBe(false);
+  });
+
+  it("prepares and exactly counts empty system/user messages", async () => {
+    const { adapter, server } = adapterWithServer();
+    const empty = request(false);
+    empty.messages = [
+      { role: "system", content: "" },
+      { role: "user", content: "" },
+    ];
+
+    const result = await adapter.prepareRequest(empty, {
+      mode: "complete",
+      modelInfo: {} as any,
+    });
+
+    expect(
+      "prepared" in result && result.prepared.promptAccounting
+    ).toMatchObject({
+      status: "available",
+      count: { tokens: 21, method: "exact" },
+    });
+    if ("prepared" in result) {
+      expect(result.prepared.requestView.messages).toEqual([
+        { role: "user", content: "" },
+      ]);
+    }
+    expect(
+      server.countChatCompletionInputTokens.mock.calls[0][0].messages
+    ).toEqual([{ role: "user", content: "" }]);
+    expect(empty.messages).toEqual([
+      { role: "system", content: "" },
+      { role: "user", content: "" },
+    ]);
   });
 
   it("derives capability transformations from the same selected-model snapshot", async () => {

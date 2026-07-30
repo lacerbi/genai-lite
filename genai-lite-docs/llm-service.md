@@ -85,6 +85,10 @@ if (response.object === 'chat.completion') {
 }
 ```
 
+Message `content` must be a string, but an empty string is valid for `system`,
+`user`, and `assistant` messages. Missing, `null`, and non-string content still
+fail structural validation.
+
 ### Provider and Model Discovery
 
 ```typescript

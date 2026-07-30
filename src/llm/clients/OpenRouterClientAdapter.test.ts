@@ -617,6 +617,12 @@ describe('OpenRouterClientAdapter', () => {
       const complete = events[events.length - 1] as any;
       expect(complete.type).toBe('complete');
       expect(complete.response.choices[0].message.content).toBe('Hi there');
+      expect(
+        complete.response.choices[0].answerAccounting?.providerOutput
+      ).toMatchObject({
+        tokens: 2,
+        reasoning: "included_native",
+      });
       expect(complete.response.usage).toEqual({
         prompt_tokens: 1,
         completion_tokens: 2,

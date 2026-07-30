@@ -45,6 +45,25 @@ This is intentionally conservative. Do not replace it with a same-profile
 invalid bytes, terminal flush, cross-token composition, and special-token
 exclusions.
 
+## Proof bounds versus capacity sizing
+
+`retokenizationUpperBound()` certifies a worst case; it is not a realistic
+capacity estimator. The production derivation for 1,000 `o200k_base` source
+tokens retokenized to `cl100k_base` is **384,000 target tokens**:
+
+```text
+1000 source tokens * 128 maximum decoded bytes/token * 3 replacement expansion
+```
+
+Keep that bound for enforcement-style proofs over the function's declared
+source-token domain. For application sizing, treat shared profile identity and
+empirical cross-route ratios as advisory estimates rather than certificates.
+Do not feed a generation budget into a same-profile identity shortcut.
+
+When the source contract is a Unicode code-point bound, use
+`codePointBoundToTokenUpperBound()` instead. Its `codePoints * 4` derivation is
+the appropriate certified conversion for code-point-bounded text.
+
 ## Verification
 
 Tests must cover:

@@ -61,6 +61,8 @@ import {
   type AdapterLLMStreamEvent,
   type ILLMClientAdapter,
   type InternalLLMChatRequest,
+  type LLMAnswerAccountingByScope,
+  type LLMChoice,
   type LLMFailureResponse,
   type LLMResponse,
   type LLMServiceStreamEvent,
@@ -94,7 +96,22 @@ const providerEndpointRevisionProvider: ProviderEndpointRevisionProvider =
   async () => 7;
 const service = new LLMService(async () => "not-needed", {
   providerEndpointRevisionProvider,
+  cachePreparationStateByEndpointRevision: true,
 });
+const answerAccounting: LLMAnswerAccountingByScope = {
+  providerOutput: {
+    tokens: 3,
+    method: "exact",
+    source: "provider",
+    reasoning: "included_native",
+  },
+};
+const choice: LLMChoice = {
+  message: { role: "assistant", content: "ok" },
+  finish_reason: "stop",
+  answerAccounting,
+};
+void choice;
 async function verify(): Promise<void> {
   const complete = await service.prepareMessage({
     providerId: "mock",

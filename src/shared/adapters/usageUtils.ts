@@ -1,4 +1,5 @@
 import type {
+  LLMAnswerAccounting,
   LLMTermination,
   LLMUsage,
   LLMUsageEvidence,
@@ -16,6 +17,21 @@ export interface NormalizedUsage {
   usageEvidence?: LLMUsageEvidence;
 }
 
+export interface ProviderOutputAccountingOptions {
+  /** Provider-owned usage object for one physical response envelope. */
+  source: Record<string, unknown> | null | undefined;
+  /** Exact aliases for one direct provider-output count. */
+  directFields?: readonly string[];
+  /** Components that must all be present and are summed in provider space. */
+  componentFields?: readonly string[];
+  /** Number of physical choices represented by the usage object. */
+  choiceCount: number;
+  /** Whether content or reasoning is known to have been generated. */
+  hasGeneratedOutput: boolean;
+  /** Provider-output reasoning scope. */
+  reasoning: LLMAnswerAccounting["reasoning"];
+}
+
 function readFiniteNumber(
   source: Record<string, unknown>,
   aliases: readonly string[]
@@ -27,6 +43,74 @@ function readFiniteNumber(
     }
   }
   return undefined;
+}
+
+function readNonnegativeSafeInteger(
+  source: Record<string, unknown>,
+  fields: readonly string[]
+): number | undefined {
+  for (const field of fields) {
+    const value = source[field];
+    if (value === undefined) {
+      continue;
+    }
+    return typeof value === "number" &&
+      Number.isSafeInteger(value) &&
+      value >= 0
+      ? value
+      : undefined;
+  }
+  return undefined;
+}
+
+/**
+ * Creates exact provider-output accounting only when attribution is sound.
+ *
+ * This intentionally rejects aggregate/multi-choice usage, incomplete
+ * component sums, invalid token values, and impossible zero counts for known
+ * generated output. Missing or ambiguous evidence remains absent.
+ */
+export function createProviderOutputAccounting(
+  options: ProviderOutputAccountingOptions
+): LLMAnswerAccounting | undefined {
+  const {
+    source,
+    directFields,
+    componentFields,
+    choiceCount,
+    hasGeneratedOutput,
+    reasoning,
+  } = options;
+
+  if (!source || choiceCount !== 1) {
+    return undefined;
+  }
+
+  let tokens: number | undefined;
+  if (componentFields && componentFields.length > 0) {
+    let sum = 0;
+    for (const field of componentFields) {
+      const component = readNonnegativeSafeInteger(source, [field]);
+      if (component === undefined || !Number.isSafeInteger(sum + component)) {
+        return undefined;
+      }
+      sum += component;
+    }
+    tokens = sum;
+  } else if (directFields && directFields.length > 0) {
+    tokens = readNonnegativeSafeInteger(source, directFields);
+  }
+
+  if (tokens === undefined || (tokens === 0 && hasGeneratedOutput)) {
+    return undefined;
+  }
+
+  return {
+    tokens,
+    method: "exact",
+    source: "provider",
+    reasoning,
+  };
 }
 
 /**

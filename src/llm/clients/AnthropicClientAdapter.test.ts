@@ -455,6 +455,12 @@ describe('AnthropicClientAdapter', () => {
         expect(complete.response.id).toBe('msg_stream');
         expect(complete.response.choices[0].message.content).toBe('Hello Claude');
         expect(complete.response.choices[0].finish_reason).toBe('stop');
+        expect(
+          complete.response.choices[0].answerAccounting?.providerOutput
+        ).toMatchObject({
+          tokens: 2,
+          reasoning: "included_native",
+        });
         expect(complete.response.usage?.total_tokens).toBe(7);
       }
     });

@@ -42,10 +42,14 @@ function success(
 
 class PreparedFakeAdapter implements ILLMClientAdapter {
   preparedRequests: AdapterPreparedRequest[] = [];
+  preparationContexts: AdapterPreparationContext[] = [];
   dispatchRequests: AdapterPreparedRequest[] = [];
   revalidations = 0;
   sendResults: Array<LLMResponse | LLMFailureResponse> = [];
   bindingOverrides: Partial<PreparedRequestBindings> = {};
+  promptAccounting: AdapterPreparedRequest["promptAccounting"] = {
+    status: "unavailable",
+  };
   onPrepare?: () => void;
   streamFactory?: (
     request: InternalLLMChatRequest
@@ -56,6 +60,7 @@ class PreparedFakeAdapter implements ILLMClientAdapter {
     context: AdapterPreparationContext
   ): Promise<AdapterPreparationResult> {
     this.onPrepare?.();
+    this.preparationContexts.push(context);
     const providerRequest = freezeProviderRequest({ request });
     const prepared: AdapterPreparedRequest = {
       mode: context.mode,
@@ -73,7 +78,7 @@ class PreparedFakeAdapter implements ILLMClientAdapter {
           ...(context.mode === "stream" && { stream: true }),
         },
       }),
-      promptAccounting: { status: "unavailable" },
+      promptAccounting: this.promptAccounting,
       outputTokenLimit: context.outputTokenLimit,
       bindings: {
         adapterRevision: "fake-adapter-v1",
@@ -134,6 +139,34 @@ class PreparedFakeAdapter implements ILLMClientAdapter {
   }
 }
 
+class CachePreparedFakeAdapter extends PreparedFakeAdapter {
+  snapshotCalls = 0;
+  snapshotFactory: (modelId: string) => Promise<unknown> = async (
+    modelId
+  ) => ({
+    kind: "llamacpp-preparation-v1",
+    selectedModel: modelId,
+    detectedCaps: null,
+    stateBinding: {
+      serverStateFingerprint: `state:${modelId}`,
+      chatTemplateFingerprint: `template:${modelId}`,
+      metadata: {
+        model: `${modelId}.gguf`,
+        buildInfo: "{}",
+      },
+    },
+  });
+
+  async getPreparationSnapshot(modelId: string): Promise<unknown> {
+    this.snapshotCalls += 1;
+    return this.snapshotFactory(modelId);
+  }
+
+  isPreparationSnapshotCacheable(snapshot: unknown): boolean {
+    return Boolean((snapshot as any)?.stateBinding);
+  }
+}
+
 function registerFake(
   service: LLMService,
   fake: PreparedFakeAdapter,
@@ -149,6 +182,14 @@ const request = {
   settings: { maxTokens: 123 },
 };
 
+function llamaRequest(modelId = "llamacpp") {
+  return {
+    ...request,
+    providerId: "llamacpp" as const,
+    modelId,
+  };
+}
+
 async function collect(
   events: AsyncIterable<unknown>
 ): Promise<any[]> {
@@ -160,6 +201,63 @@ async function collect(
 }
 
 describe("LLMService prepared calls", () => {
+  it("rejects revision caching without an authoritative revision provider", () => {
+    expect(
+      () =>
+        new LLMService(async () => "not-needed", {
+          logLevel: "silent",
+          cachePreparationStateByEndpointRevision: true,
+        })
+    ).toThrow(
+      "cachePreparationStateByEndpointRevision requires " +
+        "providerEndpointRevisionProvider"
+    );
+  });
+
+  it("prepares and inspects exact accounting for empty system/user content", async () => {
+    const service = new LLMService(async () => "not-needed", {
+      logLevel: "silent",
+    });
+    const fake = new PreparedFakeAdapter();
+    fake.promptAccounting = {
+      status: "available",
+      count: {
+        tokens: 7,
+        method: "exact",
+        tokenizerId: "fixture-tokenizer",
+        tokenProfileRevision: "fixture-v1",
+      },
+    };
+    registerFake(service, fake, "llamacpp");
+
+    const handle = await service.prepareMessage(
+      {
+        ...llamaRequest(),
+        messages: [
+          { role: "system", content: "" },
+          { role: "user", content: "" },
+        ],
+      },
+      { mode: "complete" }
+    );
+    expect((handle as LLMFailureResponse).object).not.toBe("error");
+    const inspection = await service.inspectPrepared(
+      handle as PreparedCompleteCall
+    );
+
+    expect(inspection).toMatchObject({
+      promptAccounting: {
+        status: "available",
+        count: {
+          tokens: 7,
+          method: "exact",
+          tokenizerId: "fixture-tokenizer",
+          tokenProfileRevision: "fixture-v1",
+        },
+      },
+    });
+  });
+
   it("is credential-free, opaque, immutable, nonserializable, and dispatchable", async () => {
     const keys = jest.fn(async () => "not-needed");
     const service = new LLMService(keys, { logLevel: "silent" });
@@ -651,6 +749,14 @@ describe("LLMService prepared calls", () => {
                   observedEvidence: {
                     choice: {
                       index: 0,
+                      answerAccounting: {
+                        providerOutput: {
+                          tokens: 11,
+                          method: "exact" as const,
+                          source: "provider" as const,
+                          reasoning: "included_native" as const,
+                        },
+                      },
                       finishReason: "length",
                       termination: {
                         rawReason: "length",
@@ -707,6 +813,17 @@ describe("LLMService prepared calls", () => {
             rawAnswerAccounting: {
               tokens: 6,
               method: "heuristic",
+            },
+            answerAccounting: {
+              rawContent: {
+                tokens: 6,
+                method: "heuristic",
+              },
+              providerOutput: {
+                tokens: 11,
+                method: "exact",
+                source: "provider",
+              },
             },
             finish_reason: "length",
             termination: {
@@ -1188,9 +1305,362 @@ describe("LLMService prepared calls", () => {
         message: { content: "answer" },
         rawContent: "<thinking>why</thinking>answer",
         reasoning: "why",
+        answerAccounting: {
+          rawContent: {
+            reasoning: "included_extracted",
+          },
+        },
         rawAnswerAccounting: {
           reasoning: "included_extracted",
         },
+      });
+    }
+  });
+
+  it("reuses one authoritative snapshot while keeping ending and dispatch reads live", async () => {
+    const providerEndpointRevisionProvider = jest.fn(
+      async () => "generation-a"
+    );
+    const service = new LLMService(async () => "not-needed", {
+      logLevel: "silent",
+      providerEndpointRevisionProvider,
+      cachePreparationStateByEndpointRevision: true,
+    });
+    const fake = new CachePreparedFakeAdapter();
+    registerFake(service, fake, "llamacpp");
+
+    const first = await service.prepareMessage(llamaRequest(), {
+      mode: "complete",
+    });
+    const second = await service.prepareMessage(llamaRequest(), {
+      mode: "complete",
+    });
+    expect((first as LLMFailureResponse).object).not.toBe("error");
+    expect((second as LLMFailureResponse).object).not.toBe("error");
+    expect(fake.snapshotCalls).toBe(1);
+    expect(fake.preparationContexts).toHaveLength(2);
+    expect(fake.preparationContexts[0].providerState).toBe(
+      fake.preparationContexts[1].providerState
+    );
+    expect(fake.preparationContexts[0]).toMatchObject({
+      providerEndpointRevision: "generation-a",
+      cachePreparationStateByEndpointRevision: true,
+    });
+    expect(providerEndpointRevisionProvider).toHaveBeenCalledTimes(4);
+
+    await service.sendPrepared(first as PreparedCompleteCall);
+    await service.sendPrepared(second as PreparedCompleteCall);
+    expect(fake.revalidations).toBe(2);
+    expect(providerEndpointRevisionProvider).toHaveBeenCalledTimes(6);
+  });
+
+  it("rejects a mid-prepare revision change and refetches under the new revision", async () => {
+    let generation = 1;
+    const providerEndpointRevisionProvider = jest.fn(
+      async () => generation
+    );
+    const service = new LLMService(async () => "not-needed", {
+      logLevel: "silent",
+      providerEndpointRevisionProvider,
+      cachePreparationStateByEndpointRevision: true,
+    });
+    const fake = new CachePreparedFakeAdapter();
+    fake.onPrepare = () => {
+      generation = 2;
+    };
+    registerFake(service, fake, "llamacpp");
+
+    const stale = await service.prepareMessage(llamaRequest(), {
+      mode: "complete",
+    });
+    expect(stale).toMatchObject({
+      object: "error",
+      error: { code: "PREPARED_CALL_STALE" },
+    });
+    fake.onPrepare = undefined;
+    const stable = await service.prepareMessage(llamaRequest(), {
+      mode: "complete",
+    });
+    expect((stable as LLMFailureResponse).object).not.toBe("error");
+    expect(fake.snapshotCalls).toBe(2);
+  });
+
+  it("preserves Object.is revision semantics and rejects negative-zero to zero", async () => {
+    let generation = -0;
+    const providerEndpointRevisionProvider = jest.fn(
+      async () => generation
+    );
+    const service = new LLMService(async () => "not-needed", {
+      logLevel: "silent",
+      providerEndpointRevisionProvider,
+      cachePreparationStateByEndpointRevision: true,
+    });
+    const fake = new CachePreparedFakeAdapter();
+    fake.onPrepare = () => {
+      generation = 0;
+    };
+    registerFake(service, fake, "llamacpp");
+
+    const result = await service.prepareMessage(llamaRequest(), {
+      mode: "complete",
+    });
+
+    expect(result).toMatchObject({
+      object: "error",
+      error: { code: "PREPARED_CALL_STALE" },
+    });
+  });
+
+  it("coalesces concurrent snapshot reads but keeps each ending read independent", async () => {
+    let resolveSnapshot!: (value: unknown) => void;
+    const snapshotPromise = new Promise<unknown>((resolve) => {
+      resolveSnapshot = resolve;
+    });
+    const providerEndpointRevisionProvider = jest.fn(
+      async () => "generation-a"
+    );
+    const service = new LLMService(async () => "not-needed", {
+      logLevel: "silent",
+      providerEndpointRevisionProvider,
+      cachePreparationStateByEndpointRevision: true,
+    });
+    const fake = new CachePreparedFakeAdapter();
+    fake.snapshotFactory = async () => snapshotPromise;
+    registerFake(service, fake, "llamacpp");
+
+    const first = service.prepareMessage(llamaRequest(), {
+      mode: "complete",
+    });
+    const second = service.prepareMessage(llamaRequest(), {
+      mode: "complete",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(fake.snapshotCalls).toBe(1);
+    resolveSnapshot({
+      kind: "llamacpp-preparation-v1",
+      selectedModel: "llamacpp",
+      detectedCaps: null,
+      stateBinding: { serverStateFingerprint: "state-a" },
+    });
+    const results = await Promise.all([first, second]);
+
+    expect(
+      results.every(
+        (result) => (result as LLMFailureResponse).object !== "error"
+      )
+    ).toBe(true);
+    expect(fake.snapshotCalls).toBe(1);
+    expect(providerEndpointRevisionProvider).toHaveBeenCalledTimes(4);
+  });
+
+  it("does not retain failed or binding-less preparation snapshots", async () => {
+    const providerEndpointRevisionProvider = jest.fn(
+      async () => "generation-a"
+    );
+    const service = new LLMService(async () => "not-needed", {
+      logLevel: "silent",
+      providerEndpointRevisionProvider,
+      cachePreparationStateByEndpointRevision: true,
+    });
+    const fake = new CachePreparedFakeAdapter();
+    let attempt = 0;
+    fake.snapshotFactory = async (modelId) => {
+      attempt += 1;
+      if (attempt === 1) {
+        throw new Error("snapshot failed");
+      }
+      return {
+        kind: "llamacpp-preparation-v1",
+        selectedModel: modelId,
+        detectedCaps: null,
+      };
+    };
+    registerFake(service, fake, "llamacpp");
+
+    const failed = await service.prepareMessage(llamaRequest(), {
+      mode: "complete",
+    });
+    expect(failed).toMatchObject({
+      object: "error",
+      error: { code: "PROVIDER_ERROR" },
+    });
+    const firstBindingless = await service.prepareMessage(llamaRequest(), {
+      mode: "complete",
+    });
+    const secondBindingless = await service.prepareMessage(llamaRequest(), {
+      mode: "complete",
+    });
+
+    expect((firstBindingless as LLMFailureResponse).object).not.toBe("error");
+    expect((secondBindingless as LLMFailureResponse).object).not.toBe("error");
+    expect(fake.snapshotCalls).toBe(3);
+  });
+
+  it("bounds the authoritative snapshot cache and evicts least-recently-used models", async () => {
+    const providerEndpointRevisionProvider = jest.fn(
+      async () => "generation-a"
+    );
+    const service = new LLMService(async () => "not-needed", {
+      logLevel: "silent",
+      providerEndpointRevisionProvider,
+      cachePreparationStateByEndpointRevision: true,
+    });
+    const fake = new CachePreparedFakeAdapter();
+    registerFake(service, fake, "llamacpp");
+
+    for (let index = 0; index < 33; index += 1) {
+      const prepared = await service.prepareMessage(
+        llamaRequest(`local-${index}`),
+        { mode: "complete" }
+      );
+      expect((prepared as LLMFailureResponse).object).not.toBe("error");
+    }
+    expect((service as any).preparationStateCache.size).toBe(32);
+    await service.prepareMessage(llamaRequest("local-0"), {
+      mode: "complete",
+    });
+    expect(fake.snapshotCalls).toBe(34);
+    expect((service as any).preparationStateCache.size).toBe(32);
+  });
+
+  it("drops snapshots owned by a replaced adapter identity", async () => {
+    const providerEndpointRevisionProvider = jest.fn(
+      async () => "generation-a"
+    );
+    const service = new LLMService(async () => "not-needed", {
+      logLevel: "silent",
+      providerEndpointRevisionProvider,
+      cachePreparationStateByEndpointRevision: true,
+    });
+    const first = new CachePreparedFakeAdapter();
+    registerFake(service, first, "llamacpp");
+    await service.prepareMessage(llamaRequest(), { mode: "complete" });
+    await service.prepareMessage(llamaRequest("other-local-model"), {
+      mode: "complete",
+    });
+
+    const replacement = new CachePreparedFakeAdapter();
+    registerFake(service, replacement, "llamacpp");
+    await service.prepareMessage(llamaRequest(), { mode: "complete" });
+
+    expect(first.snapshotCalls).toBe(2);
+    expect(replacement.snapshotCalls).toBe(1);
+    expect((service as any).preparationStateCache.size).toBe(1);
+    expect(
+      (Array.from(
+        (service as any).preparationStateCache.values()
+      )[0] as any).adapter
+    ).toBe(replacement);
+  });
+
+  it("evicts a published snapshot when the adapter changes during preparation", async () => {
+    const providerEndpointRevisionProvider = jest.fn(
+      async () => "generation-a"
+    );
+    const service = new LLMService(async () => "not-needed", {
+      logLevel: "silent",
+      providerEndpointRevisionProvider,
+      cachePreparationStateByEndpointRevision: true,
+    });
+    const first = new CachePreparedFakeAdapter();
+    const replacement = new CachePreparedFakeAdapter();
+    registerFake(service, first, "llamacpp");
+    await service.prepareMessage(llamaRequest(), { mode: "complete" });
+    first.onPrepare = () => registerFake(service, replacement, "llamacpp");
+
+    const stale = await service.prepareMessage(llamaRequest(), {
+      mode: "complete",
+    });
+
+    expect(stale).toMatchObject({
+      object: "error",
+      error: { code: "PREPARED_CALL_STALE" },
+    });
+    expect((service as any).preparationStateCache.size).toBe(0);
+    await service.prepareMessage(llamaRequest(), { mode: "complete" });
+    expect(replacement.snapshotCalls).toBe(1);
+  });
+
+  it("invalidates a cached snapshot when live endpoint revalidation rejects dispatch", async () => {
+    let generation: string | undefined = "generation-a";
+    const providerEndpointRevisionProvider = jest.fn(
+      async () => generation
+    );
+    const service = new LLMService(async () => "not-needed", {
+      logLevel: "silent",
+      providerEndpointRevisionProvider,
+      cachePreparationStateByEndpointRevision: true,
+    });
+    const fake = new CachePreparedFakeAdapter();
+    registerFake(service, fake, "llamacpp");
+    const handle = await service.prepareMessage(llamaRequest(), {
+      mode: "complete",
+    });
+
+    generation = undefined;
+    const stale = await service.sendPrepared(
+      handle as PreparedCompleteCall
+    );
+    expect(stale).toMatchObject({
+      object: "error",
+      error: { code: "PREPARED_CALL_STALE" },
+    });
+    generation = "generation-a";
+    await service.prepareMessage(llamaRequest(), { mode: "complete" });
+    expect(fake.snapshotCalls).toBe(2);
+  });
+
+  it("keeps keyed scopes independent and treats keyed raw evidence as canonical", async () => {
+    const service = new LLMService(async () => "not-needed", {
+      logLevel: "silent",
+    });
+    const fake = new PreparedFakeAdapter();
+    registerFake(service, fake);
+    fake.sendResults.push({
+      ...success(request as InternalLLMChatRequest),
+      choices: [{
+        index: 0,
+        message: { role: "assistant", content: "answer" },
+        rawContent: "answer",
+        answerAccounting: {
+          rawContent: {
+            tokens: 5,
+            method: "model",
+            source: "library",
+            reasoning: "unknown",
+          },
+          providerOutput: {
+            tokens: 8,
+            method: "exact",
+            source: "provider",
+            reasoning: "included_native",
+          },
+        },
+        rawAnswerAccounting: {
+          tokens: 99,
+          method: "heuristic",
+          source: "library",
+          reasoning: "unknown",
+        },
+        finish_reason: "stop",
+      }],
+    });
+    const handle = await service.prepareMessage(request, {
+      mode: "complete",
+    });
+    const response = await service.sendPrepared(
+      handle as PreparedCompleteCall
+    );
+
+    expect(response.object).toBe("chat.completion");
+    if (response.object === "chat.completion") {
+      expect(response.choices[0].answerAccounting).toMatchObject({
+        rawContent: { tokens: 5, method: "model" },
+        providerOutput: { tokens: 8, source: "provider" },
+      });
+      expect(response.choices[0].rawAnswerAccounting).toMatchObject({
+        tokens: 5,
+        method: "model",
       });
     }
   });

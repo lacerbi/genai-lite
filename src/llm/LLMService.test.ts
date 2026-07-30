@@ -394,19 +394,16 @@ describe('LLMService', () => {
         expect(errorResponse.error.message).toContain('Invalid message role');
       });
 
-      it('should return validation error for empty message content', async () => {
+      it('should accept empty-string message content', async () => {
         const request: LLMChatRequest = {
-          providerId: 'openai',
-          modelId: 'gpt-4.1',
+          providerId: 'mock',
+          modelId: 'mock-model',
           messages: [{ role: 'user', content: '' }]
         };
 
         const response = await service.sendMessage(request);
 
-        expect(response.object).toBe('error');
-        const errorResponse = response as LLMFailureResponse;
-        expect(errorResponse.error.code).toBe('INVALID_MESSAGE');
-        expect(errorResponse.error.message).toContain('Message at index 0 must have both');
+        expect(response.object).toBe('chat.completion');
       });
     });
 

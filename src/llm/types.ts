@@ -813,6 +813,26 @@ export interface LLMRawAnswerAccounting {
     | "unknown";
 }
 
+/**
+ * Token evidence for one explicitly named answer measurement scope.
+ *
+ * The shape deliberately matches the legacy raw-content accounting record so
+ * callers can inspect provenance consistently without conflating scopes.
+ */
+export interface LLMAnswerAccounting extends LLMRawAnswerAccounting {}
+
+/**
+ * Answer-token evidence keyed by the content space that was measured.
+ *
+ * `rawContent` measures the library-retained, pre-normalization answer text.
+ * `providerOutput` measures the provider's own output-usage space, which may
+ * include hidden/native reasoning.
+ */
+export interface LLMAnswerAccountingByScope {
+  rawContent?: LLMAnswerAccounting;
+  providerOutput?: LLMAnswerAccounting;
+}
+
 /** Provenance for an individual normalized usage field. */
 export interface LLMUsageFieldEvidence {
   source: "provider" | "derived" | "heuristic";
@@ -837,7 +857,14 @@ export interface LLMChoice {
   rawContent?: string;
   /** Ordered library-owned parts retained when flattening would lose boundaries. */
   rawContentParts?: LLMRawContentPart[];
-  /** Token evidence over rawContent, when a suitable profile is available. */
+  /** Token evidence keyed by the exact answer measurement scope. */
+  answerAccounting?: LLMAnswerAccountingByScope;
+  /**
+   * Token evidence over rawContent, when a suitable profile is available.
+   *
+   * @deprecated Use `answerAccounting.rawContent`. This compatibility field
+   * never contains provider-output accounting.
+   */
   rawAnswerAccounting?: LLMRawAnswerAccounting;
   /** Raw and normalized termination evidence. */
   termination?: LLMTermination;

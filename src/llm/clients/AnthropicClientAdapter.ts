@@ -17,6 +17,7 @@ import { ADAPTER_ERROR_CODES } from "./types";
 import { getCommonMappedErrorDetails } from "../../shared/adapters/errorUtils";
 import { applyStrictSchemaConstraints } from "../../shared/adapters/schemaUtils";
 import {
+  createProviderOutputAccounting,
   mergeUsageRecords,
   normalizeTermination,
   normalizeUsage,
@@ -63,6 +64,7 @@ interface AnthropicStreamAccumulator {
   created: number;
   content: string;
   reasoning: string;
+  hasGeneratedOutput: boolean;
   stopReason: string | null;
   usage?: any;
   rawParts: Array<{
@@ -267,6 +269,7 @@ export class AnthropicClientAdapter implements ILLMClientAdapter {
       created: Math.floor(Date.now() / 1000),
       content: "",
       reasoning: "",
+      hasGeneratedOutput: false,
       stopReason: null,
       rawParts: [],
     };
@@ -375,6 +378,15 @@ export class AnthropicClientAdapter implements ILLMClientAdapter {
             }),
           };
           accumulator.rawParts.push(rawPart);
+          if (
+            (typeof block?.text === "string" &&
+              block.text.length > 0) ||
+            (typeof block?.thinking === "string" &&
+              block.thinking.length > 0) ||
+            !["text", "thinking"].includes(String(block?.type))
+          ) {
+            accumulator.hasGeneratedOutput = true;
+          }
           yield {
             type: "adapter_evidence",
             observedEvidence: {
@@ -427,6 +439,17 @@ export class AnthropicClientAdapter implements ILLMClientAdapter {
             }),
           };
           accumulator.rawParts.push(rawPart);
+          if (
+            (typeof delta?.text === "string" &&
+              delta.text.length > 0) ||
+            (typeof delta?.thinking === "string" &&
+              delta.thinking.length > 0) ||
+            !["text_delta", "thinking_delta"].includes(
+              String(delta?.type)
+            )
+          ) {
+            accumulator.hasGeneratedOutput = true;
+          }
           yield {
             type: "adapter_evidence",
             observedEvidence: {
@@ -488,11 +511,24 @@ export class AnthropicClientAdapter implements ILLMClientAdapter {
               accumulator.usage
             );
             if (normalized.usage) {
+              const providerOutput = createProviderOutputAccounting({
+                source: accumulator.usage,
+                directFields: ["output_tokens"],
+                choiceCount: 1,
+                hasGeneratedOutput: accumulator.hasGeneratedOutput,
+                reasoning: "included_native",
+              });
               yield {
                 type: "adapter_evidence",
                 observedEvidence: {
                   usage: normalized.usage,
                   usageEvidence: normalized.usageEvidence,
+                  ...(providerOutput && {
+                    choice: {
+                      index: 0,
+                      answerAccounting: { providerOutput },
+                    },
+                  }),
                 },
               };
               publicEvents.push({
@@ -947,6 +983,24 @@ export class AnthropicClientAdapter implements ILLMClientAdapter {
     // Include reasoning if available and not excluded
     if (reasoning && request.settings.reasoning && !request.settings.reasoning.exclude) {
       choice.reasoning = reasoning;
+    }
+
+    const providerOutput = createProviderOutputAccounting({
+      source:
+        completion.usage as unknown as Record<string, unknown> | undefined,
+      directFields: ["output_tokens"],
+      choiceCount: 1,
+      hasGeneratedOutput:
+        textContent.length > 0 ||
+        thinkingContent.length > 0 ||
+        completion.content.some(
+          (block: any) =>
+            !["text", "thinking"].includes(String(block?.type))
+        ),
+      reasoning: "included_native",
+    });
+    if (providerOutput) {
+      choice.answerAccounting = { providerOutput };
     }
 
     const normalizedUsage = normalizeUsage(

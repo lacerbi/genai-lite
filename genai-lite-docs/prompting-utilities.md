@@ -24,6 +24,15 @@ For evidence-bearing model profiles and certified structural bounds, use
 wrapper and can fall back to a heuristic. Content-only counts are distinct from
 fully prepared message accounting; see
 [Prepared Calls and Token Accounting](prepared-calls-and-accounting.md).
+
+`retokenizationUpperBound()` is a proof-oriented worst-case certificate, not a
+capacity-sizing estimate. Even 1,000 `o200k_base` source tokens certify to
+384,000 `cl100k_base` target tokens under the invalid-byte replacement proof.
+For advisory sizing, use known profile identity or an explicitly
+application-owned estimate. For text bounded by Unicode code points, use
+`codePointBoundToTokenUpperBound()` for the useful certified
+`codePoints * 4` conversion.
+
 **Prompt Engineering**: `parseRoleTags`, `parseStructuredContent`, `extractRandomVariables`, `parseTemplateWithMetadata`, `extractInitialTaggedContent`, `extractMarkerDelimitedContent`
 
 **Note**: For model-aware message creation, use `LLMService.createMessages()` which combines these utilities with model context. See [LLM Service - Creating Messages from Templates](llm-service.md#creating-messages-from-templates).

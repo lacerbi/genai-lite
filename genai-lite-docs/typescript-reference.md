@@ -217,6 +217,8 @@ interface LLMResponse {
     message: LLMMessage;
     rawContent?: string;
     rawContentParts?: LLMRawContentPart[];
+    answerAccounting?: LLMAnswerAccountingByScope;
+    /** @deprecated Use answerAccounting.rawContent. */
     rawAnswerAccounting?: LLMRawAnswerAccounting;
     termination?: LLMTermination;
     reasoning?: string;
@@ -232,6 +234,24 @@ interface LLMResponse {
     total_tokens?: number;
   };
   usageEvidence?: LLMUsageEvidence;
+}
+
+interface LLMAnswerAccounting {
+  tokens: number;
+  method: 'exact' | 'model' | 'heuristic';
+  source: 'provider' | 'library';
+  tokenizerId?: string;
+  tokenProfileRevision?: string;
+  reasoning:
+    | 'included_native'
+    | 'included_extracted'
+    | 'excluded'
+    | 'unknown';
+}
+
+interface LLMAnswerAccountingByScope {
+  rawContent?: LLMAnswerAccounting;
+  providerOutput?: LLMAnswerAccounting;
 }
 
 // Per-token log probability entry (OpenAI-compatible shape; also from llama.cpp)
@@ -542,6 +562,9 @@ interface LLMServiceOptions {
   logger?: Logger;
   timeoutMs?: number;             // Default per-request timeout (overridable per call)
   providerEndpointRevisionProvider?: ProviderEndpointRevisionProvider;
+  // Opt-in snapshot reuse; requires the revision provider and asserts that its
+  // value changes for every model/build/template state change.
+  cachePreparationStateByEndpointRevision?: boolean;
   retry?: Partial<RetryPolicy> & {
     retryOnTimeout?: boolean;     // Whether REQUEST_TIMEOUT is retryable (default true)
   };

@@ -266,6 +266,59 @@ describe('ModelResolver', () => {
       });
     });
 
+    it("uses an exact service-provided snapshot without another adapter read", async () => {
+      const snapshot = {
+        kind: "llamacpp-preparation-v1",
+        selectedModel: "llamacpp",
+        detectedCaps: {
+          defaultSettings: { temperature: 0.4 },
+        },
+        stateBinding: {
+          serverStateFingerprint: "state-a",
+        },
+      };
+      const getPreparationSnapshot = jest.fn();
+      mockAdapterRegistry.getAdapter.mockReturnValue({
+        getPreparationSnapshot,
+      } as any);
+
+      const result = await resolver.resolve(
+        {
+          providerId: "llamacpp",
+          modelId: "llamacpp",
+        },
+        { adapterPreparationState: snapshot }
+      );
+
+      expect(getPreparationSnapshot).not.toHaveBeenCalled();
+      expect(result.adapterPreparationState).toBe(snapshot);
+      expect(result.modelInfo?.defaultSettings).toEqual({
+        temperature: 0.4,
+      });
+    });
+
+    it("does not overlay capabilities from a snapshot for another model", async () => {
+      const snapshot = {
+        kind: "llamacpp-preparation-v1",
+        selectedModel: "other-model",
+        detectedCaps: {
+          defaultSettings: { temperature: 0.4 },
+        },
+      };
+      const result = await resolver.resolve(
+        {
+          providerId: "llamacpp",
+          modelId: "llamacpp",
+        },
+        { adapterPreparationState: snapshot }
+      );
+
+      expect(result.adapterPreparationState).toBe(snapshot);
+      expect(result.modelInfo?.defaultSettings).not.toEqual({
+        temperature: 0.4,
+      });
+    });
+
     it('should keep the generic llamacpp entry unchanged when detection fails', async () => {
       mockAdapterRegistry.getAdapter.mockReturnValue({
         getModelCapabilities: jest.fn().mockResolvedValue(null),

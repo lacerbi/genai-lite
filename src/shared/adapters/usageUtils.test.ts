@@ -1,4 +1,5 @@
 import {
+  createProviderOutputAccounting,
   mergeUsageRecords,
   normalizeTermination,
   normalizeUsage,
@@ -78,6 +79,83 @@ describe("usageUtils", () => {
         total_tokens: { source: "derived" },
       },
     });
+  });
+
+  it("creates provider-output accounting only from sound direct evidence", () => {
+    expect(
+      createProviderOutputAccounting({
+        source: { completion_tokens: 7 },
+        directFields: ["completion_tokens"],
+        choiceCount: 1,
+        hasGeneratedOutput: true,
+        reasoning: "included_native",
+      })
+    ).toEqual({
+      tokens: 7,
+      method: "exact",
+      source: "provider",
+      reasoning: "included_native",
+    });
+
+    for (const value of [-1, 1.5, Number.NaN, Number.MAX_SAFE_INTEGER + 1]) {
+      expect(
+        createProviderOutputAccounting({
+          source: { completion_tokens: value },
+          directFields: ["completion_tokens"],
+          choiceCount: 1,
+          hasGeneratedOutput: false,
+          reasoning: "unknown",
+        })
+      ).toBeUndefined();
+    }
+  });
+
+  it("rejects aggregate, impossible-zero, and incomplete component evidence", () => {
+    const base = {
+      source: { completion_tokens: 0 },
+      directFields: ["completion_tokens"],
+      choiceCount: 1,
+      hasGeneratedOutput: true,
+      reasoning: "included_native" as const,
+    };
+    expect(createProviderOutputAccounting(base)).toBeUndefined();
+    expect(
+      createProviderOutputAccounting({
+        ...base,
+        source: { completion_tokens: 5 },
+        choiceCount: 2,
+      })
+    ).toBeUndefined();
+    expect(
+      createProviderOutputAccounting({
+        source: { candidatesTokenCount: 4 },
+        componentFields: ["candidatesTokenCount", "thoughtsTokenCount"],
+        choiceCount: 1,
+        hasGeneratedOutput: true,
+        reasoning: "included_native",
+      })
+    ).toBeUndefined();
+  });
+
+  it("sums complete provider components and permits a truthful empty zero", () => {
+    expect(
+      createProviderOutputAccounting({
+        source: { candidatesTokenCount: 4, thoughtsTokenCount: 3 },
+        componentFields: ["candidatesTokenCount", "thoughtsTokenCount"],
+        choiceCount: 1,
+        hasGeneratedOutput: true,
+        reasoning: "included_native",
+      })
+    ).toMatchObject({ tokens: 7, source: "provider", method: "exact" });
+    expect(
+      createProviderOutputAccounting({
+        source: { completion_tokens: 0 },
+        directFields: ["completion_tokens"],
+        choiceCount: 1,
+        hasGeneratedOutput: false,
+        reasoning: "excluded",
+      })
+    ).toMatchObject({ tokens: 0, reasoning: "excluded" });
   });
 
   it("merges streaming fragments without zero-filling", () => {

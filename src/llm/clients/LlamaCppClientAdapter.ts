@@ -27,6 +27,7 @@ import { detectGgufCapabilities } from "../config";
 import { extractMarkerDelimitedContent } from "../../prompting/parser";
 import { mapOpenAIChatLogprobs } from "../../shared/adapters/logprobsUtils";
 import {
+  createProviderOutputAccounting,
   normalizeTermination,
   normalizeUsage,
 } from "../../shared/adapters/usageUtils";
@@ -86,10 +87,21 @@ const LLAMACPP_PREFLIGHT_TIMEOUT_MS = 5000;
 interface LlamaCppStreamChoiceState {
   content: string;
   reasoningContent: string;
+  hasGeneratedOutput: boolean;
   finishReason: string | null;
   logprobs: any[];
   prefixBuffer: string;
   prefixResolved: boolean;
+}
+
+function hasPositiveLlamaCppReasoningTokens(usage: unknown): boolean {
+  const reasoningTokens = (usage as any)?.completion_tokens_details
+    ?.reasoning_tokens;
+  return (
+    typeof reasoningTokens === "number" &&
+    Number.isSafeInteger(reasoningTokens) &&
+    reasoningTokens > 0
+  );
 }
 
 /**
@@ -196,6 +208,20 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
     }
   }
 
+  isPreparationSnapshotCacheable(
+    snapshot: unknown,
+    selectedModel?: string
+  ): boolean {
+    const candidate = snapshot as Partial<LlamaCppPreparationSnapshot>;
+    return (
+      candidate?.kind === "llamacpp-preparation-v1" &&
+      typeof candidate.selectedModel === "string" &&
+      (selectedModel === undefined ||
+        candidate.selectedModel === selectedModel) &&
+      candidate.stateBinding !== undefined
+    );
+  }
+
   async prepareRequest(
     request: InternalLLMChatRequest,
     context: AdapterPreparationContext
@@ -238,23 +264,9 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
             timeoutMs: LLAMACPP_PREFLIGHT_TIMEOUT_MS,
           }
         );
-        const [currentProps, currentModels] = await Promise.all([
-          this.serverClient.getProps({
-            model: request.modelId,
-            timeoutMs: LLAMACPP_PREFLIGHT_TIMEOUT_MS,
-          }),
-          this.serverClient.getModels({
-            timeoutMs: LLAMACPP_PREFLIGHT_TIMEOUT_MS,
-          }),
-        ]);
-        const currentBinding = createLlamaCppStateBinding(
-          currentProps,
-          currentModels,
-          request.modelId
-        );
         if (
-          currentBinding?.serverStateFingerprint ===
-          stateBinding.serverStateFingerprint
+          context.cachePreparationStateByEndpointRevision === true &&
+          context.providerEndpointRevision !== undefined
         ) {
           promptAccounting = {
             status: "available",
@@ -267,9 +279,39 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
             },
           };
         } else {
-          this.logger.warn(
-            "llama.cpp state changed while preparing the exact prompt count; accounting is unavailable."
+          const [currentProps, currentModels] = await Promise.all([
+            this.serverClient.getProps({
+              model: request.modelId,
+              timeoutMs: LLAMACPP_PREFLIGHT_TIMEOUT_MS,
+            }),
+            this.serverClient.getModels({
+              timeoutMs: LLAMACPP_PREFLIGHT_TIMEOUT_MS,
+            }),
+          ]);
+          const currentBinding = createLlamaCppStateBinding(
+            currentProps,
+            currentModels,
+            request.modelId
           );
+          if (
+            currentBinding?.serverStateFingerprint ===
+            stateBinding.serverStateFingerprint
+          ) {
+            promptAccounting = {
+              status: "available",
+              count: {
+                tokens: counted.input_tokens,
+                method: "exact",
+                tokenizerId: `llamacpp-active:${stateBinding.metadata.model}`,
+                tokenProfileRevision:
+                  `llamacpp-state:${stateBinding.serverStateFingerprint}`,
+              },
+            };
+          } else {
+            this.logger.warn(
+              "llama.cpp state changed while preparing the exact prompt count; accounting is unavailable."
+            );
+          }
         }
       } catch (error) {
         this.logger.warn(
@@ -652,9 +694,16 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
           }
 
           const delta = choice.delta as any;
+          if (
+            Boolean(delta?.tool_calls?.length) ||
+            Boolean(delta?.function_call)
+          ) {
+            state.hasGeneratedOutput = true;
+          }
           const reasoningDelta = delta?.reasoning_content ?? delta?.reasoning;
           if (typeof reasoningDelta === "string" && reasoningDelta.length > 0) {
             state.reasoningContent += reasoningDelta;
+            state.hasGeneratedOutput = true;
             evidenceEvents.push({
               type: "adapter_evidence",
               observedEvidence: {
@@ -679,6 +728,7 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
 
           if (typeof delta?.content === "string" && delta.content.length > 0) {
             state.content += delta.content;
+            state.hasGeneratedOutput = true;
             evidenceEvents.push({
               type: "adapter_evidence",
               observedEvidence: {
@@ -709,6 +759,34 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
           const mappedLogprobs = mapOpenAIChatLogprobs(choice.logprobs);
           if (mappedLogprobs) {
             state.logprobs.push(...((choice.logprobs as any)?.content || []));
+          }
+        }
+
+        if (chunk.usage && choiceStates.size === 1) {
+          const [index, state] = choiceStates.entries().next().value as [
+            number,
+            LlamaCppStreamChoiceState,
+          ];
+          const providerOutput = createProviderOutputAccounting({
+            source:
+              chunk.usage as unknown as Record<string, unknown>,
+            directFields: ["completion_tokens"],
+            choiceCount: 1,
+            hasGeneratedOutput:
+              state.hasGeneratedOutput ||
+              hasPositiveLlamaCppReasoningTokens(chunk.usage),
+            reasoning: "included_native",
+          });
+          if (providerOutput) {
+            evidenceEvents.push({
+              type: "adapter_evidence",
+              observedEvidence: {
+                choice: {
+                  index,
+                  answerAccounting: { providerOutput },
+                },
+              },
+            });
           }
         }
 
@@ -977,6 +1055,7 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
       state = {
         content: "",
         reasoningContent: "",
+        hasGeneratedOutput: false,
         finishReason: null,
         logprobs: [],
         prefixBuffer: "",
@@ -1264,6 +1343,25 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
         const logprobs = mapOpenAIChatLogprobs((c as any).logprobs);
         if (logprobs) {
           mappedChoice.logprobs = logprobs;
+        }
+
+        const providerOutput = createProviderOutputAccounting({
+          source:
+            completion.usage as unknown as
+              | Record<string, unknown>
+              | undefined,
+          directFields: ["completion_tokens"],
+          choiceCount: completion.choices.length,
+          hasGeneratedOutput:
+            rawContent.length > 0 ||
+            Boolean((c.message as any).reasoning_content) ||
+            Boolean((c.message as any).tool_calls?.length) ||
+            Boolean((c.message as any).function_call) ||
+            hasPositiveLlamaCppReasoningTokens(completion.usage),
+          reasoning: "included_native",
+        });
+        if (providerOutput) {
+          mappedChoice.answerAccounting = { providerOutput };
         }
 
         return mappedChoice;

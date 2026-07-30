@@ -37,16 +37,52 @@ describe('RequestValidator', () => {
       expect(result?.error.message).toContain('Invalid message role');
     });
 
-    it('should return validation error for empty message content', () => {
+    it.each(['system', 'user', 'assistant'] as const)(
+      'should accept empty-string %s message content',
+      (role) => {
+        const request: LLMChatRequest = {
+          providerId: 'openai',
+          modelId: 'gpt-4.1',
+          messages: [{ role, content: '' }]
+        };
+
+        const result = validator.validateRequestStructure(request);
+
+        expect(result).toBeNull();
+      }
+    );
+
+    it('should accept an empty system/user message pair', () => {
       const request: LLMChatRequest = {
+        providerId: 'llamacpp',
+        modelId: 'llamacpp',
+        messages: [
+          { role: 'system', content: '' },
+          { role: 'user', content: '' },
+        ],
+      };
+
+      expect(validator.validateRequestStructure(request)).toBeNull();
+    });
+
+    it.each([
+      null,
+      42,
+      { content: 'Hello' },
+      { role: null, content: 'Hello' },
+      { role: 42, content: 'Hello' },
+      { role: 'user' },
+      { role: 'user', content: null },
+      { role: 'user', content: 42 },
+    ])('should reject missing or non-string message content: %p', (message) => {
+      const request = {
         providerId: 'openai',
         modelId: 'gpt-4.1',
-        messages: [{ role: 'user', content: '' }]
-      };
+        messages: [message],
+      } as unknown as LLMChatRequest;
 
       const result = validator.validateRequestStructure(request);
 
-      expect(result).not.toBeNull();
       expect(result?.error.code).toBe('INVALID_MESSAGE');
       expect(result?.error.message).toContain('Message at index 0 must have both');
     });
