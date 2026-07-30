@@ -124,7 +124,9 @@ const response = await llmService.sendPrepared(prepared);
 Preparation is credential-free and mode-bound. See
 **[Prepared Calls & Token Accounting](./genai-lite-docs/prepared-calls-and-accounting.md)**
 for certified structural bounds, the single-margin capacity formula, response
-evidence, and exact active-template llama.cpp counting.
+evidence, exact active-template llama.cpp counting, and optional authoritative
+endpoint-generation bindings that reject stale prepared calls after a managed
+local server restart.
 
 ### Image Generation
 
