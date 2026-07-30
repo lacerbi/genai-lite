@@ -36,6 +36,8 @@ import type {
   LLMTermination,
   LLMUsage,
   LLMUsageEvidence,
+  ProviderEndpointRevision,
+  ProviderEndpointRevisionProvider,
 } from "./types";
 import type {
   ILLMClientAdapter,
@@ -99,6 +101,15 @@ export interface LLMServiceOptions {
   };
   /** Default per-request timeout in ms (overridable per call). SDK defaults apply when unset. */
   timeoutMs?: number;
+  /**
+   * Optional live source of an authoritative provider endpoint revision.
+   *
+   * When configured, preparation captures its current value and every physical
+   * prepared dispatch reads it again immediately before inference. The callback
+   * must read live state on each invocation; it must not close over a revision
+   * captured when the service or prepared call was created.
+   */
+  providerEndpointRevisionProvider?: ProviderEndpointRevisionProvider;
 }
 
 /**
@@ -209,12 +220,15 @@ export class LLMService {
   private modelResolver: ModelResolver;
   private retryOptions: LLMServiceOptions['retry'];
   private defaultTimeoutMs?: number;
+  private providerEndpointRevisionProvider?: ProviderEndpointRevisionProvider;
   private preparedCalls = new WeakMap<object, PreparedLLMRequest>();
 
   constructor(getApiKey: ApiKeyProvider, options: LLMServiceOptions = {}) {
     this.getApiKey = getApiKey;
     this.retryOptions = options.retry;
     this.defaultTimeoutMs = options.timeoutMs;
+    this.providerEndpointRevisionProvider =
+      options.providerEndpointRevisionProvider;
 
     // Initialize logger - custom logger takes precedence over logLevel
     this.logger = options.logger ?? createDefaultLogger(options.logLevel);
@@ -1084,14 +1098,127 @@ export class LLMService {
     prepared: PreparedLLMRequest,
     options: AdapterRequestOptions
   ): Promise<LLMFailureResponse | undefined> {
-    if (!prepared.clientAdapter.revalidatePreparedRequest) {
+    if (prepared.clientAdapter.revalidatePreparedRequest) {
+      const result = await prepared.clientAdapter.revalidatePreparedRequest(
+        prepared.adapterPrepared,
+        options
+      );
+      if (!result.valid) {
+        return result.error;
+      }
+    }
+    return this.revalidateProviderEndpointRevision(prepared);
+  }
+
+  private isValidProviderEndpointRevision(
+    revision: unknown
+  ): revision is ProviderEndpointRevision {
+    return (
+      (typeof revision === "string" && revision.length > 0) ||
+      (typeof revision === "number" && Number.isFinite(revision))
+    );
+  }
+
+  private createStaleEndpointRevisionFailure(
+    providerId: ApiProviderId,
+    modelId: string,
+    message: string,
+    cause?: unknown
+  ): LLMFailureResponse {
+    return this.createPreparedFailure(
+      providerId,
+      modelId,
+      ADAPTER_ERROR_CODES.PREPARED_CALL_STALE,
+      message,
+      "validation_error",
+      cause
+    );
+  }
+
+  private async captureProviderEndpointRevision(
+    providerId: ApiProviderId,
+    modelId: string
+  ): Promise<ProviderEndpointRevision | LLMFailureResponse | undefined> {
+    if (!this.providerEndpointRevisionProvider) {
       return undefined;
     }
-    const result = await prepared.clientAdapter.revalidatePreparedRequest(
-      prepared.adapterPrepared,
-      options
-    );
-    return result.valid ? undefined : result.error;
+    try {
+      const revision = await this.providerEndpointRevisionProvider({
+        providerId,
+        modelId,
+      });
+      if (!this.isValidProviderEndpointRevision(revision)) {
+        return this.createStaleEndpointRevisionFailure(
+          providerId,
+          modelId,
+          "The configured provider endpoint revision is missing during preparation."
+        );
+      }
+      return revision;
+    } catch (error) {
+      return this.createStaleEndpointRevisionFailure(
+        providerId,
+        modelId,
+        "The configured provider endpoint revision could not be read during preparation.",
+        error
+      );
+    }
+  }
+
+  private getProviderEndpointRevisionContext(
+    request: LLMChatRequest | LLMChatRequestWithPreset
+  ): { providerId: ApiProviderId; modelId: string } | undefined {
+    const presetId = (request as LLMChatRequestWithPreset).presetId;
+    if (presetId) {
+      const preset = this.presetManager.resolvePreset(presetId);
+      return preset
+        ? {
+            providerId: preset.providerId,
+            modelId: preset.modelId,
+          }
+        : undefined;
+    }
+    return request.providerId && request.modelId
+      ? {
+          providerId: request.providerId,
+          modelId: request.modelId,
+        }
+      : undefined;
+  }
+
+  private async revalidateProviderEndpointRevision(
+    prepared: PreparedLLMRequest
+  ): Promise<LLMFailureResponse | undefined> {
+    if (!this.providerEndpointRevisionProvider) {
+      return undefined;
+    }
+    const expected =
+      prepared.adapterPrepared.bindings.providerEndpointRevision;
+    try {
+      const current = await this.providerEndpointRevisionProvider({
+        providerId: prepared.providerId,
+        modelId: prepared.modelId,
+      });
+      if (
+        !this.isValidProviderEndpointRevision(current) ||
+        !this.isValidProviderEndpointRevision(expected) ||
+        !Object.is(current, expected)
+      ) {
+        return this.createStaleEndpointRevisionFailure(
+          prepared.providerId,
+          prepared.modelId,
+          "The provider endpoint revision is missing or changed after preparation."
+        );
+      }
+      return undefined;
+    } catch (error) {
+      return this.createStaleEndpointRevisionFailure(
+        prepared.providerId,
+        prepared.modelId,
+        "The provider endpoint revision could not be revalidated before dispatch.",
+        error
+      );
+    }
   }
 
   private async nextStreamEvent(
@@ -1424,6 +1551,18 @@ export class LLMService {
     request: LLMChatRequest | LLMChatRequestWithPreset,
     mode: PreparedCallMode
   ): Promise<{ prepared: PreparedLLMRequest } | { error: LLMFailureResponse }> {
+    const endpointRevisionContext =
+      this.getProviderEndpointRevisionContext(request);
+    const endpointRevision = endpointRevisionContext
+      ? await this.captureProviderEndpointRevision(
+          endpointRevisionContext.providerId,
+          endpointRevisionContext.modelId
+        )
+      : undefined;
+    if (this.isFailureResponse(endpointRevision)) {
+      return { error: endpointRevision };
+    }
+
     const validation = await this.resolveAndValidateCapabilities(request, {
       validateStructure: true,
       detectLocalCapabilities: true,
@@ -1543,7 +1682,17 @@ export class LLMService {
           ),
         };
       }
-      const adapterPrepared = deepFreeze(adapterResult.prepared);
+      const adapterPrepared = deepFreeze(
+        endpointRevision === undefined
+          ? adapterResult.prepared
+          : {
+              ...adapterResult.prepared,
+              bindings: {
+                ...adapterResult.prepared.bindings,
+                providerEndpointRevision: endpointRevision,
+              },
+            }
+      );
 
       return {
         prepared: {

@@ -712,12 +712,36 @@ export interface EffectiveOutputTokenLimit {
     | "unknown";
 }
 
+/** Authoritative revision of the provider endpoint serving a prepared call. */
+export type ProviderEndpointRevision = string | number;
+
+/** Identifies the endpoint whose authoritative revision should be read. */
+export interface ProviderEndpointRevisionContext {
+  providerId: ApiProviderId;
+  modelId: string;
+}
+
+/**
+ * Reads the current authoritative endpoint revision.
+ *
+ * Implementations must read live state on every invocation rather than close
+ * over the revision current when the service or prepared call was created.
+ * Returning null or undefined reports that the endpoint revision is missing.
+ */
+export type ProviderEndpointRevisionProvider = (
+  context: Readonly<ProviderEndpointRevisionContext>
+) =>
+  | ProviderEndpointRevision
+  | null
+  | undefined
+  | Promise<ProviderEndpointRevision | null | undefined>;
+
 /** Revisions and observable state to which a prepared call is bound. */
 export interface PreparedRequestBindings {
   adapterRevision: string;
   requestShapeRevision: string;
   tokenProfileRevision?: string;
-  providerEndpointRevision?: string;
+  providerEndpointRevision?: ProviderEndpointRevision;
   serverStateFingerprint?: string;
   chatTemplateFingerprint?: string;
 }

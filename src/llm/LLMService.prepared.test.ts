@@ -3,6 +3,7 @@ import type {
   LLMFailureResponse,
   LLMResponse,
   PreparedCompleteCall,
+  PreparedRequestBindings,
   PreparedStreamCall,
   StructuredOutputSchema,
 } from "./types";
@@ -44,6 +45,8 @@ class PreparedFakeAdapter implements ILLMClientAdapter {
   dispatchRequests: AdapterPreparedRequest[] = [];
   revalidations = 0;
   sendResults: Array<LLMResponse | LLMFailureResponse> = [];
+  bindingOverrides: Partial<PreparedRequestBindings> = {};
+  onPrepare?: () => void;
   streamFactory?: (
     request: InternalLLMChatRequest
   ) => AsyncIterable<AdapterLLMStreamEvent>;
@@ -52,6 +55,7 @@ class PreparedFakeAdapter implements ILLMClientAdapter {
     request: InternalLLMChatRequest,
     context: AdapterPreparationContext
   ): Promise<AdapterPreparationResult> {
+    this.onPrepare?.();
     const providerRequest = freezeProviderRequest({ request });
     const prepared: AdapterPreparedRequest = {
       mode: context.mode,
@@ -74,6 +78,7 @@ class PreparedFakeAdapter implements ILLMClientAdapter {
       bindings: {
         adapterRevision: "fake-adapter-v1",
         requestShapeRevision: "fake-request-v1",
+        ...this.bindingOverrides,
       },
     };
     this.preparedRequests.push(prepared);
@@ -131,9 +136,10 @@ class PreparedFakeAdapter implements ILLMClientAdapter {
 
 function registerFake(
   service: LLMService,
-  fake: PreparedFakeAdapter
+  fake: PreparedFakeAdapter,
+  providerId: "mock" | "llamacpp" = "mock"
 ): void {
-  (service as any).adapterRegistry.registerAdapter("mock", fake);
+  (service as any).adapterRegistry.registerAdapter(providerId, fake);
 }
 
 const request = {
@@ -222,10 +228,88 @@ describe("LLMService prepared calls", () => {
     );
   });
 
+  it("rejects a generation restarted during preparation when observable state is identical", async () => {
+    let generation = 41;
+    const providerEndpointRevisionProvider = jest.fn(async () => generation);
+    const service = new LLMService(async () => "not-needed", {
+      logLevel: "silent",
+      providerEndpointRevisionProvider,
+    });
+    const fake = new PreparedFakeAdapter();
+    fake.bindingOverrides = {
+      serverStateFingerprint: "unchanged-observable-state",
+      chatTemplateFingerprint: "unchanged-chat-template",
+    };
+    fake.onPrepare = () => {
+      generation = 42;
+    };
+    registerFake(service, fake, "llamacpp");
+    const llamaCppRequest = {
+      ...request,
+      providerId: "llamacpp" as const,
+      modelId: "llamacpp",
+    };
+
+    const handle = await service.prepareMessage(llamaCppRequest, {
+      mode: "complete",
+    });
+    const inspection = await service.inspectPrepared(
+      handle as PreparedCompleteCall
+    );
+    expect(inspection).toMatchObject({
+      bindings: {
+        providerEndpointRevision: 41,
+        serverStateFingerprint: "unchanged-observable-state",
+        chatTemplateFingerprint: "unchanged-chat-template",
+      },
+    });
+
+    const response = await service.sendPrepared(
+      handle as PreparedCompleteCall
+    );
+
+    expect(response).toMatchObject({
+      object: "error",
+      error: { code: "PREPARED_CALL_STALE" },
+    });
+    expect(fake.revalidations).toBe(1);
+    expect(fake.dispatchRequests).toHaveLength(0);
+    expect(providerEndpointRevisionProvider).toHaveBeenCalledTimes(2);
+    expect(providerEndpointRevisionProvider).toHaveBeenNthCalledWith(1, {
+      providerId: "llamacpp",
+      modelId: "llamacpp",
+    });
+  });
+
+  it("fails closed when the configured revision is missing during preparation", async () => {
+    const providerEndpointRevisionProvider = jest.fn(
+      async () => undefined
+    );
+    const service = new LLMService(async () => "not-needed", {
+      logLevel: "silent",
+      providerEndpointRevisionProvider,
+    });
+    const fake = new PreparedFakeAdapter();
+    registerFake(service, fake);
+
+    const result = await service.prepareMessage(request, { mode: "complete" });
+
+    expect(result).toMatchObject({
+      object: "error",
+      error: { code: "PREPARED_CALL_STALE" },
+    });
+    expect(fake.dispatchRequests).toHaveLength(0);
+    expect(providerEndpointRevisionProvider).toHaveBeenCalledTimes(1);
+  });
+
   it("reuses one frozen command across retries and revalidates each attempt", async () => {
+    const providerEndpointRevisionProvider = jest.fn(
+      async () => "generation-a"
+    );
     const service = new LLMService(async () => "not-needed", {
       logLevel: "silent",
       retry: { maxRetries: 1, initialDelayMs: 1, maxDelayMs: 1 },
+      providerEndpointRevisionProvider,
     });
     const fake = new PreparedFakeAdapter();
     registerFake(service, fake);
@@ -254,6 +338,45 @@ describe("LLMService prepared calls", () => {
     expect(fake.dispatchRequests).toHaveLength(2);
     expect(fake.dispatchRequests[0]).toBe(fake.dispatchRequests[1]);
     expect(fake.revalidations).toBe(2);
+    expect(providerEndpointRevisionProvider).toHaveBeenCalledTimes(3);
+  });
+
+  it("rejects a changed endpoint generation before a complete-call retry", async () => {
+    const providerEndpointRevisionProvider = jest
+      .fn()
+      .mockResolvedValueOnce("generation-a")
+      .mockResolvedValueOnce("generation-a")
+      .mockResolvedValueOnce("generation-b");
+    const service = new LLMService(async () => "not-needed", {
+      logLevel: "silent",
+      retry: { maxRetries: 1, initialDelayMs: 1, maxDelayMs: 1 },
+      providerEndpointRevisionProvider,
+    });
+    const fake = new PreparedFakeAdapter();
+    registerFake(service, fake);
+    fake.sendResults.push({
+      provider: "mock",
+      model: "mock-model",
+      error: {
+        message: "retry",
+        code: "NETWORK_ERROR",
+        type: "connection_error",
+      },
+      object: "error",
+    });
+
+    const handle = await service.prepareMessage(request, { mode: "complete" });
+    const response = await service.sendPrepared(
+      handle as PreparedCompleteCall
+    );
+
+    expect(response).toMatchObject({
+      object: "error",
+      error: { code: "PREPARED_CALL_STALE" },
+    });
+    expect(fake.revalidations).toBe(2);
+    expect(fake.dispatchRequests).toHaveLength(1);
+    expect(providerEndpointRevisionProvider).toHaveBeenCalledTimes(3);
   });
 
   it("keeps convenience and explicit preparation equivalent and permits concurrent redispatch", async () => {
@@ -408,6 +531,36 @@ describe("LLMService prepared calls", () => {
     expect(new Set(first.map((event) => event.attemptId)).size).toBe(1);
     expect(first[0].attemptId).not.toBe(second[0].attemptId);
     expect(fake.dispatchRequests).toHaveLength(2);
+  });
+
+  it("revalidates every streaming dispatch and rejects a missing current revision", async () => {
+    let generation: number | undefined = 7;
+    const providerEndpointRevisionProvider = jest.fn(async () => generation);
+    const service = new LLMService(async () => "not-needed", {
+      logLevel: "silent",
+      providerEndpointRevisionProvider,
+    });
+    const fake = new PreparedFakeAdapter();
+    registerFake(service, fake);
+    const handle = await service.prepareMessage(request, { mode: "stream" });
+
+    const first = await collect(
+      service.streamPrepared(handle as PreparedStreamCall)
+    );
+    generation = undefined;
+    const second = await collect(
+      service.streamPrepared(handle as PreparedStreamCall)
+    );
+
+    expect(first[first.length - 1]).toMatchObject({ type: "complete" });
+    expect(second).toHaveLength(1);
+    expect(second[0]).toMatchObject({
+      type: "error",
+      error: { error: { code: "PREPARED_CALL_STALE" } },
+    });
+    expect(fake.revalidations).toBe(2);
+    expect(fake.dispatchRequests).toHaveLength(1);
+    expect(providerEndpointRevisionProvider).toHaveBeenCalledTimes(3);
   });
 
   it("turns an end-without-terminal stream into one error", async () => {

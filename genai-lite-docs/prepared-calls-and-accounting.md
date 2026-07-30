@@ -129,6 +129,42 @@ For llama.cpp, preparation uses
 count is bound to hashes of the active model, server build, and chat template.
 Dispatch rejects a detected change as `PREPARED_CALL_STALE`.
 
+### Authoritative endpoint revisions
+
+An application that manages a local provider process can bind prepared calls to
+an authoritative process generation or endpoint revision without coupling
+genai-lite to that process manager:
+
+```typescript
+const localService = new LLMService(async () => "not-needed", {
+  providerEndpointRevisionProvider: async ({ providerId, modelId }) => {
+    const ready = await localEndpointManager.getReadyState(providerId, modelId);
+    return ready?.serverGeneration;
+  },
+});
+```
+
+The callback is optional. Omit it for services whose providers do not expose an
+authoritative endpoint revision. When configured, it applies to every prepared
+call created by that service and must return a non-empty string or finite
+number. A missing revision during preparation fails closed with
+`PREPARED_CALL_STALE`.
+
+The callback must read live authoritative state on every invocation. It must not
+close over the generation current when the service or prepared call was
+created. Genai-lite captures the revision before provider capability, state, or
+token-count preparation so a restart during those preflights leaves the handle
+bound to the earlier generation. The captured value is available at
+`inspection.bindings.providerEndpointRevision`. Genai-lite invokes the callback
+again after adapter-specific state validation and immediately before every
+physical complete-call attempt or streaming dispatch. A missing or different
+current value rejects the dispatch with `PREPARED_CALL_STALE` before inference.
+
+For llama.cpp, the authoritative endpoint revision complements rather than
+replaces `serverStateFingerprint`: the fingerprint detects model, build, or
+template changes within one server generation, while the revision detects a
+process restart whose observable state is otherwise identical.
+
 ## Certified structural bounds and margins
 
 `countTextTokens()` returns exact ordinary-text evidence for a pinned profile.

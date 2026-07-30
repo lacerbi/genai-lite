@@ -292,6 +292,16 @@ preparation, handle, and API-key failures.
 type PreparedCallMode = 'complete' | 'stream';
 type PreparedCompleteCall = PreparedCall<'complete'>;
 type PreparedStreamCall = PreparedCall<'stream'>;
+type ProviderEndpointRevision = string | number;
+
+interface PreparedRequestBindings {
+  adapterRevision: string;
+  requestShapeRevision: string;
+  tokenProfileRevision?: string;
+  providerEndpointRevision?: ProviderEndpointRevision;
+  serverStateFingerprint?: string;
+  chatTemplateFingerprint?: string;
+}
 
 interface PreparedStructuredOutputView {
   delivery: 'native' | 'prompt';
@@ -531,10 +541,22 @@ interface LLMServiceOptions {
   logLevel?: LogLevel;
   logger?: Logger;
   timeoutMs?: number;             // Default per-request timeout (overridable per call)
+  providerEndpointRevisionProvider?: ProviderEndpointRevisionProvider;
   retry?: Partial<RetryPolicy> & {
     retryOnTimeout?: boolean;     // Whether REQUEST_TIMEOUT is retryable (default true)
   };
 }
+
+type ProviderEndpointRevisionProvider = (
+  context: Readonly<{
+    providerId: ApiProviderId;
+    modelId: string;
+  }>
+) =>
+  | ProviderEndpointRevision
+  | null
+  | undefined
+  | Promise<ProviderEndpointRevision | null | undefined>;
 
 // Second argument to LLMService.sendMessage(request, options)
 interface SendMessageOptions {

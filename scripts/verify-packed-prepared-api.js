@@ -65,6 +65,7 @@ import {
   type LLMResponse,
   type LLMServiceStreamEvent,
   type LLMStreamEvent,
+  type ProviderEndpointRevisionProvider,
 } from "genai-lite";
 
 class LegacyAdapter implements ILLMClientAdapter {
@@ -89,7 +90,11 @@ class LegacyAdapter implements ILLMClientAdapter {
 void (null as unknown as LegacyAdapter);
 void (null as unknown as AdapterLLMStreamEvent);
 
-const service = new LLMService(async () => "not-needed");
+const providerEndpointRevisionProvider: ProviderEndpointRevisionProvider =
+  async () => 7;
+const service = new LLMService(async () => "not-needed", {
+  providerEndpointRevisionProvider,
+});
 async function verify(): Promise<void> {
   const complete = await service.prepareMessage({
     providerId: "mock",
@@ -100,7 +105,10 @@ async function verify(): Promise<void> {
   const inspection = await service.inspectPrepared(complete);
   if ("object" in inspection) return;
   const provenance: string | undefined = inspection.outputTokenLimit?.source;
+  const endpointRevision: string | number | undefined =
+    inspection.bindings.providerEndpointRevision;
   void provenance;
+  void endpointRevision;
   await service.sendPrepared(complete);
   // @ts-expect-error complete handles cannot be streamed
   service.streamPrepared(complete);
