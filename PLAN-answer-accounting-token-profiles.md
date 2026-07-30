@@ -28,6 +28,30 @@ explicit Gemini exclusion-proof contingency described in Phase 3.
 - [ ] Phase 12: Add the optional local loader and self-verifying recipes
 - [ ] Phase 13: Integrate, document, verify, publish, and close
 
+## Handoff / Pickup Point
+
+Recorded: 2026-07-30
+Branch: `answer-accounting-token-profiles`
+
+- Release A (items 1, 2, 4, and 5) is implemented, double-checked, and pushed.
+  Its non-release gates pass: 43 Jest suites / 1,061 tests, TypeScript build,
+  packed-consumer verification, production audit, package dry-run, and runtime
+  export smoke test.
+- Release A is intentionally not versioned or published. Phase 8 remains
+  active only for the explicit release mutations and installed-version
+  verification.
+- No background process, external job, open pull request, or session-bound
+  artifact is in flight. No tracked work remains only in the working tree.
+- Resume implementation at **Phase 9**, the generic content-profile registry.
+  Preserve the existing certified `TokenProfile` APIs and certificate boundary;
+  Release B must remain tokenizer- and application-agnostic.
+- Before Phase 12, revalidate the optional-peer version, Gemma immutable
+  revisions, complete behavior-relevant manifests, hashes, license, and
+  ordinary-text/no-specials transformation against current upstream sources.
+- From a clean checkout: switch to this branch, read this plan and
+  `ISSUE-answer-accounting-and-token-profiles.md`, then read the repository
+  summary files required by `AGENTS.md` before starting Phase 9.
+
 ## Summary
 
 Deliver the five issue items in two releases.
