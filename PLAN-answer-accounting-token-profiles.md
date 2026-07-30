@@ -88,6 +88,9 @@ historical implementation structure.
 - [~] Push, open or reuse the pull request, require green CI, and merge.
 - [~] PR `#118` is open; final-head CI and authoritative DCO verification are
   pending.
+- [x] Repair the macOS cold-run network-dependent lazy-load test and the
+  fresh-lockfile cache-key collision between parallel Node matrix jobs; the
+  focused `LLMService` suite and full 47-suite/1,098-test run pass locally.
 - [ ] Tag the recorded merge commit and publish the GitHub release.
 - [ ] Verify the release and hand off npm publication separately.
 
