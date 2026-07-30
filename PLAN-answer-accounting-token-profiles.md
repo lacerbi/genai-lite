@@ -82,9 +82,10 @@ sets were complete. The release therefore contains all five issue items in one
 minor version; the earlier Release A / Release B sequencing remains above as
 historical implementation structure.
 
-- [~] Commit the complete release-ready implementation with DCO sign-off.
-- [ ] Add and commit the separate combined-release version bump.
-- [ ] Push, open or reuse the pull request, require green CI, and merge.
+- [x] Commit the complete release-ready implementation with DCO sign-off.
+- [x] Add and commit the separate combined-release version bump.
+- [x] Run every blocking local release gate for `v0.17.0`.
+- [~] Push, open or reuse the pull request, require green CI, and merge.
 - [ ] Tag the recorded merge commit and publish the GitHub release.
 - [ ] Verify the release and hand off npm publication separately.
 
