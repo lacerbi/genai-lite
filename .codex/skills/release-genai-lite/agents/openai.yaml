@@ -1,0 +1,7 @@
+interface:
+  display_name: "Release genai-lite"
+  short_description: "Run a guarded patch or minor release"
+  default_prompt: "Use $release-genai-lite to prepare and publish a guarded genai-lite release."
+
+policy:
+  allow_implicit_invocation: false
