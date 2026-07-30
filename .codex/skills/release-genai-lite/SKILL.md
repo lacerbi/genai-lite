@@ -38,8 +38,10 @@ publication to the user unless they separately and explicitly authorize it.
 - Require the implementation to be release-ready and committed before adding
   the version bump. Do not absorb unfinished feature work into this workflow.
 - Resume verified completed steps instead of repeating them.
-- Never force-push, move an existing tag, overwrite a release, or merge around
-  failed or pending checks.
+- Never force-push during the normal workflow, move an existing tag, overwrite
+  a release, or merge around failed or pending checks. Repairing DCO on an
+  already pushed branch requires separate explicit authorization and
+  `--force-with-lease`; never use unqualified `--force`.
 - Delete only the exact merged release branch, and only after verifying it is
   contained in `main`.
 - Never run paid real-provider E2E tests without explicit user authorization.
@@ -48,15 +50,26 @@ publication to the user unless they separately and explicitly authorize it.
 
 ## 1. Establish release state
 
-Read the repository instructions and root summary files. Inspect the worktree,
-remote, latest version tag, commits since that tag, current package version,
-current branch, and any open PR from that branch.
+Read the repository instructions and root summary files. Refresh remote-tracking
+branches and version tags before making any version decision:
+
+```text
+git fetch origin --prune --tags
+```
+
+Inspect the worktree, remote, latest version tag, commits since that tag,
+current package version, current branch, and any open PR from that branch.
 
 Compare the latest tag with `package.json`. Investigate mismatches before
 proceeding, and do not bump again when the intended target is already present.
-If the clean worktree is on `main`, create `release/vX.Y.Z` after selecting the
-target. Reuse a suitable existing non-`main` branch when it already contains
-the release changes.
+If the clean worktree is on `main`, fast-forward it from `origin/main` before
+selecting the target and creating `release/vX.Y.Z`.
+
+For an existing non-`main` branch, require both current `origin/main` and the
+latest release tag to be ancestors of the branch before classifying changes.
+If either is not, synchronize the branch through the repository's normal
+non-destructive workflow and repeat preflight. Do not classify or release from
+stale or divergent history.
 
 ## 2. Select patch or minor
 
@@ -116,10 +129,25 @@ Commit only the two version files:
 ```text
 git add package.json package-lock.json
 git commit -s -m "chore: bump version to X.Y.Z"
-git push
 ```
 
-Verify the `Signed-off-by` trailer and upstream synchronization.
+Before pushing, enumerate every commit introduced by the branch relative to
+`origin/main`. Require a nonempty `Signed-off-by` trailer on every implementation,
+fix, merge, and version commit—not only the version bump.
+
+Repair unsigned unpublished commits with an amend or sign-off rebase. If an
+unsigned commit is already pushed, stop and obtain explicit authorization
+before rewriting remote history, then use only `--force-with-lease`.
+
+Inspect the branch's upstream. If it is the expected `origin/<branch>`, push
+normally. If no upstream exists, establish it explicitly:
+
+```text
+git push --set-upstream origin HEAD
+```
+
+Stop if an unexpected upstream is configured. After pushing, verify upstream
+synchronization.
 
 ## 6. Create or reuse the pull request
 
@@ -143,6 +171,11 @@ Keep the user updated while jobs are pending. Investigate and fix any failure,
 rerun relevant local checks, commit with DCO, push, and wait for replacement
 CI. Do not merge until every required check is green.
 
+Immediately before merging, inspect the authoritative PR commit list with
+`gh pr view <PR> --json commits`. Require a `Signed-off-by` trailer on every PR
+commit. Stop for repair if any commit is unsigned; CI does not currently enforce
+this repository requirement.
+
 Merge with `gh pr merge <PR> --merge`. Verify the PR state is `MERGED` and
 record the merge commit.
 
@@ -155,25 +188,36 @@ git switch main
 git pull --ff-only
 ```
 
-Verify `main` contains the merge, reports the target package version, matches
-`origin/main`, has a clean worktree, and contains the release branch as an
-ancestor. Delete the exact merged branch locally with `git branch -d`, then
-delete it from `origin` if it still exists. Never delete `main`.
+Verify `main` contains the recorded merge commit, matches `origin/main`, has a
+clean worktree, and contains the release branch as an ancestor. Read
+`package.json` from the recorded merge commit itself and require the target
+version there. A later unrelated `main` commit must not change the commit being
+released.
+
+Delete the exact merged branch locally with `git branch -d`, then delete it
+from `origin` if it still exists. Never delete `main`.
 
 ## 9. Create and push the annotated tag
 
-Check local and remote tag state. Stop if `vX.Y.Z` exists unless it already
-points to the verified release commit and the workflow is resuming.
+Check the exact tag locally, on `origin`, and in GitHub releases. Treat any
+remote tag or published release as immutable. Stop if either points somewhere
+unexpected.
+
+If only an unpublished local tag exists, inspect its peeled commit. Reuse it
+when correct. If it is wrong, first confirm that the exact tag is absent from
+`origin` and GitHub releases, then delete only that local tag and recreate it.
 
 Create and verify:
 
 ```text
-git tag -a vX.Y.Z -m "vX.Y.Z — concise release theme"
+git tag -a vX.Y.Z <recorded-merge-commit> -m "vX.Y.Z — concise release theme"
 git push origin vX.Y.Z
 ```
 
-Verify the peeled tag commit equals the intended `main` release commit before
-pushing. Push only the exact tag. Never force or move a published version tag.
+Verify the peeled tag commit equals the recorded merge commit before pushing.
+Never tag the current `main` HEAD merely because it contains that merge: another
+PR may have landed meanwhile. Push only the exact tag. Never force or move a
+published version tag.
 
 ## 10. Publish the GitHub release
 
