@@ -479,6 +479,10 @@ type LLMRequestCapabilityValidationResult =
 
 `unknown` means genai-lite has no explicit metadata for that capability. It is not automatically rejected by `validateRequestCapabilities()`; callers decide policy.
 
+`tokenProfileMappingRevision` identifies the complete content-profile registry
+snapshot used for that capability result. Capability results are point-in-time
+values; query again after registering a backend or alias.
+
 ### Content-token profiles
 
 ```typescript
@@ -562,7 +566,12 @@ countContentTextTokens(text, profile): TokenCountResult;
 getContentTokenProfileMappingRevision(): string;
 ```
 
-The production registry freezes on its first content read. Registered backends
+The production registry is process-global, synchronous, transactional, and
+append-only. Reads do not close registration. New backend IDs and unclaimed
+exact aliases may be added later, but existing IDs and aliases cannot be
+replaced or removed. Unavailable resolutions may become available when queried
+again. Each result's `mappingRevision` identifies the complete registry
+snapshot read and may change after successful additions. Registered backends
 are always `model` quality. The legacy certified `TokenProfile` APIs remain
 separate and accept only canonical built-in certificate profiles.
 
@@ -603,7 +612,7 @@ the six required test categories.
 `TOKENIZER_SELF_TEST_FAILED`, or `TOKENIZER_ABORTED`.
 
 See [Prepared Calls and Token Accounting](prepared-calls-and-accounting.md#content-token-profiles)
-for initialization order, exact aliases, cache guarantees, recipes, and
+for registration timing, exact aliases, cache guarantees, recipes, and
 bundler configuration.
 
 ### Settings Types

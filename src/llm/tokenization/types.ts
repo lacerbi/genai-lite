@@ -55,6 +55,7 @@ export type ContentTokenProfileResolution =
       status: "available";
       provider: ApiProviderId;
       model: string;
+      /** Deterministic identity of the complete registry snapshot read. */
       mappingRevision: string;
       profile: ContentTokenProfile;
     }
@@ -62,6 +63,7 @@ export type ContentTokenProfileResolution =
       status: "unavailable";
       provider: ApiProviderId;
       model: string;
+      /** Deterministic identity of the complete registry snapshot read. */
       mappingRevision: string;
       reason: string;
     };
@@ -109,7 +111,9 @@ export interface ContentTokenProfileAlias {
 }
 
 export interface ContentTokenProfileConfiguration {
+  /** New synchronous backends to append atomically. Existing IDs are immutable. */
   backends: RegisteredContentTokenizerBackend[];
+  /** New exact aliases to append atomically. Existing aliases are immutable. */
   aliases: ContentTokenProfileAlias[];
 }
 

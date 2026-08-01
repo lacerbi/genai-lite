@@ -271,65 +271,69 @@ export class ContentTokenProfileRegistry {
     aliases: new Map(),
   };
 
-  private _frozen = false;
+  private _registrationInProgress = false;
 
   private _mappingRevision?: string;
 
   register(configuration: ContentTokenProfileConfiguration): void {
-    if (this._frozen) {
+    if (this._registrationInProgress) {
       throw new Error(
-        "Content-token profile registration is closed after the first content-profile read."
+        "Content-token profile registration is already in progress."
       );
     }
-    if (
-      !isRecord(configuration) ||
-      !hasExactKeys(configuration, ["backends", "aliases"]) ||
-      !Array.isArray(configuration.backends) ||
-      !Array.isArray(configuration.aliases)
-    ) {
-      throw new TypeError(
-        "Content-token profile configuration must contain exactly backends and aliases arrays."
-      );
-    }
-
-    const nextBackends = new Map(this._state.backends);
-    const nextAliases = new Map(this._state.aliases);
-    for (const backend of configuration.backends) {
-      const canonical = this.validateBackend(backend);
+    this._registrationInProgress = true;
+    try {
       if (
-        nextBackends.has(canonical.profile.id) ||
-        getTokenProfileById(canonical.profile.id as "cl100k_base" | "o200k_base")
+        !isRecord(configuration) ||
+        !hasExactKeys(configuration, ["backends", "aliases"]) ||
+        !Array.isArray(configuration.backends) ||
+        !Array.isArray(configuration.aliases)
       ) {
-        throw new Error(
-          `Content-token profile id '${canonical.profile.id}' is already registered.`
+        throw new TypeError(
+          "Content-token profile configuration must contain exactly backends and aliases arrays."
         );
       }
-      nextBackends.set(canonical.profile.id, canonical);
-    }
 
-    for (const alias of configuration.aliases) {
-      const canonical = this.validateAlias(alias, nextBackends);
-      const key = aliasKey(canonical.providerId, canonical.modelId);
-      if (
-        nextAliases.has(key) ||
-        getMappedTokenProfileId(canonical.providerId, canonical.modelId)
-      ) {
-        throw new Error(
-          `Content-token alias '${canonical.providerId}/${canonical.modelId}' conflicts with an existing exact alias.`
-        );
+      const nextBackends = new Map(this._state.backends);
+      const nextAliases = new Map(this._state.aliases);
+      for (const backend of configuration.backends) {
+        const canonical = this.validateBackend(backend);
+        if (
+          nextBackends.has(canonical.profile.id) ||
+          getTokenProfileById(canonical.profile.id as "cl100k_base" | "o200k_base")
+        ) {
+          throw new Error(
+            `Content-token profile id '${canonical.profile.id}' is already registered.`
+          );
+        }
+        nextBackends.set(canonical.profile.id, canonical);
       }
-      nextAliases.set(key, canonical);
-    }
 
-    this._state = { backends: nextBackends, aliases: nextAliases };
-    this._mappingRevision = undefined;
+      for (const alias of configuration.aliases) {
+        const canonical = this.validateAlias(alias, nextBackends);
+        const key = aliasKey(canonical.providerId, canonical.modelId);
+        if (
+          nextAliases.has(key) ||
+          getMappedTokenProfileId(canonical.providerId, canonical.modelId)
+        ) {
+          throw new Error(
+            `Content-token alias '${canonical.providerId}/${canonical.modelId}' conflicts with an existing exact alias.`
+          );
+        }
+        nextAliases.set(key, canonical);
+      }
+
+      this._state = { backends: nextBackends, aliases: nextAliases };
+      this._mappingRevision = undefined;
+    } finally {
+      this._registrationInProgress = false;
+    }
   }
 
   resolve(
     providerId: ApiProviderId,
     modelId: string
   ): ContentTokenProfileResolution {
-    this.freeze();
     const mappingRevision = this.mappingRevision();
     const builtinId = getMappedTokenProfileId(providerId, modelId);
     if (builtinId) {
@@ -379,7 +383,6 @@ export class ContentTokenProfileRegistry {
   }
 
   getById(profileId: string): ContentTokenProfile | undefined {
-    this.freeze();
     if (profileId === "cl100k_base" || profileId === "o200k_base") {
       return toBuiltinContentProfile(profileId);
     }
@@ -387,7 +390,6 @@ export class ContentTokenProfileRegistry {
   }
 
   count(text: string, profile: ContentTokenProfile): TokenCountResult {
-    this.freeze();
     if (typeof text !== "string") {
       return {
         status: "unavailable",
@@ -475,7 +477,6 @@ export class ContentTokenProfileRegistry {
   }
 
   getMappingRevision(): string {
-    this.freeze();
     return this.mappingRevision();
   }
 
@@ -581,10 +582,6 @@ export class ContentTokenProfileRegistry {
     });
   }
 
-  private freeze(): void {
-    this._frozen = true;
-  }
-
   private mappingRevision(): string {
     if (!this._mappingRevision) {
       const backends = [...this._state.backends.values()]
@@ -627,8 +624,8 @@ export class ContentTokenProfileRegistry {
 const productionRegistry = new ContentTokenProfileRegistry();
 
 /**
- * Atomically registers synchronous content-tokenizer backends and exact
- * provider/model aliases before the production registry's first read.
+ * Atomically appends synchronous content-tokenizer backends and exact
+ * provider/model aliases. Existing backend IDs and aliases cannot be replaced.
  */
 export function registerContentTokenProfileConfiguration(
   configuration: ContentTokenProfileConfiguration
@@ -636,7 +633,7 @@ export function registerContentTokenProfileConfiguration(
   productionRegistry.register(configuration);
 }
 
-/** Resolves an exact built-in or startup-registered content-token profile. */
+/** Resolves an exact built-in or registered content-token profile. */
 export function resolveContentTokenProfile(
   providerId: ApiProviderId,
   modelId: string
@@ -659,7 +656,7 @@ export function countContentTextTokens(
   return productionRegistry.count(text, profile);
 }
 
-/** Returns the frozen production registry's deterministic runtime mapping ID. */
+/** Returns the current production-registry snapshot's deterministic mapping ID. */
 export function getContentTokenProfileMappingRevision(): string {
   return productionRegistry.getMappingRevision();
 }

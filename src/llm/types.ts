@@ -203,7 +203,7 @@ export interface ModelCapabilities {
   preparedMessageTokenCounting?: TokenCountingAvailability;
   /** Tokenizer/profile identity when statically known. */
   tokenProfileId?: string;
-  /** Revision of the model-to-profile mapping table. */
+  /** Revision of the current complete model-to-profile registry snapshot. */
   tokenProfileMappingRevision?: string;
   /** Whether prompt usage is normally reported (not a per-response guarantee). */
   reportsPromptUsage?: boolean;

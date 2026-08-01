@@ -19,7 +19,7 @@ A lightweight, portable Node.js/TypeScript library providing a unified interface
 - 🎭 **Template Engine** - Sophisticated templating with conditionals and variable substitution
 - 📊 **Configurable Logging** - Debug mode, custom loggers (pino, winston), and silent mode for tests
 
-- **Extensible Content Tokenizers** - Exact built-ins plus startup-registered local tokenizer recipes and aliases
+- **Extensible Content Tokenizers** - Exact built-ins plus append-only local tokenizer recipes and aliases
 
 Prepared calls can inspect and budget the immutable semantic provider request,
 then dispatch that same representation with truthful token/termination evidence.
@@ -134,8 +134,9 @@ dispatch validation still rejects stale calls.
 
 ### Optional Content Tokenizers
 
-Applications can load a pinned tokenizer recipe during startup, register exact
-provider/model aliases, and obtain synchronous model-quality content counts:
+Applications can load a pinned tokenizer recipe during startup or when a model
+is installed, register exact provider/model aliases, and obtain synchronous
+model-quality content counts:
 
 ```bash
 npm install @huggingface/tokenizers@^0.1.3
@@ -163,8 +164,11 @@ registerContentTokenProfileConfiguration({
 });
 ```
 
-Registration must finish before the first content-profile read. Registered
-profiles remain model evidence and cannot enter certificate APIs. See
+Registration is process-global, synchronous, transactional, and append-only.
+Reads do not close the registry, but existing backend IDs and aliases cannot be
+replaced. Re-query a previously unavailable resolution or capability after a
+successful addition. Registered profiles remain model evidence and cannot enter
+certificate APIs. See
 **[Prepared Calls & Token Accounting](./genai-lite-docs/prepared-calls-and-accounting.md#content-token-profiles)**
 for cache integrity, exact aliasing, bundler configuration, and trust levels.
 

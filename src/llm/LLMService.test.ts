@@ -4,6 +4,7 @@ import { AnthropicClientAdapter } from './clients/AnthropicClientAdapter';
 import { OpenAIClientAdapter } from './clients/OpenAIClientAdapter';
 import type { ApiKeyProvider } from '../types';
 import type { LLMChatRequest, LLMResponse, LLMFailureResponse } from './types';
+import type { Logger } from '../logging/types';
 
 describe('LLMService', () => {
   let service: LLMService;
@@ -24,6 +25,22 @@ describe('LLMService', () => {
     it('should initialize with the provided API key provider', () => {
       expect(service).toBeDefined();
       // The service should be ready to use
+    });
+
+    it('should not warn when mock intentionally uses the fallback adapter', () => {
+      const logger: jest.Mocked<Logger> = {
+        debug: jest.fn(),
+        info: jest.fn(),
+        warn: jest.fn(),
+        error: jest.fn(),
+      };
+
+      new LLMService(mockApiKeyProvider, { logger });
+
+      expect(logger.warn).not.toHaveBeenCalled();
+      expect(logger.debug).toHaveBeenCalledWith(
+        expect.stringContaining("provider 'mock'")
+      );
     });
 
     it('should lazy-load client adapters on first use', async () => {
@@ -380,9 +397,8 @@ describe('LLMService', () => {
         // Should succeed with mock response
         expect(response.object).toBe('chat.completion');
 
-        // Should NOT warn about unknown model (filter out adapter constructor warnings)
-        const unknownModelWarnings = warnings.filter(w => !w.includes('No adapter constructor'));
-        expect(unknownModelWarnings.length).toBe(0);  // No warnings for flexible providers
+        // Should NOT warn about unknown models for flexible providers
+        expect(warnings).toHaveLength(0);
 
         consoleWarnSpy.mockRestore();
       });
