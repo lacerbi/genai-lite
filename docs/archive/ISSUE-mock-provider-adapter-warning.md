@@ -3,7 +3,7 @@
 Created: 2026-07-31
 Status: COMPLETE
 Resolved: 2026-08-01
-Resolution release: v0.17.1 (planned)
+Resolution release: v0.17.1
 Package: genai-lite (v0.17.0 at filing)
 Filed by: Palimpsest Engine
 
