@@ -1,4 +1,5 @@
 import { AdapterRegistry, type AdapterRegistryConfig, type MinimalProviderInfo } from './AdapterRegistry';
+import type { Logger } from '../../logging/types';
 
 // Test adapter interface
 interface TestAdapter {
@@ -34,6 +35,15 @@ const SUPPORTED_PROVIDERS: MinimalProviderInfo<TestProviderId>[] = [
   { id: 'provider3', displayName: 'Provider 3' },
 ];
 
+function createTestLogger(): jest.Mocked<Logger> {
+  return {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+  };
+}
+
 describe('AdapterRegistry (Generic)', () => {
   describe('constructor and initialization', () => {
     it('should initialize with fallback adapter only', () => {
@@ -67,6 +77,28 @@ describe('AdapterRegistry (Generic)', () => {
       expect(summary.providersWithAdapters).toBe(2);
       expect(summary.availableProviders).toEqual(['provider1', 'provider2']);
       expect(summary.unavailableProviders).toEqual(['provider3']);
+    });
+
+    it('should only debug-log missing constructors for intentional fallback providers', () => {
+      const logger = createTestLogger();
+      const config: AdapterRegistryConfig<TestAdapter, TestProviderId> = {
+        supportedProviders: SUPPORTED_PROVIDERS,
+        fallbackAdapter: new FallbackAdapter(),
+        adapterConstructors: {
+          provider1: Provider1Adapter,
+        },
+        intentionalFallbackProviderIds: ['provider3'],
+      };
+
+      new AdapterRegistry(config, logger);
+
+      expect(logger.warn).toHaveBeenCalledTimes(1);
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining("provider 'provider2'")
+      );
+      expect(logger.debug).toHaveBeenCalledWith(
+        expect.stringContaining("provider 'provider3'")
+      );
     });
 
     it('should pass adapter configs to constructors', () => {

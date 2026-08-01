@@ -40,6 +40,8 @@ export interface AdapterRegistryConfig<TAdapter, TProviderId extends string> {
   adapterConfigs?: Record<string, any>;
   /** Fallback adapter to use when no specific adapter is registered */
   fallbackAdapter: TAdapter;
+  /** Provider IDs intentionally served by the fallback adapter */
+  intentionalFallbackProviderIds?: readonly TProviderId[];
   /** Optional custom adapters to register at initialization */
   customAdapters?: Record<string, TAdapter>;
 }
@@ -80,7 +82,8 @@ export class AdapterRegistry<TAdapter, TProviderId extends string> {
     if (config.adapterConstructors) {
       this.initializeAdapters(
         config.adapterConstructors,
-        config.adapterConfigs || {}
+        config.adapterConfigs || {},
+        new Set(config.intentionalFallbackProviderIds)
       );
     }
   }
@@ -90,7 +93,8 @@ export class AdapterRegistry<TAdapter, TProviderId extends string> {
    */
   private initializeAdapters(
     adapterConstructors: Partial<Record<string, new (config?: any) => TAdapter>>,
-    adapterConfigs: Record<string, any>
+    adapterConfigs: Record<string, any>,
+    intentionalFallbackProviderIds: ReadonlySet<TProviderId>
   ): void {
     let registeredCount = 0;
     const successfullyRegisteredProviders: string[] = [];
@@ -125,10 +129,14 @@ export class AdapterRegistry<TAdapter, TProviderId extends string> {
           );
         }
       } else {
-        this.logger.warn(
+        const message =
           `AdapterRegistry: No adapter constructor found for supported provider '${provider.id}'. ` +
-          `This provider will use the fallback adapter.`
-        );
+          `This provider will use the fallback adapter.`;
+        if (intentionalFallbackProviderIds.has(providerId)) {
+          this.logger.debug(message);
+        } else {
+          this.logger.warn(message);
+        }
       }
     }
 

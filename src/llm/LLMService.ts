@@ -326,6 +326,7 @@ export class LLMService {
       fallbackAdapter: new MockClientAdapter(),
       adapterConstructors: ADAPTER_CONSTRUCTORS,
       adapterConfigs: ADAPTER_CONFIGS,
+      intentionalFallbackProviderIds: ["mock"],
     }, this.logger);
     this.requestValidator = new RequestValidator(this.logger);
     this.settingsManager = new SettingsManager(this.logger);
