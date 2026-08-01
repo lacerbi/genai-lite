@@ -681,6 +681,12 @@ out-of-coverage alias, but that is the caller's equivalence assertion. For GGUF
 aliases, document an exact lifecycle-stable slug and warn against mutable
 generic IDs.
 
+Hosts may append content-tokenizer backends and exact aliases during startup or
+later model-install workflows. Registration is synchronous and transactional;
+existing backend IDs and aliases are immutable. When another downloaded model
+shares an already registered backend, submit an alias-only configuration with
+an empty `backends` array and re-query any cached unavailable capability.
+
 ## Adding New Image Providers
 
 For entirely new image generation providers:

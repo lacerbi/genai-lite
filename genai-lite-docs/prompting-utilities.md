@@ -161,8 +161,9 @@ while (countTokens(prompt) > maxTokens) {
 
 ### Registered content tokenizers
 
-Applications can asynchronously load an optional recipe backend during startup,
-register exact model aliases, and then count synchronously:
+Applications can asynchronously load an optional recipe backend during startup
+or a later model-install workflow, register exact model aliases, and then count
+synchronously:
 
 ```typescript
 import {
@@ -172,8 +173,9 @@ import {
 } from "genai-lite";
 ```
 
-Registered profiles are model evidence, not certificates. Registration must
-finish before the first content-profile read. See
+Registered profiles are model evidence, not certificates. Registration is
+synchronous, transactional, and append-only; reads do not close the registry.
+Re-query previously unavailable resolutions after adding a backend or alias. See
 [Content-token profiles](prepared-calls-and-accounting.md#content-token-profiles)
 for the loader, recipes, cache, alias, and trust-boundary contracts.
 

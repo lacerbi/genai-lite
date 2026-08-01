@@ -203,10 +203,11 @@ and certificate functions reject them, including through runtime casts. A
 recipe hash and passing self-tests prove reproducibility, not a structural
 token-bound certificate.
 
-Registration is process-global, transactional, and startup-only. Register the
-complete backend and exact-alias set before the first content-profile lookup,
-resolution, count, mapping-revision read, capability query, preparation, or
-send:
+Registration is process-global, synchronous, transactional, and append-only.
+It may run during startup or later after a model-specific loader finishes. Each
+batch adds new backend IDs and exact aliases; it cannot replace existing
+backends, registered aliases, or built-in mappings. Register a new backend and
+its aliases together when they should become visible as one state transition:
 
 ```typescript
 import {
@@ -245,15 +246,40 @@ const resolved = resolveContentTokenProfile(
 );
 ```
 
-The first content-profile read freezes the registry. Module import and
-certified-bound calls do not freeze it. Failed multi-backend registration
-commits nothing.
+Content-profile reads do not close the registry. A lookup that is unavailable
+in one snapshot may become available after a later successful addition, so
+re-query resolutions and model capabilities after registering. Once a key is
+available, its profile identity cannot change. Failed multi-backend
+registration commits nothing.
+
+To add another model alias for an already registered tokenizer, use an
+alias-only batch rather than registering the backend ID again:
+
+```typescript
+registerContentTokenProfileConfiguration({
+  backends: [],
+  aliases: [{
+    providerId: "llamacpp",
+    modelId: "another-gemma-4-model.gguf",
+    profileId: backend.id,
+  }],
+});
+```
 
 Aliases are exact, case-sensitive `(providerId, modelId)` tuples. There is no
 family inference or GGUF-name normalization. An alias may target a built-in
 exact profile or a registered model-quality profile. The profile's stable
 semantic revision is separate from the runtime mapping revision, which also
-binds exact aliases and validated runtime package provenance.
+binds exact aliases and validated runtime package provenance. The mapping
+revision identifies the complete registry snapshot read by that result. It
+changes after a successful addition even when an existing key still resolves
+to the same profile; failed batches do not change it.
+
+`LLMService` capability results are point-in-time snapshots. Response
+post-processing resolves content profiles live, so a profile registered after
+preparation but before terminal processing may add missing model-quality
+raw-content evidence. It never changes the prepared provider request or
+overwrites provider-output evidence.
 
 ### Optional loader and recipes
 
@@ -268,7 +294,8 @@ Importing `genai-lite`, `genai-lite/tokenizer-recipes`, or
 `loadContentTokenizerProfile()` resolves it. A missing, indeterminate, or
 unsupported runtime fails at that call with an actionable typed error.
 
-Recipe loading is an explicit asynchronous startup step. It:
+Recipe loading is an explicit asynchronous initialization step that may run at
+startup or as part of a later model-install workflow. It:
 
 - validates the complete recipe before filesystem or network work;
 - requires a caller-selected cache and explicit download permission;

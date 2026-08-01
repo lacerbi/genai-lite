@@ -145,9 +145,10 @@ Capability calls perform no external I/O:
 - no provider adapter call
 - no network I/O
 
-The first capability call that resolves content-token counting freezes the
-process-global content-profile registry. Load and register any optional local
-tokenizer backends before capability queries, preparation, or sends.
+Capability calls read the current in-memory content-profile registry snapshot
+without closing registration. After appending a local tokenizer backend or
+exact alias, call the capability API again; previously returned results are not
+mutated.
 
 Structured-output support is reported as:
 - `supported`: genai-lite has metadata that native structured output is available.
@@ -156,7 +157,10 @@ Structured-output support is reported as:
 
 `capabilities.contentTokenCounting` reports `exact` for built-in hash-verified
 profiles, `model` for host-registered tokenizers, and `unavailable` when no
-exact `(providerId, modelId)` alias exists. See
+exact `(providerId, modelId)` alias exists. An unavailable result may become
+available after registration. `tokenProfileMappingRevision`, when present,
+identifies the complete registry snapshot used for that capability result and
+may change after unrelated additions. See
 [Content-token profiles](prepared-calls-and-accounting.md#content-token-profiles).
 
 `validateRequestCapabilities()` returns the same validation diagnostic shape as `sendMessage()` where possible. For example, Gemini-hosted Gemma models return `type: 'validation_error'` and `code: 'structured_output_not_supported'` when structured output is requested.

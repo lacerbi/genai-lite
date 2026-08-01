@@ -4,6 +4,7 @@ import {
   computeContentTokenizerSemanticRevision,
 } from "./contentProfiles";
 import type {
+  ContentTokenProfile,
   ContentTokenProfileConfiguration,
   ContentTokenizerSemanticProvenance,
   RegisteredContentTokenizerBackend,
@@ -48,6 +49,45 @@ function createBackend(
       options.count ?? ((text: string): number => text.length + tokenOffset),
   };
 }
+
+const REGISTRY_READ_CASES: ReadonlyArray<{
+  name: string;
+  read: (registry: ContentTokenProfileRegistry) => void;
+}> = [
+  {
+    name: "resolve",
+    read: (registry): void => {
+      registry.resolve("llamacpp", "not-installed-yet.gguf");
+    },
+  },
+  {
+    name: "getById",
+    read: (registry): void => {
+      registry.getById("not-installed-yet");
+    },
+  },
+  {
+    name: "count",
+    read: (registry): void => {
+      const backend = createBackend("count-read-source", 0);
+      registry.register({ backends: [backend], aliases: [] });
+      const profile: ContentTokenProfile = {
+        id: backend.id,
+        tokenizerId: backend.tokenizerId,
+        revision: backend.revision,
+        quality: "model",
+        origin: "registered",
+      };
+      registry.count("ordinary text", profile);
+    },
+  },
+  {
+    name: "getMappingRevision",
+    read: (registry): void => {
+      registry.getMappingRevision();
+    },
+  },
+];
 
 describe("content-token profile registry", () => {
   it("exposes built-in exact profiles without changing certified identity", () => {
@@ -221,24 +261,228 @@ describe("content-token profile registry", () => {
     expect(registry.getById("valid-before-failure")).toBeUndefined();
   });
 
-  it("does not freeze on construction or registration and freezes on first read", () => {
+  it.each(REGISTRY_READ_CASES)(
+    "allows registration after a $name read in an isolated registry",
+    ({ name, read }) => {
+      const registry = new ContentTokenProfileRegistry();
+      read(registry);
+      const backend = createBackend(`late-after-${name}`, 0);
+
+      expect(() =>
+        registry.register({
+          backends: [backend],
+          aliases: [
+            {
+              providerId: "llamacpp",
+              modelId: `${name}-late-model.gguf`,
+              profileId: backend.id,
+            },
+          ],
+        })
+      ).not.toThrow();
+      expect(
+        registry.resolve("llamacpp", `${name}-late-model.gguf`)
+      ).toMatchObject({
+        status: "available",
+        profile: { id: backend.id, quality: "model" },
+      });
+    }
+  );
+
+  it("makes an unavailable local key available without changing a built-in profile", () => {
     const registry = new ContentTokenProfileRegistry();
+    const cloudBefore = registry.resolve("openai", "gpt-4.1");
+    const localBefore = registry.resolve("llamacpp", "installed-later.gguf");
+    expect(cloudBefore.status).toBe("available");
+    expect(localBefore.status).toBe("unavailable");
+    const mappingBefore = localBefore.mappingRevision;
+
+    const backend = createBackend("installed-later-profile", 2);
     registry.register({
-      backends: [createBackend("startup-a", 0)],
-      aliases: [],
-    });
-    registry.register({
-      backends: [createBackend("startup-b", 0)],
-      aliases: [],
+      backends: [backend],
+      aliases: [
+        {
+          providerId: "llamacpp",
+          modelId: "installed-later.gguf",
+          profileId: backend.id,
+        },
+      ],
     });
 
-    expect(registry.getMappingRevision()).toHaveLength(64);
+    const cloudAfter = registry.resolve("openai", "gpt-4.1");
+    const localAfter = registry.resolve("llamacpp", "installed-later.gguf");
+    expect(localAfter).toMatchObject({
+      status: "available",
+      profile: { id: backend.id, quality: "model" },
+    });
+    expect(localAfter.mappingRevision).not.toBe(mappingBefore);
+    expect(cloudAfter.status).toBe("available");
+    if (cloudBefore.status === "available" && cloudAfter.status === "available") {
+      expect(cloudAfter.profile).toEqual(cloudBefore.profile);
+      expect(cloudAfter.mappingRevision).toBe(localAfter.mappingRevision);
+    }
+  });
+
+  it("adds aliases late for an already registered backend", () => {
+    const registry = new ContentTokenProfileRegistry();
+    const backend = createBackend("shared-late-profile", 0);
+    registry.register({ backends: [backend], aliases: [] });
+    expect(registry.getById(backend.id)).toBeDefined();
+
+    registry.register({
+      backends: [],
+      aliases: [
+        {
+          providerId: "llamacpp",
+          modelId: "second-download.gguf",
+          profileId: backend.id,
+        },
+      ],
+    });
+
+    expect(
+      registry.resolve("llamacpp", "second-download.gguf")
+    ).toMatchObject({
+      status: "available",
+      profile: { id: backend.id },
+    });
+  });
+
+  it("keeps resolved profiles valid while the mapping snapshot grows", () => {
+    const registry = new ContentTokenProfileRegistry();
+    const firstBackend = createBackend("stable-after-append", 1);
+    registry.register({
+      backends: [firstBackend],
+      aliases: [
+        {
+          providerId: "custom",
+          modelId: "stable-model",
+          profileId: firstBackend.id,
+        },
+      ],
+    });
+    const before = registry.resolve("custom", "stable-model");
+    expect(before.status).toBe("available");
+
+    const secondBackend = createBackend("unrelated-append", 0);
+    registry.register({
+      backends: [secondBackend],
+      aliases: [
+        {
+          providerId: "custom",
+          modelId: "unrelated-model-after-read",
+          profileId: secondBackend.id,
+        },
+      ],
+    });
+    const after = registry.resolve("custom", "stable-model");
+
+    expect(after.status).toBe("available");
+    expect(after.mappingRevision).not.toBe(before.mappingRevision);
+    if (before.status === "available" && after.status === "available") {
+      expect(after.profile).toEqual(before.profile);
+      expect(registry.count("abc", before.profile)).toMatchObject({
+        status: "available",
+        count: { tokens: 4, method: "model" },
+      });
+    }
+  });
+
+  it("keeps late failures and replacement attempts transactional", () => {
+    const registry = new ContentTokenProfileRegistry();
+    const stable = createBackend("late-transaction-stable", 0);
+    registry.register({
+      backends: [stable],
+      aliases: [
+        {
+          providerId: "custom",
+          modelId: "late-transaction-model",
+          profileId: stable.id,
+        },
+      ],
+    });
+    const resolvedBefore = registry.resolve(
+      "custom",
+      "late-transaction-model"
+    );
+    const revisionBefore = registry.getMappingRevision();
+
+    const rejected = createBackend("late-transaction-rejected", 0);
     expect(() =>
       registry.register({
-        backends: [createBackend("too-late", 0)],
+        backends: [rejected],
+        aliases: [
+          {
+            providerId: "custom",
+            modelId: "late-transaction-model",
+            profileId: rejected.id,
+          },
+        ],
+      })
+    ).toThrow(/conflicts with an existing exact alias/);
+    expect(registry.getById(rejected.id)).toBeUndefined();
+    expect(registry.getMappingRevision()).toBe(revisionBefore);
+
+    expect(() =>
+      registry.register({
+        backends: [createBackend(stable.id, 99)],
         aliases: [],
       })
-    ).toThrow(/registration is closed/);
+    ).toThrow(/already registered/);
+    expect(registry.getMappingRevision()).toBe(revisionBefore);
+    expect(registry.resolve("custom", "late-transaction-model")).toMatchObject(
+      resolvedBefore
+    );
+  });
+
+  it("rejects uncaught reentrant registration without poisoning later work", () => {
+    const registry = new ContentTokenProfileRegistry();
+    const revisionBefore = registry.getMappingRevision();
+    const inner = createBackend("reentrant-inner-uncaught", 0);
+    const outer = createBackend("reentrant-outer-uncaught", 0, {
+      count: (): number => {
+        registry.register({ backends: [inner], aliases: [] });
+        return 0;
+      },
+    });
+
+    expect(() =>
+      registry.register({ backends: [outer], aliases: [] })
+    ).toThrow(/registration is already in progress/);
+    expect(registry.getMappingRevision()).toBe(revisionBefore);
+    expect(registry.getById(inner.id)).toBeUndefined();
+    expect(registry.getById(outer.id)).toBeUndefined();
+
+    const later = createBackend("after-reentrant-failure", 0);
+    expect(() =>
+      registry.register({ backends: [later], aliases: [] })
+    ).not.toThrow();
+    expect(registry.getById(later.id)).toBeDefined();
+  });
+
+  it("allows an outer registration when its callback catches reentrancy", () => {
+    const registry = new ContentTokenProfileRegistry();
+    const inner = createBackend("reentrant-inner-caught", 0);
+    let nestedError: unknown;
+    const outer = createBackend("reentrant-outer-caught", 0, {
+      count: (): number => {
+        try {
+          registry.register({ backends: [inner], aliases: [] });
+        } catch (error) {
+          nestedError = error;
+        }
+        return 0;
+      },
+    });
+
+    registry.register({ backends: [outer], aliases: [] });
+
+    expect(nestedError).toBeInstanceOf(Error);
+    expect((nestedError as Error).message).toMatch(
+      /registration is already in progress/
+    );
+    expect(registry.getById(inner.id)).toBeUndefined();
+    expect(registry.getById(outer.id)).toBeDefined();
   });
 
   it("keeps callback failures and invalid runtime counts unavailable", () => {
