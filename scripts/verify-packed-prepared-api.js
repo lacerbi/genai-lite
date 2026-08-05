@@ -805,27 +805,32 @@ loadContentTokenizerProfile(recipe, {
 );
 `
   );
-  const peerEntry = require.resolve("@huggingface/tokenizers", {
-    paths: [consumer],
-  });
-  let peerPackageDir = path.dirname(peerEntry);
-  let peerManifestPath;
-  while (peerPackageDir !== path.parse(peerPackageDir).root) {
-    const candidate = path.join(peerPackageDir, "package.json");
-    if (fs.existsSync(candidate)) {
-      const candidateManifest = JSON.parse(fs.readFileSync(candidate, "utf8"));
-      if (candidateManifest.name === "@huggingface/tokenizers") {
-        peerManifestPath = candidate;
-        break;
-      }
-    }
-    peerPackageDir = path.dirname(peerPackageDir);
-  }
-  if (!peerManifestPath) {
+  const peerManifestPath = path.join(
+    consumer,
+    "node_modules",
+    "@huggingface",
+    "tokenizers",
+    "package.json"
+  );
+  if (!fs.existsSync(peerManifestPath)) {
     throw new Error("Packed test could not locate the optional peer manifest.");
   }
   const originalPeerManifest = fs.readFileSync(peerManifestPath, "utf8");
   const parsedPeerManifest = JSON.parse(originalPeerManifest);
+  if (parsedPeerManifest.name !== "@huggingface/tokenizers") {
+    throw new Error("Packed test located an unexpected optional peer manifest.");
+  }
+  const peerRequireTarget = parsedPeerManifest.exports?.["."]?.node?.require;
+  if (typeof peerRequireTarget !== "string") {
+    throw new Error("Packed test could not locate the optional peer CJS entry.");
+  }
+  const peerEntry = path.resolve(
+    path.dirname(peerManifestPath),
+    peerRequireTarget
+  );
+  if (!fs.existsSync(peerEntry)) {
+    throw new Error("Packed test optional peer CJS entry does not exist.");
+  }
   try {
     fs.writeFileSync(
       peerManifestPath,
