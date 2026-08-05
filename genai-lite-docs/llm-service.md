@@ -163,6 +163,11 @@ identifies the complete registry snapshot used for that capability result and
 may change after unrelated additions. See
 [Content-token profiles](prepared-calls-and-accounting.md#content-token-profiles).
 
+Built-in rank loading and validation also fail closed to `unavailable` rather
+than throwing from capability inspection. If that profile remains unavailable
+when a response is processed, genai-lite preserves provider-output accounting
+but omits library-generated raw-content token accounting.
+
 `validateRequestCapabilities()` returns the same validation diagnostic shape as `sendMessage()` where possible. For example, Gemini-hosted Gemma models return `type: 'validation_error'` and `code: 'structured_output_not_supported'` when structured output is requested.
 
 ---

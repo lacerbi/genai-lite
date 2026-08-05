@@ -2,9 +2,15 @@ import { createHash } from "node:crypto";
 import type { ApiProviderId, PreparedPromptTokenCount } from "../types";
 import {
   countTextTokens,
+  getBuiltinTokenProfileUnavailableReason,
   getMappedTokenProfileId,
   getTokenProfileById,
+  isBuiltinTokenProfileId,
 } from "./profiles";
+import {
+  canonicalizeContentTokenizerSemanticProvenance,
+  computeContentTokenizerSemanticRevision,
+} from "./contentProfileIdentity";
 import {
   TOKEN_PROFILE_MAPPING_REVISION,
   type ContentTokenProfile,
@@ -13,19 +19,16 @@ import {
   type ContentTokenProfileResolution,
   type ContentTokenizerBackendProvenance,
   type ContentTokenizerRuntimeProvenance,
-  type ContentTokenizerSemanticArtifact,
-  type ContentTokenizerSemanticProvenance,
   type RegisteredContentTokenizerBackend,
   type TokenCountResult,
+  type TokenProfileId,
 } from "./types";
 
-const SEMANTIC_REVISION_DOMAIN =
-  "genai-lite-content-token-profile-semantic-v1\u0000";
+export { computeContentTokenizerSemanticRevision };
+
 const MAPPING_REVISION_DOMAIN =
   "genai-lite-content-token-mapping-v1\u0000";
-const TEXT_POLICY = "ordinary-text-no-specials-v1" as const;
 const IDENTIFIER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:@/+~-]{0,127}$/;
-const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 const PACKAGE_NAME_PATTERN =
   /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/;
 const SEMVER_PATTERN =
@@ -80,79 +83,6 @@ function assertCanonicalString(
   ) {
     throw new TypeError(`${name} must be a nonempty canonical string.`);
   }
-}
-
-function canonicalizeSemanticProvenance(
-  value: unknown
-): ContentTokenizerSemanticProvenance {
-  if (
-    !isRecord(value) ||
-    !hasExactKeys(value, [
-      "tokenizerImplementation",
-      "textPolicy",
-      "artifacts",
-    ])
-  ) {
-    throw new TypeError(
-      "provenance.semantic must contain exactly tokenizerImplementation, textPolicy, and artifacts."
-    );
-  }
-  assertIdentifier(
-    value.tokenizerImplementation,
-    "provenance.semantic.tokenizerImplementation"
-  );
-  if (value.textPolicy !== TEXT_POLICY) {
-    throw new TypeError(
-      `provenance.semantic.textPolicy must be '${TEXT_POLICY}'.`
-    );
-  }
-  if (!Array.isArray(value.artifacts)) {
-    throw new TypeError("provenance.semantic.artifacts must be an array.");
-  }
-
-  const seenRoles = new Set<string>();
-  const artifacts: ContentTokenizerSemanticArtifact[] = value.artifacts.map(
-    (artifact, index) => {
-      if (
-        !isRecord(artifact) ||
-        !hasExactKeys(artifact, ["role", "sha256"])
-      ) {
-        throw new TypeError(
-          `provenance.semantic.artifacts[${index}] must contain exactly role and sha256.`
-        );
-      }
-      assertIdentifier(
-        artifact.role,
-        `provenance.semantic.artifacts[${index}].role`
-      );
-      if (
-        typeof artifact.sha256 !== "string" ||
-        !SHA256_PATTERN.test(artifact.sha256)
-      ) {
-        throw new TypeError(
-          `provenance.semantic.artifacts[${index}].sha256 must be a lowercase SHA-256 digest.`
-        );
-      }
-      if (seenRoles.has(artifact.role)) {
-        throw new TypeError(
-          `provenance.semantic artifact role '${artifact.role}' is duplicated.`
-        );
-      }
-      seenRoles.add(artifact.role);
-      return Object.freeze({
-        role: artifact.role,
-        sha256: artifact.sha256,
-      });
-    }
-  );
-  artifacts.sort((left, right) =>
-    compareCanonicalStrings(left.role, right.role)
-  );
-  return Object.freeze({
-    tokenizerImplementation: value.tokenizerImplementation,
-    textPolicy: TEXT_POLICY,
-    artifacts: Object.freeze(artifacts) as unknown as ContentTokenizerSemanticArtifact[],
-  });
 }
 
 function canonicalizeRuntimeProvenance(
@@ -211,38 +141,13 @@ function canonicalizeProvenance(
       "provenance must contain exactly semantic and optional runtime."
     );
   }
-  const semantic = canonicalizeSemanticProvenance(value.semantic);
+  const semantic = canonicalizeContentTokenizerSemanticProvenance(
+    value.semantic
+  );
   const runtime = value.runtime === undefined
     ? undefined
     : canonicalizeRuntimeProvenance(value.runtime);
   return Object.freeze(runtime ? { semantic, runtime } : { semantic });
-}
-
-function semanticRevisionInput(
-  provenance: ContentTokenizerSemanticProvenance
-): string {
-  return JSON.stringify({
-    tokenizerImplementation: provenance.tokenizerImplementation,
-    textPolicy: provenance.textPolicy,
-    artifacts: provenance.artifacts.map(({ role, sha256 }) => ({
-      role,
-      sha256,
-    })),
-  });
-}
-
-/**
- * Computes the stable semantic identity for a content-tokenizer backend.
- * Runtime package details, aliases, cache paths, and callbacks are excluded.
- */
-export function computeContentTokenizerSemanticRevision(
-  provenance: ContentTokenizerSemanticProvenance
-): string {
-  const canonical = canonicalizeSemanticProvenance(provenance);
-  return createHash("sha256")
-    .update(SEMANTIC_REVISION_DOMAIN)
-    .update(semanticRevisionInput(canonical))
-    .digest("hex");
 }
 
 function aliasKey(providerId: ApiProviderId, modelId: string): string {
@@ -250,7 +155,7 @@ function aliasKey(providerId: ApiProviderId, modelId: string): string {
 }
 
 function toBuiltinContentProfile(
-  id: "cl100k_base" | "o200k_base"
+  id: TokenProfileId
 ): ContentTokenProfile | undefined {
   const certified = getTokenProfileById(id);
   if (!certified) {
@@ -300,7 +205,7 @@ export class ContentTokenProfileRegistry {
         const canonical = this.validateBackend(backend);
         if (
           nextBackends.has(canonical.profile.id) ||
-          getTokenProfileById(canonical.profile.id as "cl100k_base" | "o200k_base")
+          isBuiltinTokenProfileId(canonical.profile.id)
         ) {
           throw new Error(
             `Content-token profile id '${canonical.profile.id}' is already registered.`
@@ -352,13 +257,13 @@ export class ContentTokenProfileRegistry {
         provider: providerId,
         model: modelId,
         mappingRevision,
-        reason: `Tokenizer rank data for '${builtinId}' did not match its pinned revision.`,
+        reason: getBuiltinTokenProfileUnavailableReason(builtinId),
       };
     }
 
     const alias = this._state.aliases.get(aliasKey(providerId, modelId));
     const builtinAliasProfile = alias &&
-      (alias.profileId === "cl100k_base" || alias.profileId === "o200k_base")
+      isBuiltinTokenProfileId(alias.profileId)
       ? toBuiltinContentProfile(alias.profileId)
       : undefined;
     const profile = alias
@@ -383,7 +288,7 @@ export class ContentTokenProfileRegistry {
   }
 
   getById(profileId: string): ContentTokenProfile | undefined {
-    if (profileId === "cl100k_base" || profileId === "o200k_base") {
+    if (isBuiltinTokenProfileId(profileId)) {
       return toBuiltinContentProfile(profileId);
     }
     return this._state.backends.get(profileId)?.profile;
@@ -413,7 +318,7 @@ export class ContentTokenProfileRegistry {
     }
 
     if (profile.origin === "builtin" && profile.quality === "exact") {
-      if (profile.id !== "cl100k_base" && profile.id !== "o200k_base") {
+      if (!isBuiltinTokenProfileId(profile.id)) {
         return {
           status: "unavailable",
           reason: `Built-in content-token profile '${profile.id}' is unavailable.`,
@@ -566,10 +471,9 @@ export class ContentTokenProfileRegistry {
     assertIdentifier(alias.providerId, "alias.providerId");
     assertCanonicalString(alias.modelId, "alias.modelId");
     assertIdentifier(alias.profileId, "alias.profileId");
-    const targetIsBuiltin =
-      alias.profileId === "cl100k_base" || alias.profileId === "o200k_base"
-        ? Boolean(getTokenProfileById(alias.profileId))
-        : false;
+    const targetIsBuiltin = isBuiltinTokenProfileId(alias.profileId)
+      ? Boolean(getTokenProfileById(alias.profileId))
+      : false;
     if (!backends.has(alias.profileId) && !targetIsBuiltin) {
       throw new Error(
         `Content-token alias '${alias.providerId}/${alias.modelId}' targets unknown profile '${alias.profileId}'.`

@@ -11,12 +11,19 @@ import { dirname, join, parse, resolve } from "node:path";
 import { createRequire } from "node:module";
 import {
   computeContentTokenizerSemanticRevision,
-} from "../contentProfiles";
+} from "../contentProfileIdentity";
 import type { RegisteredContentTokenizerBackend } from "../types";
 import type {
+  ContentTokenizerPeer,
   ContentTokenizerRecipe,
   ContentTokenizerRecipeArtifact,
   ContentTokenizerRecipeSelfTestName,
+  LoadContentTokenizerProfileOptions,
+} from "../recipes/types";
+
+export type {
+  ContentTokenizerPeer,
+  ContentTokenizerRuntimeModule,
   LoadContentTokenizerProfileOptions,
 } from "../recipes/types";
 
@@ -719,7 +726,51 @@ async function findPeerPackageVersion(entryPath: string): Promise<string> {
   );
 }
 
-async function resolvePeer(): Promise<ResolvedPeer> {
+function validateTokenizerModule(
+  value: unknown,
+  source: "installed" | "injected"
+): TokenizerModule {
+  const candidate = isRecord(value) && typeof value.Tokenizer !== "function"
+    ? value.default
+    : value;
+  if (
+    !isRecord(candidate) ||
+    typeof candidate.Tokenizer !== "function"
+  ) {
+    throw loaderError(
+      "TOKENIZER_LOAD_FAILED",
+      `The ${source} ${OPTIONAL_PEER} runtime does not export Tokenizer.`
+    );
+  }
+  return candidate as unknown as TokenizerModule;
+}
+
+function resolveInjectedPeer(peer: ContentTokenizerPeer): ResolvedPeer {
+  if (
+    !isRecord(peer) ||
+    !hasExactKeys(peer, ["module", "packageVersion"])
+  ) {
+    throw loaderError(
+      "TOKENIZER_RECIPE_INVALID",
+      "options.tokenizersPeer must contain exactly module and packageVersion."
+    );
+  }
+  if (
+    typeof peer.packageVersion !== "string" ||
+    !isSupportedPeerVersion(peer.packageVersion)
+  ) {
+    throw loaderError(
+      "TOKENIZER_PEER_VERSION_UNSUPPORTED",
+      `Injected ${OPTIONAL_PEER} runtime version '${String(peer.packageVersion)}' is unsupported; provide ${OPTIONAL_PEER}@${OPTIONAL_PEER_RANGE}.`
+    );
+  }
+  return {
+    module: validateTokenizerModule(peer.module, "injected"),
+    version: peer.packageVersion,
+  };
+}
+
+async function resolveInstalledPeer(): Promise<ResolvedPeer> {
   const localRequire = createRequire(__filename);
   let entryPath: string;
   try {
@@ -750,17 +801,8 @@ async function resolvePeer(): Promise<ResolvedPeer> {
       error
     );
   }
-  if (
-    !isRecord(loaded) ||
-    typeof loaded.Tokenizer !== "function"
-  ) {
-    throw loaderError(
-      "TOKENIZER_LOAD_FAILED",
-      `The installed ${OPTIONAL_PEER} runtime does not export Tokenizer.`
-    );
-  }
   return {
-    module: loaded as unknown as TokenizerModule,
+    module: validateTokenizerModule(loaded, "installed"),
     version,
   };
 }
@@ -799,8 +841,9 @@ function initializeTokenizer(
       error
     );
   }
+  let tokenizer: unknown;
   try {
-    return new Tokenizer(sanitizeTokenizerJson(parsed), {});
+    tokenizer = new Tokenizer(sanitizeTokenizerJson(parsed), {});
   } catch (error) {
     if (error instanceof ContentTokenizerLoaderError) {
       throw error;
@@ -811,13 +854,35 @@ function initializeTokenizer(
       error
     );
   }
+  if (!isRecord(tokenizer) || typeof tokenizer.encode !== "function") {
+    throw loaderError(
+      "TOKENIZER_LOAD_FAILED",
+      "The tokenizer runtime did not create an instance with an encode method."
+    );
+  }
+  return tokenizer as unknown as TokenizerInstance;
 }
 
 function countOrdinaryText(
   tokenizer: TokenizerInstance,
   text: string
 ): number {
-  const encoding = tokenizer.encode(text, { add_special_tokens: false });
+  let encoding: unknown;
+  try {
+    encoding = tokenizer.encode(text, { add_special_tokens: false });
+  } catch (error) {
+    throw loaderError(
+      "TOKENIZER_LOAD_FAILED",
+      "The tokenizer runtime failed to encode ordinary text.",
+      error
+    );
+  }
+  if (!isRecord(encoding) || !Array.isArray(encoding.ids)) {
+    throw loaderError(
+      "TOKENIZER_LOAD_FAILED",
+      "The tokenizer runtime returned an invalid encoding result."
+    );
+  }
   const count = encoding.ids.length;
   if (!Number.isSafeInteger(count) || count < 0) {
     throw new Error(
@@ -842,6 +907,34 @@ function runSelfTests(
   }
 }
 
+function validateLoaderOptions(
+  value: unknown
+): LoadContentTokenizerProfileOptions {
+  const allowedKeys = new Set([
+    "allowDownload",
+    "cacheDir",
+    "signal",
+    "tokenizersPeer",
+  ]);
+  if (
+    !isRecord(value) ||
+    !Object.prototype.hasOwnProperty.call(value, "allowDownload") ||
+    !Object.prototype.hasOwnProperty.call(value, "cacheDir") ||
+    Object.keys(value).some((key) => !allowedKeys.has(key)) ||
+    typeof value.cacheDir !== "string" ||
+    value.cacheDir.length === 0 ||
+    typeof value.allowDownload !== "boolean" ||
+    (value.signal !== undefined && !(value.signal instanceof AbortSignal)) ||
+    (value.tokenizersPeer !== undefined && !isRecord(value.tokenizersPeer))
+  ) {
+    throw loaderError(
+      "TOKENIZER_RECIPE_INVALID",
+      "Loader options must contain cacheDir, allowDownload, and only optional signal and tokenizersPeer."
+    );
+  }
+  return value as unknown as LoadContentTokenizerProfileOptions;
+}
+
 /**
  * Provisions and verifies an explicit recipe, then returns a synchronous local
  * model-quality backend. Ordinary counting performs no I/O or dynamic import.
@@ -851,28 +944,16 @@ export async function loadContentTokenizerProfile(
   options: LoadContentTokenizerProfileOptions
 ): Promise<RegisteredContentTokenizerBackend> {
   const validated = validateRecipe(recipe);
-  if (
-    !isRecord(options) ||
-    !hasExactKeys(
-      options,
-      options.signal === undefined
-        ? ["allowDownload", "cacheDir"]
-        : ["allowDownload", "cacheDir", "signal"]
-    ) ||
-    typeof options.cacheDir !== "string" ||
-    options.cacheDir.length === 0 ||
-    typeof options.allowDownload !== "boolean" ||
-    (options.signal !== undefined && !(options.signal instanceof AbortSignal))
-  ) {
-    throw loaderError(
-      "TOKENIZER_RECIPE_INVALID",
-      "Loader options must contain cacheDir, allowDownload, and optional signal."
-    );
-  }
-  assertNotAborted(options.signal);
-  const { module, version } = await resolvePeer();
-  const artifact = await provisionArtifact(validated.artifacts[0], options);
-  assertNotAborted(options.signal);
+  const validatedOptions = validateLoaderOptions(options);
+  assertNotAborted(validatedOptions.signal);
+  const { module, version } = validatedOptions.tokenizersPeer !== undefined
+    ? resolveInjectedPeer(validatedOptions.tokenizersPeer)
+    : await resolveInstalledPeer();
+  const artifact = await provisionArtifact(
+    validated.artifacts[0],
+    validatedOptions
+  );
+  assertNotAborted(validatedOptions.signal);
   const tokenizer = initializeTokenizer(module.Tokenizer, artifact);
   runSelfTests(tokenizer, validated.recipe);
   const semanticArtifacts = validated.artifacts.map(({ role, sha256 }) =>

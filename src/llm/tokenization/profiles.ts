@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { getEncoding, type Tiktoken } from "js-tiktoken";
+import type { Tiktoken, TiktokenBPE } from "js-tiktoken/lite";
 import type { ApiProviderId, PreparedPromptTokenCount } from "../types";
 import {
   TOKEN_PROFILE_MAPPING_REVISION,
@@ -9,22 +9,32 @@ import {
   type TokenProfileResolution,
 } from "./types";
 
-interface RankData {
-  pat_str: string;
-  special_tokens: Record<string, number>;
-  bpe_ranks: string;
+type RankData = TiktokenBPE;
+
+interface TiktokenConstructor {
+  new(
+    ranks: TiktokenBPE,
+    extendedSpecialTokens?: Record<string, number>
+  ): Tiktoken;
+}
+
+interface LiteRuntimeModule {
+  Tiktoken: TiktokenConstructor;
 }
 
 interface ProfileDefinition {
   id: TokenProfileId;
   expectedHash: string;
   revision: string;
-  loadRanks: () => RankData;
+  loadRanks: () => unknown;
 }
 
-function loadRankData(moduleId: string): RankData {
-  const loaded = require(moduleId) as RankData | { default: RankData };
-  return "default" in loaded ? loaded.default : loaded;
+function loadCl100kRanks(): unknown {
+  return require("js-tiktoken/ranks/cl100k_base") as unknown;
+}
+
+function loadO200kRanks(): unknown {
+  return require("js-tiktoken/ranks/o200k_base") as unknown;
 }
 
 const DEFINITIONS: Record<TokenProfileId, ProfileDefinition> = {
@@ -33,19 +43,110 @@ const DEFINITIONS: Record<TokenProfileId, ProfileDefinition> = {
     expectedHash:
       "9b9ea7feb9945beda9196f3691a3cc2d0f339aec498bbae285ce6aded387455c",
     revision: "js-tiktoken-1.0.21:cl100k:9b9ea7feb994",
-    loadRanks: () => loadRankData("js-tiktoken/ranks/cl100k_base"),
+    loadRanks: loadCl100kRanks,
   },
   o200k_base: {
     id: "o200k_base",
     expectedHash:
       "de7eb511338b0e23589a3cae2dceb8dd66c2a9fd70dbf7ea778fd9df9f175d45",
     revision: "js-tiktoken-1.0.21:o200k:de7eb511338b",
-    loadRanks: () => loadRankData("js-tiktoken/ranks/o200k_base"),
+    loadRanks: loadO200kRanks,
   },
 };
 
-const profileCache = new Map<TokenProfileId, TokenProfile | null>();
+const BUILTIN_TOKEN_PROFILE_IDS: ReadonlySet<string> = new Set([
+  "cl100k_base",
+  "o200k_base",
+]);
+
+const profileCache = new Map<TokenProfileId, TokenProfile>();
+const profileFailureCache = new Set<TokenProfileId>();
+const rankCache = new Map<TokenProfileId, RankData>();
 const tokenizerCache = new Map<TokenProfileId, Tiktoken>();
+let liteRuntimeCache: LiteRuntimeModule | undefined;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function hasExactKeys(
+  value: Record<string, unknown>,
+  expected: readonly string[]
+): boolean {
+  const actual = Object.keys(value).sort();
+  const wanted = [...expected].sort();
+  return actual.length === wanted.length &&
+    actual.every((key, index) => key === wanted[index]);
+}
+
+function unwrapDefaultExport(value: unknown): unknown {
+  return isRecord(value) && Object.prototype.hasOwnProperty.call(value, "default")
+    ? value.default
+    : value;
+}
+
+function snapshotRankData(value: unknown): RankData {
+  const ranks = unwrapDefaultExport(value);
+  if (
+    !isRecord(ranks) ||
+    !hasExactKeys(ranks, ["bpe_ranks", "pat_str", "special_tokens"]) ||
+    typeof ranks.pat_str !== "string" ||
+    ranks.pat_str.length === 0 ||
+    typeof ranks.bpe_ranks !== "string" ||
+    ranks.bpe_ranks.length === 0 ||
+    !isRecord(ranks.special_tokens)
+  ) {
+    throw new TypeError("Tokenizer rank module has an invalid shape.");
+  }
+  const specialTokenEntries = Object.entries(ranks.special_tokens);
+  for (const [token, id] of specialTokenEntries) {
+    if (
+      token.length === 0 ||
+      typeof id !== "number" ||
+      !Number.isSafeInteger(id) ||
+      id < 0
+    ) {
+      throw new TypeError("Tokenizer rank module has invalid special tokens.");
+    }
+  }
+  const specialTokens = Object.freeze(
+    Object.fromEntries(specialTokenEntries) as Record<string, number>
+  );
+  return Object.freeze({
+    pat_str: ranks.pat_str,
+    special_tokens: specialTokens,
+    bpe_ranks: ranks.bpe_ranks,
+  });
+}
+
+function loadLiteRuntime(): LiteRuntimeModule {
+  if (liteRuntimeCache) {
+    return liteRuntimeCache;
+  }
+  const loaded = require("js-tiktoken/lite") as unknown;
+  const runtime = unwrapDefaultExport(loaded);
+  if (!isRecord(runtime) || typeof runtime.Tiktoken !== "function") {
+    throw new TypeError("js-tiktoken/lite does not export Tiktoken.");
+  }
+  liteRuntimeCache = Object.freeze({
+    Tiktoken: runtime.Tiktoken as unknown as TiktokenConstructor,
+  });
+  return liteRuntimeCache;
+}
+
+/** Returns whether an ID belongs to the permanently reserved built-in set. */
+export function isBuiltinTokenProfileId(
+  value: string
+): value is TokenProfileId {
+  return BUILTIN_TOKEN_PROFILE_IDS.has(value);
+}
+
+/** Returns the stable public reason for an unavailable built-in profile. */
+export function getBuiltinTokenProfileUnavailableReason(
+  id: TokenProfileId
+): string {
+  return `Tokenizer profile '${id}' is unavailable because its pinned rank data could not be loaded and verified.`;
+}
 
 function hashRankData(ranks: RankData): string {
   return createHash("sha256")
@@ -84,36 +185,46 @@ function deriveRankProperties(
 export function getTokenProfileById(
   id: TokenProfileId
 ): TokenProfile | undefined {
-  if (profileCache.has(id)) {
-    return profileCache.get(id) ?? undefined;
+  const cached = profileCache.get(id);
+  if (cached) {
+    return cached;
+  }
+  if (profileFailureCache.has(id)) {
+    return undefined;
   }
   const definition = DEFINITIONS[id];
   if (!definition) {
     return undefined;
   }
-  const ranks = definition.loadRanks();
-  const rankHash = hashRankData(ranks);
-  const properties = deriveRankProperties(ranks);
-  if (
-    rankHash !== definition.expectedHash ||
-    !properties.byteComplete ||
-    properties.maximumDecodedBytesPerToken <= 0
-  ) {
-    profileCache.set(id, null);
+  try {
+    const ranks = snapshotRankData(definition.loadRanks());
+    const rankHash = hashRankData(ranks);
+    const properties = deriveRankProperties(ranks);
+    if (
+      rankHash !== definition.expectedHash ||
+      !properties.byteComplete ||
+      properties.maximumDecodedBytesPerToken <= 0
+    ) {
+      profileFailureCache.add(id);
+      return undefined;
+    }
+    const profile: TokenProfile = Object.freeze({
+      id,
+      tokenizerId: `js-tiktoken:${id}`,
+      revision: definition.revision,
+      encoding: id,
+      rankHash,
+      ordinaryTextOnly: true,
+      byteComplete: true,
+      maximumDecodedBytesPerToken: properties.maximumDecodedBytesPerToken,
+    });
+    rankCache.set(id, ranks);
+    profileCache.set(id, profile);
+    return profile;
+  } catch {
+    profileFailureCache.add(id);
     return undefined;
   }
-  const profile: TokenProfile = Object.freeze({
-    id,
-    tokenizerId: `js-tiktoken:${id}`,
-    revision: definition.revision,
-    encoding: id,
-    rankHash,
-    ordinaryTextOnly: true,
-    byteComplete: true,
-    maximumDecodedBytesPerToken: properties.maximumDecodedBytesPerToken,
-  });
-  profileCache.set(id, profile);
-  return profile;
 }
 
 export function getMappedTokenProfileId(
@@ -166,7 +277,7 @@ export function resolveTokenProfile(
       model,
       mappingRevision: TOKEN_PROFILE_MAPPING_REVISION,
       reason: id
-        ? `Tokenizer rank data for '${id}' did not match its pinned revision.`
+        ? getBuiltinTokenProfileUnavailableReason(id)
         : `No verified token profile is registered for ${provider}/${model}.`,
     };
   }
@@ -182,7 +293,12 @@ export function resolveTokenProfile(
 function getTokenizer(profile: TokenProfile): Tiktoken {
   let tokenizer = tokenizerCache.get(profile.id);
   if (!tokenizer) {
-    tokenizer = getEncoding(profile.encoding);
+    const ranks = rankCache.get(profile.id);
+    if (!ranks) {
+      throw new Error("Verified tokenizer ranks are unavailable.");
+    }
+    const { Tiktoken: TiktokenRuntime } = loadLiteRuntime();
+    tokenizer = new TiktokenRuntime(ranks);
     tokenizerCache.set(profile.id, tokenizer);
   }
   return tokenizer;
@@ -200,13 +316,24 @@ export function countTextTokens(
       reason: `Token profile '${profile.id}' is not available at revision '${profile.revision}'.`,
     };
   }
-  const count: PreparedPromptTokenCount = {
-    tokens: getTokenizer(current).encode(text, [], []).length,
-    method: "exact",
-    tokenizerId: current.tokenizerId,
-    tokenProfileRevision: current.revision,
-  };
-  return { status: "available", count };
+  try {
+    const tokens = getTokenizer(current).encode(text, [], []).length;
+    if (!Number.isSafeInteger(tokens) || tokens < 0) {
+      throw new Error("Tokenizer returned an invalid count.");
+    }
+    const count: PreparedPromptTokenCount = {
+      tokens,
+      method: "exact",
+      tokenizerId: current.tokenizerId,
+      tokenProfileRevision: current.revision,
+    };
+    return { status: "available", count };
+  } catch {
+    return {
+      status: "unavailable",
+      reason: `Token profile '${profile.id}' failed to count ordinary text.`,
+    };
+  }
 }
 
 /** Explicit generic estimate; never returned as an exact or certified bound. */

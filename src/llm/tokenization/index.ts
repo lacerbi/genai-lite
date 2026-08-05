@@ -23,13 +23,13 @@ export {
   resolveTokenProfile,
 } from "./profiles";
 export {
-  computeContentTokenizerSemanticRevision,
   countContentTextTokens,
   getContentTokenProfileById,
   getContentTokenProfileMappingRevision,
   registerContentTokenProfileConfiguration,
   resolveContentTokenProfile,
 } from "./contentProfiles";
+export { computeContentTokenizerSemanticRevision } from "./contentProfileIdentity";
 export {
   codePointBoundToTokenUpperBound,
   retokenizationUpperBound,

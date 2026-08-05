@@ -5,6 +5,11 @@
 import { countTokens, getSmartPreview, extractRandomVariables } from './content';
 import type { TiktokenModel } from 'js-tiktoken';
 
+afterEach(() => {
+  jest.resetModules();
+  jest.dontMock("js-tiktoken");
+});
+
 describe('Content Utilities', () => {
   describe('countTokens', () => {
     it('should return 0 for empty string', () => {
@@ -31,6 +36,36 @@ describe('Content Utilities', () => {
       
       expect(gpt4Count).toBeGreaterThan(0);
       expect(gpt35Count).toBeGreaterThan(0);
+    });
+
+    it("uses a verified built-in profile before loading the full runtime", () => {
+      let fullRuntimeEvaluations = 0;
+      jest.doMock("js-tiktoken", () => {
+        fullRuntimeEvaluations += 1;
+        throw new Error("full runtime should remain lazy");
+      });
+
+      jest.isolateModules(() => {
+        const isolated = require("./content") as typeof import("./content");
+        expect(isolated.countTokens("mapped model text", "gpt-4"))
+          .toBeGreaterThan(0);
+      });
+      expect(fullRuntimeEvaluations).toBe(0);
+    });
+
+    it("loads the full runtime lazily for a supported legacy model", () => {
+      const encodingForModel = jest.fn(() => ({
+        encode: (): number[] => [1, 2, 3, 4, 5, 6, 7],
+      }));
+      jest.doMock("js-tiktoken", () => ({ encodingForModel }));
+
+      jest.isolateModules(() => {
+        const isolated = require("./content") as typeof import("./content");
+        expect(
+          isolated.countTokens("legacy model text", "text-davinci-003")
+        ).toBe(7);
+      });
+      expect(encodingForModel).toHaveBeenCalledWith("text-davinci-003");
     });
 
     it('should handle special characters and emojis', () => {

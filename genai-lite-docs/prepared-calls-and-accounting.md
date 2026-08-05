@@ -197,6 +197,12 @@ The content API has two trust levels:
 - `model`: host-registered synchronous tokenizers, including recipe-loaded
   tokenizers.
 
+The built-in cl100k/o200k rank modules and lite runtime are loaded only when a
+matching profile is resolved or counted. Rank-module evaluation, shape, hash,
+byte-completeness, tokenizer construction, and encoding failures fail closed:
+the relevant resolution or count is `unavailable`, and certificate APIs remain
+unavailable rather than substituting a heuristic.
+
 `ContentTokenProfile` is intentionally separate from the certified
 `TokenProfile` type. Registered profiles are always forced to `model` quality
 and certificate functions reject them, including through runtime casts. A
@@ -289,6 +295,41 @@ The loader runtime is an optional peer:
 npm install @huggingface/tokenizers@^0.1.3
 ```
 
+By default, the loader discovers the installed peer relative to its own package
+location and proves the version from the nearest package manifest. Bundled
+applications may instead inject a statically imported namespace:
+
+```typescript
+import * as tokenizersModule from "@huggingface/tokenizers";
+import {
+  loadContentTokenizerProfile,
+} from "genai-lite/tokenizer-loader";
+import {
+  GEMMA_4_IT_CONTENT_TOKENIZER_RECIPE,
+} from "genai-lite/tokenizer-recipes";
+
+const backend = await loadContentTokenizerProfile(
+  GEMMA_4_IT_CONTENT_TOKENIZER_RECIPE,
+  {
+    cacheDir: "/application-owned/tokenizer-cache",
+    allowDownload: false,
+    tokenizersPeer: {
+      module: tokenizersModule,
+      packageVersion: "0.1.3",
+    },
+  }
+);
+```
+
+For injection, `packageVersion` is the caller's assertion about the supplied
+namespace. The loader validates it against `^0.1.3` and records it in runtime
+provenance, but it cannot prove it from a package path. Recipe-loaded backends
+remain model-quality evidence and cannot enter certificate APIs.
+Unsupported or indeterminate asserted versions fail with
+`TOKENIZER_PEER_VERSION_UNSUPPORTED`; malformed injected modules and tokenizer
+construction failures use `TOKENIZER_LOAD_FAILED`. Unknown fields in the
+options or `tokenizersPeer` wrapper remain strict recipe-validation errors.
+
 Importing `genai-lite`, `genai-lite/tokenizer-recipes`, or
 `genai-lite/tokenizer-loader` does not load that peer. Only
 `loadContentTokenizerProfile()` resolves it. A missing, indeterminate, or
@@ -317,10 +358,20 @@ endpoint using no BOS and no special parsing. Continue to prefer
 llama.cpp's active-template prepared count as hard prompt evidence; a local
 content profile remains model evidence.
 
-For Vite/esbuild-style application bundles, externalize
-`@huggingface/tokenizers` and preserve the loader's runtime import.
-Externalizing `genai-lite/tokenizer-loader` itself is the simplest safe option
-when the bundler cannot preserve optional dynamic dependencies.
+For Rollup/Vite/esbuild-style application bundles, prefer the injected form so
+the application owns a statically analyzable peer import. The injected path
+does not evaluate the loader's `createRequire(__filename)` discovery branch and
+does not require `dynamicRequireTargets`. Externalizing
+`genai-lite/tokenizer-loader` and preserving the installed-peer path remains a
+fallback when injection is unsuitable.
+
+The loader and recipes subpaths do not traverse js-tiktoken. Built-in ranks use
+separate literal lazy loads, and ordinary root/prompting imports do not evaluate
+js-tiktoken. This is an evaluation and bundler-analyzability guarantee, not a
+promise that every bundler will prune the same bytes: `js-tiktoken@1.0.21`
+remains an exact production dependency and therefore remains in npm's installed
+dependency graph. The package root may also evaluate `base64-js` independently
+through Google's authentication SDK; that is not the removed tiktoken chain.
 
 ## Certified structural bounds and margins
 

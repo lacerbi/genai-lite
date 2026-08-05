@@ -157,12 +157,14 @@ import type {
   ContentTokenizerRecipeLoaderInput,
   ContentTokenizerRecipeSelfTest,
   ContentTokenizerRecipeSelfTestName,
-  ContentTokenizerCoverageEvidence,
-  LoadContentTokenizerProfileOptions
+  ContentTokenizerCoverageEvidence
 } from 'genai-lite/tokenizer-recipes';
 
 import type {
-  ContentTokenizerLoaderErrorCode
+  ContentTokenizerLoaderErrorCode,
+  ContentTokenizerPeer,
+  ContentTokenizerRuntimeModule,
+  LoadContentTokenizerProfileOptions
 } from 'genai-lite/tokenizer-loader';
 
 // Retry utilities (runtime + types)
@@ -592,11 +594,40 @@ interface ContentTokenizerRecipe {
   coverageEvidence: ContentTokenizerCoverageEvidence[];
 }
 
+interface ContentTokenizerRuntimeModule {
+  readonly Tokenizer: unknown;
+}
+
+interface ContentTokenizerPeer {
+  readonly module: ContentTokenizerRuntimeModule;
+  readonly packageVersion: string;
+}
+
+interface LoadContentTokenizerProfileOptions {
+  cacheDir: string;
+  allowDownload: boolean;
+  signal?: AbortSignal;
+  tokenizersPeer?: ContentTokenizerPeer;
+}
+
 loadContentTokenizerProfile(
   recipe: ContentTokenizerRecipe,
   options: LoadContentTokenizerProfileOptions
 ): Promise<RegisteredContentTokenizerBackend>;
 ```
+
+The loader and recipes subpaths both export all three loader-facing interfaces
+above; the loader re-export keeps them discoverable beside the loading
+function, while the recipes export preserves the existing options-type path.
+Public declarations use only genai-lite-owned structural types, so installing
+the optional peer is not required to typecheck ordinary consumers. A real
+`import * as tokenizersModule from '@huggingface/tokenizers'` namespace is
+directly assignable to `module`.
+
+When `tokenizersPeer` is omitted, the loader discovers the installed peer and
+proves its version from its package manifest. When supplied, discovery is
+bypassed and `packageVersion` is a caller assertion validated against `^0.1.3`
+and recorded in runtime provenance.
 
 `ContentTokenizerRecipeArtifact`, `ContentTokenizerRecipeLoaderInput`,
 `ContentTokenizerRecipeSelfTest`, and `ContentTokenizerCoverageEvidence`
@@ -610,6 +641,11 @@ the six required test categories.
 `TOKENIZER_RECIPE_INVALID`, `TOKENIZER_ARTIFACT_UNAVAILABLE`,
 `TOKENIZER_ARTIFACT_INTEGRITY`, `TOKENIZER_LOAD_FAILED`,
 `TOKENIZER_SELF_TEST_FAILED`, or `TOKENIZER_ABORTED`.
+
+An unsupported or indeterminate asserted version produces
+`TOKENIZER_PEER_VERSION_UNSUPPORTED`. A malformed injected module or tokenizer
+constructor failure produces `TOKENIZER_LOAD_FAILED`; unknown option or peer
+wrapper fields produce `TOKENIZER_RECIPE_INVALID`.
 
 See [Prepared Calls and Token Accounting](prepared-calls-and-accounting.md#content-token-profiles)
 for registration timing, exact aliases, cache guarantees, recipes, and

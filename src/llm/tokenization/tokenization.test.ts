@@ -14,8 +14,16 @@ describe("token profiles and certified structural bounds", () => {
   const o200k = getTokenProfileById("o200k_base")!;
 
   it("loads only hash-verified byte-complete profiles", () => {
-    expect(cl100k.rankHash).toHaveLength(64);
-    expect(o200k.rankHash).toHaveLength(64);
+    expect(cl100k).toMatchObject({
+      rankHash:
+        "9b9ea7feb9945beda9196f3691a3cc2d0f339aec498bbae285ce6aded387455c",
+      revision: "js-tiktoken-1.0.21:cl100k:9b9ea7feb994",
+    });
+    expect(o200k).toMatchObject({
+      rankHash:
+        "de7eb511338b0e23589a3cae2dceb8dd66c2a9fd70dbf7ea778fd9df9f175d45",
+      revision: "js-tiktoken-1.0.21:o200k:de7eb511338b",
+    });
     expect(cl100k.byteComplete).toBe(true);
     expect(o200k.byteComplete).toBe(true);
     expect(cl100k.maximumDecodedBytesPerToken).toBe(128);
@@ -55,6 +63,37 @@ describe("token profiles and certified structural bounds", () => {
       expect(result.count.method).toBe("exact");
       expect(result.count.uncertaintyTokens).toBeUndefined();
       expect(result.count.tokens).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it.each([
+    ["cl100k_base", cl100k],
+    ["o200k_base", o200k],
+  ] as const)("matches the full runtime for %s adversarial fixtures", (
+    encoding,
+    profile
+  ) => {
+    const reference = getEncoding(encoding);
+    const fixtures = [
+      "",
+      "plain ASCII with spaces and\nnewlines",
+      "漢字かなカナ dense script",
+      "e\u0301 versus é",
+      "👨‍👩‍👧‍👦 ✈️ 🧑🏽‍💻",
+      "control \u0000 \u001f text",
+      "<|endoftext|> remains ordinary literal text",
+      "\ud800 lone surrogate",
+      "long ordinary text with punctuation, numbers 12345, and emoji 🧪. "
+        .repeat(2_000),
+    ];
+    for (const text of fixtures) {
+      const result = countTextTokens(text, profile);
+      expect(result.status).toBe("available");
+      if (result.status === "available") {
+        expect(result.count.tokens).toBe(
+          reference.encode(text, [], []).length
+        );
+      }
     }
   });
 

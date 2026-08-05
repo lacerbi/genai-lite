@@ -7,5 +7,7 @@ export type {
   ContentTokenizerRecipeLoaderInput,
   ContentTokenizerRecipeSelfTest,
   ContentTokenizerRecipeSelfTestName,
+  ContentTokenizerPeer,
+  ContentTokenizerRuntimeModule,
   LoadContentTokenizerProfileOptions,
 } from "./types";

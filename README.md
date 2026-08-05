@@ -164,6 +164,12 @@ registerContentTokenProfileConfiguration({
 });
 ```
 
+Bundled ESM applications can statically import the optional peer and pass
+`tokenizersPeer: { module: tokenizersModule, packageVersion: "0.1.3" }` to
+`loadContentTokenizerProfile()`. This avoids loader-relative runtime resolution;
+the asserted version is validated and recorded in runtime provenance. See the
+guide below for the complete injection and bundler contract.
+
 Registration is process-global, synchronous, transactional, and append-only.
 Reads do not close the registry, but existing backend IDs and aliases cannot be
 replaced. Re-query a previously unavailable resolution or capability after a

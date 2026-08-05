@@ -157,7 +157,14 @@ while (countTokens(prompt) > maxTokens) {
 }
 ```
 
-**Note**: Uses `js-tiktoken` library. Supports all models with tiktoken encodings.
+**Note**: Uses `js-tiktoken` and supports all models with tiktoken encodings.
+Mapped cl100k/o200k models use the verified built-in profiles first, loading
+only the selected rank and lite runtime when counting begins. Other supported
+legacy models load the full js-tiktoken model-mapping entry lazily. Importing
+the root or prompting subpath does not itself evaluate js-tiktoken. If exact
+counting fails, this compatibility wrapper still returns
+`Math.ceil(text.length / 4)`; evidence-bearing and certificate APIs instead
+return `unavailable` and never manufacture a heuristic result.
 
 ### Registered content tokenizers
 
