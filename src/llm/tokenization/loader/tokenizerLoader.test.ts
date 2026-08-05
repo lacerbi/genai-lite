@@ -2,10 +2,12 @@ import { createHash } from "node:crypto";
 import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { computeContentTokenizerSemanticRevision } from "../contentProfiles";
+import { computeContentTokenizerSemanticRevision } from "../contentProfileIdentity";
 import type {
+  ContentTokenizerPeer,
   ContentTokenizerRecipe,
   ContentTokenizerRecipeSelfTest,
+  LoadContentTokenizerProfileOptions,
 } from "../recipes/types";
 import {
   ContentTokenizerLoaderError,
@@ -70,6 +72,22 @@ const SELF_TESTS: ContentTokenizerRecipeSelfTest[] = [
     expectedTokens: 3,
   },
 ];
+
+const FIXTURE_COUNTS = new Map(
+  SELF_TESTS.map(({ text, expectedTokens }) => [text, expectedTokens])
+);
+
+class InjectedFixtureTokenizer {
+  encode(text: string): { ids: number[] } {
+    const count = FIXTURE_COUNTS.get(text) ?? (text === "hello" ? 1 : 0);
+    return { ids: Array.from({ length: count }, (_, index) => index) };
+  }
+}
+
+const INJECTED_PEER: ContentTokenizerPeer = Object.freeze({
+  module: Object.freeze({ Tokenizer: InjectedFixtureTokenizer }),
+  packageVersion: "0.1.3",
+});
 
 function createRecipe(
   overrides: Partial<ContentTokenizerRecipe> = {}
@@ -159,6 +177,146 @@ describe("optional content-tokenizer loader", () => {
     expect(backend.countTextTokens("hello world")).toBe(2);
     expect(backend.countTextTokens("<special>")).toBe(3);
     expect(backend.countTextTokens("hello")).toBe(1);
+  });
+
+  it("loads a warm cache through an injected peer with asserted provenance", async () => {
+    await seedCache(cacheDir);
+    const backend = await loadContentTokenizerProfile(createRecipe(), {
+      cacheDir,
+      allowDownload: false,
+      tokenizersPeer: INJECTED_PEER,
+    });
+
+    expect(backend.provenance.runtime).toMatchObject({
+      packageName: "@huggingface/tokenizers",
+      packageVersion: "0.1.3",
+    });
+    expect(backend.countTextTokens("hello world")).toBe(2);
+    expect(backend.countTextTokens("<special>")).toBe(3);
+  });
+
+  it("accepts every signal and injected-peer option combination", async () => {
+    await seedCache(cacheDir);
+    const signal = new AbortController().signal;
+    for (const optionals of [
+      {},
+      { signal },
+      { tokenizersPeer: INJECTED_PEER },
+      { signal, tokenizersPeer: INJECTED_PEER },
+    ]) {
+      const options: LoadContentTokenizerProfileOptions = {
+        cacheDir,
+        allowDownload: false,
+        ...optionals,
+      };
+      await expect(
+        loadContentTokenizerProfile(createRecipe(), options)
+      ).resolves.toMatchObject({ id: "synthetic-tokenizer" });
+    }
+  });
+
+  it("rejects malformed injected peers with precise loader errors", async () => {
+    for (const packageVersion of ["0.2.0", "not-semver"]) {
+      await expect(
+        loadContentTokenizerProfile(createRecipe(), {
+          cacheDir,
+          allowDownload: false,
+          tokenizersPeer: {
+            module: INJECTED_PEER.module,
+            packageVersion,
+          },
+        })
+      ).rejects.toMatchObject({
+        code: "TOKENIZER_PEER_VERSION_UNSUPPORTED",
+        message: expect.stringContaining("Injected"),
+      });
+    }
+
+    await expect(
+      loadContentTokenizerProfile(createRecipe(), {
+        cacheDir,
+        allowDownload: false,
+        tokenizersPeer: {
+          module: { Tokenizer: null },
+          packageVersion: "0.1.3",
+        },
+      })
+    ).rejects.toMatchObject({ code: "TOKENIZER_LOAD_FAILED" });
+
+    await expect(
+      loadContentTokenizerProfile(createRecipe(), {
+        cacheDir,
+        allowDownload: false,
+        tokenizersPeer: {
+          ...INJECTED_PEER,
+          extra: true,
+        } as unknown as ContentTokenizerPeer,
+      })
+    ).rejects.toMatchObject({ code: "TOKENIZER_RECIPE_INVALID" });
+  });
+
+  it("maps an injected tokenizer constructor failure", async () => {
+    await seedCache(cacheDir);
+    class FailingTokenizer {
+      constructor() {
+        throw new Error("fixture constructor failure");
+      }
+    }
+    await expect(
+      loadContentTokenizerProfile(createRecipe(), {
+        cacheDir,
+        allowDownload: false,
+        tokenizersPeer: {
+          module: { Tokenizer: FailingTokenizer },
+          packageVersion: "0.1.3",
+        },
+      })
+    ).rejects.toMatchObject({ code: "TOKENIZER_LOAD_FAILED" });
+  });
+
+  it.each([
+    {
+      name: "missing encode method",
+      Tokenizer: class MissingEncodeTokenizer {},
+    },
+    {
+      name: "throwing encode method",
+      Tokenizer: class ThrowingEncodeTokenizer {
+        encode(): never {
+          throw new Error("fixture encode failure");
+        }
+      },
+    },
+    {
+      name: "malformed encoding result",
+      Tokenizer: class MalformedEncodingTokenizer {
+        encode(): object {
+          return {};
+        }
+      },
+    },
+  ])("maps an injected runtime with $name", async ({ Tokenizer }) => {
+    await seedCache(cacheDir);
+    await expect(
+      loadContentTokenizerProfile(createRecipe(), {
+        cacheDir,
+        allowDownload: false,
+        tokenizersPeer: {
+          module: { Tokenizer },
+          packageVersion: "0.1.3",
+        },
+      })
+    ).rejects.toMatchObject({ code: "TOKENIZER_LOAD_FAILED" });
+  });
+
+  it("rejects unknown top-level loader options", async () => {
+    await expect(
+      loadContentTokenizerProfile(createRecipe(), {
+        cacheDir,
+        allowDownload: false,
+        unknown: true,
+      } as unknown as LoadContentTokenizerProfileOptions)
+    ).rejects.toMatchObject({ code: "TOKENIZER_RECIPE_INVALID" });
   });
 
   it("fails late and clearly when an offline artifact is absent", async () => {
@@ -419,6 +577,12 @@ describe("optional content-tokenizer loader", () => {
     const controller = new AbortController();
     controller.abort(new Error("stop"));
     const fetchSpy = jest.spyOn(globalThis, "fetch");
+    const moduleGetter = jest.fn(() => INJECTED_PEER.module);
+    const versionGetter = jest.fn(() => INJECTED_PEER.packageVersion);
+    const injectedPeer = Object.defineProperties({}, {
+      module: { enumerable: true, get: moduleGetter },
+      packageVersion: { enumerable: true, get: versionGetter },
+    }) as ContentTokenizerPeer;
 
     await expect(
       loadContentTokenizerProfile(createRecipe(), {
@@ -427,6 +591,16 @@ describe("optional content-tokenizer loader", () => {
         signal: controller.signal,
       })
     ).rejects.toMatchObject({ code: "TOKENIZER_ABORTED" });
+    await expect(
+      loadContentTokenizerProfile(createRecipe(), {
+        cacheDir,
+        allowDownload: true,
+        signal: controller.signal,
+        tokenizersPeer: injectedPeer,
+      })
+    ).rejects.toMatchObject({ code: "TOKENIZER_ABORTED" });
+    expect(moduleGetter).not.toHaveBeenCalled();
+    expect(versionGetter).not.toHaveBeenCalled();
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 

@@ -1,7 +1,7 @@
 # Tokenizer loader: injectable peer, lazy rank chain, guarded rank loading
 
 Filed: 2026-08-05, by palimpsest-engine
-Status: OPEN
+Status: RESOLVED — 2026-08-05 (v0.17.2)
 Package: genai-lite 0.17.1
 
 Consumer context: Electron GUI, electron-vite/Rollup — the genai-lite root bundled into an
@@ -56,6 +56,27 @@ estimate profile. Ask: route rank-loading failures into the same graceful path t
 the tokenization layer uses (an unavailable/estimate result), so a broken rank table is a
 capability loss, not an exception.
 
+## Acceptance criteria
+
+- [x] `loadContentTokenizerProfile()` accepts a statically imported, caller-injected
+  `@huggingface/tokenizers` module and validated asserted package version while
+  preserving the installed-peer path when injection is omitted.
+- [x] Importing the root, prompting, tokenizer-loader, or tokenizer-recipes entry
+  does not eagerly evaluate `js-tiktoken` or its rank modules; the three focused
+  subpaths also avoid `base64-js` (the root may load it independently through a
+  provider SDK).
+- [x] The cl100k and o200k rank modules are referenced through separate literal,
+  statically analyzable lazy loads and retain their pinned hashes and identities.
+- [x] Rank/runtime load, evaluation, validation, construction, and encode failures
+  degrade to unavailable evidence without escaping through model capability or
+  response-accounting APIs; legacy `countTokens()` retains its documented heuristic.
+- [x] Packed declarations typecheck both without the optional peer and with an
+  injected real peer namespace, without peer-owned types leaking into genai-lite
+  declarations.
+- [x] A packed Rollup ESM bundle runs without `dynamicRequireTargets` or loader
+  externalization, counts with both built-in rank families, and loads a warm
+  tokenizer recipe through the injected peer path.
+
 ## Reproduction sketch for 3+4
 
 ```bash
@@ -73,3 +94,21 @@ The consumer-side picture — externalized loader, staged loose closure
 palimpsest-engine's `docs/devlogs/2026-08-05-packaged-runtime-dependencies.md`. Asks 1 and 2
 would shrink that staged closure; asks 3 and 4 close a live crash we are otherwise fixing
 consumer-side with bundler configuration.
+
+## Resolution
+
+Resolved on 2026-08-05 for v0.17.2. The loader now accepts a validated,
+caller-injected tokenizer runtime/version while preserving installed-peer
+discovery. Built-in cl100k/o200k profiles use literal lazy rank loads,
+hash-verified defensive snapshots, and the js-tiktoken lite runtime; rank and
+runtime failures return unavailable evidence instead of escaping through
+capability or response-accounting APIs. The legacy prompting wrapper remains
+lazy and retains its documented numeric heuristic fallback.
+
+Verification passed 49 Jest suites (1,134 tests), the TypeScript build, packed
+peer-free and injected-peer declaration checks, real Rollup ESM execution for
+both built-in rank families and the injected real peer, package dry-run,
+compiled export smoke testing, and the production high-severity audit. The
+full-tree audit retains one known dev-only `brace-expansion` advisory through
+Jest/ts-jest. Independent doublecheck findings were fixed and rechecked. No
+commit, push, tag, release, publication, or real-provider E2E call was made.

@@ -6,25 +6,47 @@
  * help prepare the "ingredients" that will be used in prompt construction.
  */
 
-import {
-  Tiktoken,
-  encodingForModel,
-  getEncodingNameForModel,
-  TiktokenModel,
-} from 'js-tiktoken';
+import type { Tiktoken, TiktokenModel } from "js-tiktoken";
 import {
   countTextTokens,
   getTokenProfileById,
-  type TokenProfileId,
 } from "../llm/tokenization";
+import { getMappedTokenProfileId } from "../llm/tokenization/profiles";
+
+interface LegacyTiktokenModule {
+  encodingForModel(model: TiktokenModel): Tiktoken;
+}
 
 const tokenizerCache = new Map<TiktokenModel, Tiktoken>();
+let legacyTiktokenModule: LegacyTiktokenModule | undefined;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function getLegacyTiktokenModule(): LegacyTiktokenModule {
+  if (legacyTiktokenModule) {
+    return legacyTiktokenModule;
+  }
+  const loaded = require("js-tiktoken") as unknown;
+  const candidate = isRecord(loaded) && "default" in loaded
+    ? loaded.default
+    : loaded;
+  if (!isRecord(candidate) || typeof candidate.encodingForModel !== "function") {
+    throw new TypeError("js-tiktoken does not export encodingForModel.");
+  }
+  legacyTiktokenModule = Object.freeze({
+    encodingForModel: candidate.encodingForModel as
+      LegacyTiktokenModule["encodingForModel"],
+  });
+  return legacyTiktokenModule;
+}
 
 function getTokenizer(model: TiktokenModel): Tiktoken {
   if (tokenizerCache.has(model)) {
     return tokenizerCache.get(model)!;
   }
-  const tokenizer = encodingForModel(model);
+  const tokenizer = getLegacyTiktokenModule().encodingForModel(model);
   tokenizerCache.set(model, tokenizer);
   return tokenizer;
 }
@@ -39,9 +61,9 @@ function getTokenizer(model: TiktokenModel): Tiktoken {
 export function countTokens(text: string, model: TiktokenModel = 'gpt-4'): number {
   if (!text) return 0;
   try {
-    const encoding = getEncodingNameForModel(model);
-    if (encoding === "cl100k_base" || encoding === "o200k_base") {
-      const profile = getTokenProfileById(encoding as TokenProfileId);
+    const profileId = getMappedTokenProfileId("openai", model);
+    if (profileId) {
+      const profile = getTokenProfileById(profileId);
       if (profile) {
         const result = countTextTokens(text, profile);
         if (result.status === "available") {

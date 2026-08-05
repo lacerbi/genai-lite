@@ -14,11 +14,21 @@ function runNpm(args, options) {
   return execFileSync(process.execPath, [npmCli, ...args], options);
 }
 
-function runNode(script, cwd, env = {}) {
-  return execFileSync(process.execPath, [script], {
+function runNode(script, cwd, env = {}, args = []) {
+  return execFileSync(process.execPath, [script, ...args], {
     cwd,
     stdio: "inherit",
     env: { ...process.env, ...env },
+  });
+}
+
+function collectDeclarationFiles(directory) {
+  return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const entryPath = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      return collectDeclarationFiles(entryPath);
+    }
+    return entry.isFile() && entry.name.endsWith(".d.ts") ? [entryPath] : [];
   });
 }
 
@@ -84,6 +94,9 @@ import {
 import {
   ContentTokenizerLoaderError,
   loadContentTokenizerProfile,
+  type ContentTokenizerPeer,
+  type ContentTokenizerRuntimeModule,
+  type LoadContentTokenizerProfileOptions,
 } from "genai-lite/tokenizer-loader";
 import type {
   ContentTokenProfile,
@@ -177,6 +190,9 @@ void (null as unknown as ContentTokenProfile);
 void (null as unknown as RegisteredContentTokenizerBackend);
 void ContentTokenizerLoaderError;
 void loadContentTokenizerProfile;
+void (null as unknown as ContentTokenizerPeer);
+void (null as unknown as ContentTokenizerRuntimeModule);
+void (null as unknown as LoadContentTokenizerProfileOptions);
 `
   );
 
@@ -190,14 +206,106 @@ void loadContentTokenizerProfile;
     ],
     { cwd: consumer, stdio: "inherit" }
   );
+  const packedDeclarationRoot = path.join(
+    consumer,
+    "node_modules",
+    "genai-lite",
+    "dist"
+  );
+  const peerDeclarationLeaks = collectDeclarationFiles(packedDeclarationRoot)
+    .filter((file) =>
+      fs.readFileSync(file, "utf8").includes("@huggingface/tokenizers")
+    );
+  if (peerDeclarationLeaks.length > 0) {
+    throw new Error(
+      "Packed genai-lite declarations leaked optional-peer imports:\n" +
+        peerDeclarationLeaks.join("\n")
+    );
+  }
   execFileSync(
     process.execPath,
-    [path.join(consumer, "node_modules", "typescript", "bin", "tsc"), "--noEmit"],
+    [
+      path.join(consumer, "node_modules", "typescript", "bin", "tsc"),
+      "--noEmit",
+      "-p",
+      "tsconfig.json",
+    ],
     {
       cwd: consumer,
       stdio: "inherit",
     }
   );
+
+  const importCacheCheck = path.join(consumer, "import-cache-check.cjs");
+  fs.writeFileSync(
+    importCacheCheck,
+    `
+const path = require("node:path");
+const requested = process.argv[2];
+require(requested);
+const loaded = Object.keys(require.cache).map((id) =>
+  id.split(path.sep).join("/")
+);
+const eager = loaded.filter((id) => {
+  if (id.includes("/node_modules/js-tiktoken/")) return true;
+  return requested !== "genai-lite" &&
+    id.includes("/node_modules/base64-js/");
+});
+if (eager.length > 0) {
+  throw new Error(
+    requested + " eagerly evaluated tokenizer dependencies:\\n" +
+      eager.join("\\n")
+  );
+}
+`
+  );
+  for (const entry of [
+    "genai-lite",
+    "genai-lite/prompting",
+    "genai-lite/tokenizer-recipes",
+    "genai-lite/tokenizer-loader",
+  ]) {
+    runNode(importCacheCheck, consumer, {}, [entry]);
+  }
+
+  const builtinCacheCheck = path.join(consumer, "builtin-cache-check.cjs");
+  fs.writeFileSync(
+    builtinCacheCheck,
+    `
+const { countTextTokens, resolveTokenProfile } = require("genai-lite");
+const model = process.argv[2];
+const expectedRank = process.argv[3];
+const unexpectedRank = process.argv[4];
+const resolution = resolveTokenProfile("openai", model);
+if (resolution.status !== "available") {
+  throw new Error("Built-in profile did not resolve for " + model);
+}
+const counted = countTextTokens("packed cache assertion", resolution.profile);
+if (counted.status !== "available") {
+  throw new Error("Built-in profile did not count for " + model);
+}
+for (const required of [expectedRank, "js-tiktoken/lite", "base64-js"]) {
+  if (!require.cache[require.resolve(required)]) {
+    throw new Error("Expected module was not evaluated: " + required);
+  }
+}
+for (const forbidden of [unexpectedRank, "js-tiktoken"]) {
+  if (require.cache[require.resolve(forbidden)]) {
+    throw new Error("Unrelated tokenizer module was evaluated: " + forbidden);
+  }
+}
+`
+  );
+  runNode(builtinCacheCheck, consumer, {}, [
+    "gpt-4",
+    "js-tiktoken/ranks/cl100k_base",
+    "js-tiktoken/ranks/o200k_base",
+  ]);
+  runNode(builtinCacheCheck, consumer, {}, [
+    "gpt-5.1",
+    "js-tiktoken/ranks/o200k_base",
+    "js-tiktoken/ranks/cl100k_base",
+  ]);
 
   const missingCjs = path.join(consumer, "missing-peer.cjs");
   fs.writeFileSync(
@@ -275,19 +383,6 @@ try {
   }
   runNode(missingCjs, consumer);
   runNode(missingEsm, consumer);
-
-  runNpm(
-    [
-      "install",
-      "--ignore-scripts",
-      "--package-lock=false",
-      "--no-audit",
-      "--no-fund",
-      "--no-save",
-      "@huggingface/tokenizers@0.1.3",
-    ],
-    { cwd: consumer, stdio: "inherit" }
-  );
 
   const fixture = path.join(consumer, "tokenizer-fixture.cjs");
   fs.writeFileSync(
@@ -385,6 +480,139 @@ fs.writeFileSync(path.join(blobDir, sha256), bytes);
 module.exports = { cacheDir, recipe };
 `
   );
+
+  const injectedCjs = path.join(consumer, "injected-peer.cjs");
+  fs.writeFileSync(
+    injectedCjs,
+    `
+const { cacheDir, recipe } = require("./tokenizer-fixture.cjs");
+const {
+  loadContentTokenizerProfile,
+} = require("genai-lite/tokenizer-loader");
+class Tokenizer {
+  encode(text) {
+    const fixture = recipe.selfTest.find((item) => item.text === text);
+    const count = fixture ? fixture.expectedTokens : 0;
+    return { ids: Array.from({ length: count }, (_, index) => index) };
+  }
+}
+(async () => {
+  const backend = await loadContentTokenizerProfile(recipe, {
+    cacheDir,
+    allowDownload: false,
+    tokenizersPeer: {
+      module: { Tokenizer },
+      packageVersion: "0.1.3",
+    },
+  });
+  if (
+    backend.provenance.runtime.packageVersion !== "0.1.3" ||
+    backend.countTextTokens("<special>") !== 3
+  ) {
+    throw new Error("CJS injected-peer verification failed.");
+  }
+})();
+`
+  );
+  const injectedEsm = path.join(consumer, "injected-peer.mjs");
+  fs.writeFileSync(
+    injectedEsm,
+    `
+import fixture from "./tokenizer-fixture.cjs";
+import {
+  loadContentTokenizerProfile,
+} from "genai-lite/tokenizer-loader";
+class Tokenizer {
+  encode(text) {
+    const selfTest = fixture.recipe.selfTest.find((item) => item.text === text);
+    const count = selfTest ? selfTest.expectedTokens : 0;
+    return { ids: Array.from({ length: count }, (_, index) => index) };
+  }
+}
+const backend = await loadContentTokenizerProfile(fixture.recipe, {
+  cacheDir: fixture.cacheDir,
+  allowDownload: false,
+  tokenizersPeer: {
+    module: { Tokenizer },
+    packageVersion: "0.1.3",
+  },
+});
+if (
+  backend.provenance.runtime.packageVersion !== "0.1.3" ||
+  backend.countTextTokens("<special>") !== 3
+) {
+  throw new Error("ESM injected-peer verification failed.");
+}
+`
+  );
+  runNode(injectedCjs, consumer);
+  runNode(injectedEsm, consumer);
+
+  runNpm(
+    [
+      "install",
+      "--ignore-scripts",
+      "--package-lock=false",
+      "--no-audit",
+      "--no-fund",
+      "--no-save",
+      "@huggingface/tokenizers@0.1.3",
+      "rollup@4.62.4",
+      "@rollup/plugin-node-resolve@16.0.3",
+      "@rollup/plugin-commonjs@29.0.3",
+      "@rollup/plugin-json@6.1.0",
+    ],
+    { cwd: consumer, stdio: "inherit" }
+  );
+
+  fs.writeFileSync(
+    path.join(consumer, "tsconfig.injected.json"),
+    JSON.stringify({
+      compilerOptions: {
+        strict: true,
+        noEmit: true,
+        module: "Node16",
+        moduleResolution: "Node16",
+        target: "ES2020",
+        skipLibCheck: true,
+      },
+      include: ["injected-consumer.mts"],
+    })
+  );
+  fs.writeFileSync(
+    path.join(consumer, "injected-consumer.mts"),
+    `
+import * as tokenizersModule from "@huggingface/tokenizers";
+import {
+  GEMMA_4_IT_CONTENT_TOKENIZER_RECIPE,
+} from "genai-lite/tokenizer-recipes";
+import {
+  loadContentTokenizerProfile,
+  type ContentTokenizerPeer,
+} from "genai-lite/tokenizer-loader";
+
+const tokenizersPeer: ContentTokenizerPeer = {
+  module: tokenizersModule,
+  packageVersion: "0.1.3",
+};
+void loadContentTokenizerProfile(GEMMA_4_IT_CONTENT_TOKENIZER_RECIPE, {
+  cacheDir: ".cache",
+  allowDownload: false,
+  tokenizersPeer,
+});
+`
+  );
+  execFileSync(
+    process.execPath,
+    [
+      path.join(consumer, "node_modules", "typescript", "bin", "tsc"),
+      "--noEmit",
+      "-p",
+      "tsconfig.injected.json",
+    ],
+    { cwd: consumer, stdio: "inherit" }
+  );
+
   const withPeerCjs = path.join(consumer, "with-peer.cjs");
   fs.writeFileSync(
     withPeerCjs,
@@ -430,6 +658,129 @@ if (
   runNode(withPeerCjs, consumer);
   runNode(withPeerEsm, consumer);
 
+  const rollupEntry = path.join(consumer, "rollup-entry.mjs");
+  fs.writeFileSync(
+    rollupEntry,
+    `
+import * as tokenizersModule from "@huggingface/tokenizers";
+import {
+  countTextTokens,
+  resolveTokenProfile,
+} from "genai-lite";
+import fixture from "./tokenizer-fixture.cjs";
+import {
+  loadContentTokenizerProfile,
+} from "genai-lite/tokenizer-loader";
+
+for (const model of ["gpt-4", "gpt-5.1"]) {
+  const resolution = resolveTokenProfile("openai", model);
+  if (resolution.status !== "available") {
+    throw new Error("Bundled profile did not resolve for " + model);
+  }
+  const counted = countTextTokens("bundled rank execution", resolution.profile);
+  if (counted.status !== "available" || counted.count.tokens <= 0) {
+    throw new Error("Bundled profile did not count for " + model);
+  }
+}
+
+const backend = await loadContentTokenizerProfile(fixture.recipe, {
+  cacheDir: fixture.cacheDir,
+  allowDownload: false,
+  tokenizersPeer: {
+    module: tokenizersModule,
+    packageVersion: "0.1.3",
+  },
+});
+if (
+  backend.provenance.runtime.packageVersion !== "0.1.3" ||
+  backend.countTextTokens("<special>") !== 3
+) {
+  throw new Error("Bundled injected-peer loader verification failed.");
+}
+`
+  );
+  fs.writeFileSync(
+    path.join(consumer, "graph-loader.mjs"),
+    `
+import { loadContentTokenizerProfile } from "genai-lite/tokenizer-loader";
+console.log(typeof loadContentTokenizerProfile);
+`
+  );
+  fs.writeFileSync(
+    path.join(consumer, "graph-recipes.mjs"),
+    `
+import { GEMMA_4_IT_CONTENT_TOKENIZER_RECIPE } from "genai-lite/tokenizer-recipes";
+console.log(GEMMA_4_IT_CONTENT_TOKENIZER_RECIPE.id);
+`
+  );
+  const rollupConfig = path.join(consumer, "rollup.config.mjs");
+  fs.writeFileSync(
+    rollupConfig,
+    `
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import commonjs from "@rollup/plugin-commonjs";
+import json from "@rollup/plugin-json";
+import { nodeResolve } from "@rollup/plugin-node-resolve";
+
+const directory = path.dirname(fileURLToPath(import.meta.url));
+const plugins = () => [
+  nodeResolve({ preferBuiltins: true }),
+  json(),
+  commonjs(),
+];
+const assertRankFreeGraph = {
+  name: "assert-rank-free-loader-graph",
+  generateBundle() {
+    const forbidden = [...this.getModuleIds()].filter((id) => {
+      const normalized = id.split(path.sep).join("/");
+      return normalized.includes("/node_modules/js-tiktoken/") ||
+        normalized.includes("/node_modules/base64-js/");
+    });
+    if (forbidden.length > 0) {
+      this.error(
+        "Loader/recipes graph reached tokenizer dependencies: " +
+          forbidden.join(", ")
+      );
+    }
+  },
+};
+
+export default [
+  {
+    input: path.join(directory, "rollup-entry.mjs"),
+    external: (id) => id.endsWith("tokenizer-fixture.cjs"),
+    output: {
+      file: path.join(directory, "rollup-bundle.mjs"),
+      format: "esm",
+    },
+    plugins: plugins(),
+  },
+  {
+    input: {
+      loader: path.join(directory, "graph-loader.mjs"),
+      recipes: path.join(directory, "graph-recipes.mjs"),
+    },
+    output: {
+      dir: path.join(directory, "rollup-graphs"),
+      format: "esm",
+    },
+    plugins: [...plugins(), assertRankFreeGraph],
+  },
+];
+`
+  );
+  execFileSync(
+    process.execPath,
+    [
+      path.join(consumer, "node_modules", "rollup", "dist", "bin", "rollup"),
+      "--config",
+      rollupConfig,
+    ],
+    { cwd: consumer, stdio: "inherit" }
+  );
+  runNode(path.join(consumer, "rollup-bundle.mjs"), consumer);
+
   const peerValidation = path.join(consumer, "peer-validation.cjs");
   fs.writeFileSync(
     peerValidation,
@@ -454,27 +805,32 @@ loadContentTokenizerProfile(recipe, {
 );
 `
   );
-  const peerEntry = require.resolve("@huggingface/tokenizers", {
-    paths: [consumer],
-  });
-  let peerPackageDir = path.dirname(peerEntry);
-  let peerManifestPath;
-  while (peerPackageDir !== path.parse(peerPackageDir).root) {
-    const candidate = path.join(peerPackageDir, "package.json");
-    if (fs.existsSync(candidate)) {
-      const candidateManifest = JSON.parse(fs.readFileSync(candidate, "utf8"));
-      if (candidateManifest.name === "@huggingface/tokenizers") {
-        peerManifestPath = candidate;
-        break;
-      }
-    }
-    peerPackageDir = path.dirname(peerPackageDir);
-  }
-  if (!peerManifestPath) {
+  const peerManifestPath = path.join(
+    consumer,
+    "node_modules",
+    "@huggingface",
+    "tokenizers",
+    "package.json"
+  );
+  if (!fs.existsSync(peerManifestPath)) {
     throw new Error("Packed test could not locate the optional peer manifest.");
   }
   const originalPeerManifest = fs.readFileSync(peerManifestPath, "utf8");
   const parsedPeerManifest = JSON.parse(originalPeerManifest);
+  if (parsedPeerManifest.name !== "@huggingface/tokenizers") {
+    throw new Error("Packed test located an unexpected optional peer manifest.");
+  }
+  const peerRequireTarget = parsedPeerManifest.exports?.["."]?.node?.require;
+  if (typeof peerRequireTarget !== "string") {
+    throw new Error("Packed test could not locate the optional peer CJS entry.");
+  }
+  const peerEntry = path.resolve(
+    path.dirname(peerManifestPath),
+    peerRequireTarget
+  );
+  if (!fs.existsSync(peerEntry)) {
+    throw new Error("Packed test optional peer CJS entry does not exist.");
+  }
   try {
     fs.writeFileSync(
       peerManifestPath,

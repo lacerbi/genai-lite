@@ -16,8 +16,17 @@ For every profile revision, pin and verify:
 - affine constants and overflow behavior.
 
 Keep the tokenizer profile revision separate from the model-to-profile mapping
-revision. If an installed rank hash differs, the profile and its certificates
-must become unavailable rather than silently using the new data.
+revision. If a rank module cannot be loaded/evaluated, has the wrong shape or
+hash, or fails byte-completeness validation, the profile and its certificates
+must become unavailable rather than throwing or silently using different data.
+The built-in IDs remain permanently reserved even while unavailable.
+
+After validation, copy rank primitives and clone/freeze `special_tokens` into a
+canonical snapshot. Tokenizer construction must use that snapshot, not the
+shared mutable module export, so later mutation cannot separate counts from the
+hash and certificate identity that authorized them. Runtime construction or
+encoding failure likewise returns unavailable count evidence; it never enables
+a heuristic certificate path.
 
 The parallel `ContentTokenProfile` registry is not a certificate registry.
 Built-in exact content profiles may wrap the canonical certified profiles for
@@ -32,6 +41,12 @@ package provenance to this trust boundary.
 The `cl100k_base` and `o200k_base` profiles are pinned to the bundled
 `js-tiktoken@1.0.21` rank/config hashes. The registry derives byte completeness
 and the maximum token byte length from those artifacts.
+
+Keep each rank specifier as a separate literal lazy load and construct the
+runtime through `js-tiktoken/lite`. The lite construction must remain count-
+for-count equivalent to the full `getEncoding()` implementation across the
+adversarial parity fixtures before hashes, revisions, or certificates may be
+left unchanged.
 
 The Unicode code-point certificate uses:
 

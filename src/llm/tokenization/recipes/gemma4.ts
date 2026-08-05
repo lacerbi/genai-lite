@@ -1,4 +1,4 @@
-import { computeContentTokenizerSemanticRevision } from "../contentProfiles";
+import { computeContentTokenizerSemanticRevision } from "../contentProfileIdentity";
 import type { ContentTokenizerRecipe } from "./types";
 
 const TOKENIZER_SHA256 =

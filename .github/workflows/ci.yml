@@ -76,5 +76,7 @@ jobs:
         run: npm ci
       - name: Build project
         run: npm run build
+      - name: Validate packed consumers and Rollup bundling
+        run: npm run test:packed-api
       - name: Validate package
         run: npm pack --dry-run

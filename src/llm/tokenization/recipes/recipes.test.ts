@@ -1,4 +1,4 @@
-import { computeContentTokenizerSemanticRevision } from "../contentProfiles";
+import { computeContentTokenizerSemanticRevision } from "../contentProfileIdentity";
 import { GEMMA_4_IT_CONTENT_TOKENIZER_RECIPE } from "./gemma4";
 
 describe("content-tokenizer recipes", () => {
