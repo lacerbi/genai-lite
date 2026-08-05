@@ -61,7 +61,7 @@
     "@google/genai": "^2.10.0",
     "@mistralai/mistralai": "^1.15.1",
     "js-tiktoken": "1.0.21",
-    "openai": "^6.7.0"
+    "openai": "^7.2.0"
   },
   "peerDependencies": {
     "@huggingface/tokenizers": "^0.1.3"
