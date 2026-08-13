@@ -284,6 +284,7 @@ Template-injected "nothink" prefixes (an empty think block some templates leak i
 ### Caveats
 
 - **Assistant prefill + thinking is rejected.** llama-server does not allow a trailing `assistant` message (prefill) together with `enable_thinking: true`. genai-lite fails fast with a clear `PROVIDER_ERROR` (`"llama.cpp does not support assistant prefill … while thinking is enabled …"`) instead of surfacing the raw server error. Remove the trailing assistant message or disable reasoning.
+- **Assistant-prefill echoes are normalized when thinking is disabled.** Some llama-server builds return the complete assistant turn in `message.content`: the exact trailing assistant prefill followed by the newly generated continuation. genai-lite removes one exact, case-sensitive echoed copy from normalized `message.content` and public content deltas. Continuation-only responses remain unchanged. The provider's unaltered text remains available through `choice.rawContent` and `choice.rawContentParts`, while usage and logprob evidence continue to describe the provider response.
 - **Gemma 4 `enable_thinking: true` is best-effort.** In battle-testing, Gemma 4's chat-template flag activates the thought channel unreliably; `enable_thinking: false` works reliably. Don't depend on always getting a trace from Gemma 4.
 - **llama.cpp build variance.** Whether the server populates `reasoning_content` (vs. leaving markers inline) differs across builds. If reasoning markers leak into `message.content`, update to a recent llama.cpp build (e.g. `b9028` or newer).
 
