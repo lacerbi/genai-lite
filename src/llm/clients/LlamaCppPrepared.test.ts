@@ -155,6 +155,41 @@ describe("LlamaCppClientAdapter prepared state", () => {
     ]);
   });
 
+  it("captures assistant prefill from messages after prompt-delivered rewriting", async () => {
+    const { adapter } = adapterWithServer();
+    const structured = request(false);
+    structured.messages = [
+      { role: "user", content: "Choose yes or no." },
+      { role: "assistant", content: "1:" },
+    ];
+    structured.settings.structuredOutput = {
+      name: "answer",
+      schema: {
+        type: "object",
+        properties: { answer: { type: "string" } },
+      },
+      delivery: "prompt",
+    };
+
+    const result = await adapter.prepareRequest(structured, {
+      mode: "complete",
+      modelInfo: {} as any,
+    });
+
+    if ("error" in result) {
+      throw new Error(result.error.error.message);
+    }
+    const providerRequest = result.prepared.providerRequest as any;
+    expect(providerRequest.assistantPrefill).toBe("1:");
+    expect(providerRequest.completionParams.messages.at(-1)).toEqual({
+      role: "assistant",
+      content: "1:",
+    });
+    expect(providerRequest.completionParams.messages[0].content).toContain(
+      "GENAI_LITE_STRUCTURED_OUTPUT"
+    );
+  });
+
   it("derives capability transformations from the same selected-model snapshot", async () => {
     const { adapter, server } = adapterWithServer();
     const capabilityProbe = jest.spyOn(adapter, "getModelCapabilities");

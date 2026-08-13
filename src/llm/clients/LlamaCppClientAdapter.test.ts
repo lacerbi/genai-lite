@@ -819,6 +819,250 @@ describe('LlamaCppClientAdapter', () => {
     });
   });
 
+  describe('assistant prefill echo normalization', () => {
+    const completion = (
+      content: string,
+      extra?: Record<string, any>
+    ) => ({
+      id: 'chatcmpl-prefill',
+      object: 'chat.completion',
+      created: 1677652288,
+      model: 'llamacpp',
+      choices: [
+        {
+          index: 0,
+          message: { role: 'assistant', content },
+          finish_reason: 'length',
+          ...extra,
+        },
+      ],
+      usage: {
+        prompt_tokens: 10,
+        completion_tokens: 1,
+        total_tokens: 11,
+      },
+    });
+
+    it('returns the sampled continuation while preserving echoed raw and logprob evidence', async () => {
+      mockCreate.mockResolvedValueOnce(
+        completion('1: no', {
+          logprobs: {
+            content: [
+              {
+                token: ' no',
+                logprob: -0.8,
+                top_logprobs: [
+                  { token: ' unlikely', logprob: -0.4 },
+                  { token: ' no', logprob: -0.8 },
+                ],
+              },
+            ],
+          },
+        })
+      );
+      basicRequest.messages = [
+        { role: 'user', content: 'Choose yes or no.' },
+        { role: 'assistant', content: '1:' },
+      ];
+      basicRequest.settings.maxTokens = 1;
+      basicRequest.settings.logprobs = true;
+      basicRequest.settings.topLogprobs = 2;
+
+      const response = await adapter.sendMessage(basicRequest, 'not-needed');
+
+      expect(response.object).toBe('chat.completion');
+      if (response.object === 'chat.completion') {
+        expect(response.choices[0]).toMatchObject({
+          message: { role: 'assistant', content: ' no' },
+          rawContent: '1: no',
+          rawContentParts: [{ type: 'text', text: '1: no' }],
+          logprobs: [
+            {
+              token: ' no',
+              logprob: -0.8,
+              topLogprobs: [
+                { token: ' unlikely', logprob: -0.4 },
+                { token: ' no', logprob: -0.8 },
+              ],
+            },
+          ],
+          finish_reason: 'length',
+          termination: {
+            rawReason: 'length',
+            kind: 'limit',
+          },
+          answerAccounting: {
+            providerOutput: {
+              tokens: 1,
+              reasoning: 'included_native',
+            },
+          },
+        });
+        expect(response.usage).toEqual({
+          prompt_tokens: 10,
+          completion_tokens: 1,
+          total_tokens: 11,
+        });
+      }
+    });
+
+    it.each([
+      {
+        name: 'multiline accumulated prefill',
+        messages: [
+          { role: 'user', content: 'Answer both.' },
+          { role: 'assistant', content: '1: yes\n2:' },
+        ],
+        raw: '1: yes\n2: no',
+        expected: ' no',
+      },
+      {
+        name: 'continuation without leading whitespace',
+        messages: [
+          { role: 'user', content: 'Explain.' },
+          { role: 'assistant', content: '1:' },
+        ],
+        raw: '1:Because the premise follows.',
+        expected: 'Because the premise follows.',
+      },
+      {
+        name: 'continuation-only provider response',
+        messages: [
+          { role: 'user', content: 'Choose.' },
+          { role: 'assistant', content: '1:' },
+        ],
+        raw: ' no',
+        expected: ' no',
+      },
+      {
+        name: 'request without a trailing assistant message',
+        messages: [{ role: 'user', content: 'Choose.' }],
+        raw: '1: no',
+        expected: '1: no',
+      },
+      {
+        name: 'empty trailing assistant message',
+        messages: [
+          { role: 'user', content: 'Choose.' },
+          { role: 'assistant', content: '' },
+        ],
+        raw: ' no',
+        expected: ' no',
+      },
+      {
+        name: 'response equal to the prefill',
+        messages: [
+          { role: 'user', content: 'Continue.' },
+          { role: 'assistant', content: '1:' },
+        ],
+        raw: '1:',
+        expected: '',
+      },
+      {
+        name: 'exactly one repeated prefill',
+        messages: [
+          { role: 'user', content: 'Continue.' },
+          { role: 'assistant', content: '1:' },
+        ],
+        raw: '1:1: yes',
+        expected: '1: yes',
+      },
+    ])('handles $name', async ({ messages, raw, expected }) => {
+      mockCreate.mockResolvedValueOnce(completion(raw));
+      basicRequest.messages = messages as any;
+
+      const response = await adapter.sendMessage(basicRequest, 'not-needed');
+
+      expect(response.object).toBe('chat.completion');
+      if (response.object === 'chat.completion') {
+        expect(response.choices[0].message.content).toBe(expected);
+        expect(response.choices[0].rawContent).toBe(raw);
+      }
+    });
+
+    it('normalizes every returned choice against the same outbound prefill', async () => {
+      mockCreate.mockResolvedValueOnce({
+        ...completion('unused'),
+        choices: [
+          {
+            index: 0,
+            message: { role: 'assistant', content: '1: yes' },
+            finish_reason: 'stop',
+          },
+          {
+            index: 1,
+            message: { role: 'assistant', content: '1: no' },
+            finish_reason: 'stop',
+          },
+        ],
+      });
+      basicRequest.messages = [
+        { role: 'user', content: 'Choose.' },
+        { role: 'assistant', content: '1:' },
+      ];
+
+      const response = await adapter.sendMessage(basicRequest, 'not-needed');
+
+      expect(response.object).toBe('chat.completion');
+      if (response.object === 'chat.completion') {
+        expect(response.choices.map((choice) => choice.message.content)).toEqual([
+          ' yes',
+          ' no',
+        ]);
+        expect(response.choices.map((choice) => choice.rawContent)).toEqual([
+          '1: yes',
+          '1: no',
+        ]);
+      }
+    });
+
+    it('strips the no-thinking prefix before the echoed assistant prefill', async () => {
+      const nothinkPrefix = '<think>\n\n</think>\n\n';
+      mockGetModels.mockResolvedValue({ data: [{ id: 'Qwen3.5-4B-Q4_K_M.gguf' }] });
+      mockCreate.mockResolvedValueOnce(completion(`${nothinkPrefix}1: yes`));
+      basicRequest.messages = [
+        { role: 'user', content: 'Choose.' },
+        { role: 'assistant', content: '1:' },
+      ];
+
+      const response = await adapter.sendMessage(basicRequest, 'not-needed');
+
+      expect(response.object).toBe('chat.completion');
+      if (response.object === 'chat.completion') {
+        expect(response.choices[0].message.content).toBe(' yes');
+        expect(response.choices[0].rawContent).toBe(`${nothinkPrefix}1: yes`);
+      }
+    });
+
+    it('strips the echoed prefill before existing reasoning-marker extraction', () => {
+      const request = {
+        ...basicRequest,
+        messages: [
+          { role: 'user' as const, content: 'Explain.' },
+          { role: 'assistant' as const, content: '1:' },
+        ],
+        settings: {
+          ...basicRequest.settings,
+          reasoning: { enabled: true, exclude: false },
+        },
+      };
+      const response = (adapter as any).createSuccessResponse(
+        completion('1:<think>Reasoning</think>Answer'),
+        request,
+        {
+          localReasoning: { markers: ['<think>', '</think>'] },
+        },
+        '1:'
+      );
+
+      expect(response.choices[0]).toMatchObject({
+        message: { content: 'Answer' },
+        reasoning: 'Reasoning',
+        rawContent: '1:<think>Reasoning</think>Answer',
+      });
+    });
+  });
+
   describe('grammar and logprobs', () => {
     const okResponse = (content: string, extra?: Record<string, any>) => ({
       id: 'chatcmpl-gl',
@@ -1061,6 +1305,223 @@ describe('LlamaCppClientAdapter', () => {
 
       expect(liveContent).toBe('Clean answer');
       expect(complete.response.choices[0].message.content).toBe('Clean answer');
+    });
+
+    it('suppresses an echoed assistant prefill while retaining every raw delta', async () => {
+      basicRequest.messages = [
+        { role: 'user', content: 'Choose.' },
+        { role: 'assistant', content: '1:' },
+      ];
+      mockCreate.mockResolvedValueOnce(streamFrom([
+        {
+          ...chunk('1: yes'),
+          choices: [{ index: 0, delta: { content: '1: yes' }, finish_reason: 'stop' }],
+        },
+      ]));
+
+      const events = await collectEvents();
+      const liveContent = events
+        .filter((event) => event.type === 'content_delta')
+        .map((event) => event.delta)
+        .join('');
+      const rawContent = events
+        .filter((event) => event.type === 'adapter_evidence')
+        .map((event: any) => event.observedEvidence.choice?.rawContentDelta || '')
+        .join('');
+      const complete = events[events.length - 1] as any;
+
+      expect(liveContent).toBe(' yes');
+      expect(rawContent).toBe('1: yes');
+      expect(complete.response.choices[0]).toMatchObject({
+        message: { content: ' yes' },
+        rawContent: '1: yes',
+        rawContentParts: [{ type: 'text', text: '1: yes' }],
+      });
+    });
+
+    it('suppresses an echoed prefill split at every content boundary', async () => {
+      basicRequest.messages = [
+        { role: 'user', content: 'Choose.' },
+        { role: 'assistant', content: '1:' },
+      ];
+      const raw = '1: yes';
+
+      for (let boundary = 1; boundary < raw.length; boundary += 1) {
+        mockCreate.mockResolvedValueOnce(streamFrom([
+          chunk(raw.slice(0, boundary)),
+          {
+            ...chunk(raw.slice(boundary)),
+            choices: [{
+              index: 0,
+              delta: { content: raw.slice(boundary) },
+              finish_reason: 'stop',
+            }],
+          },
+        ]));
+
+        const events = await collectEvents();
+        const liveContent = events
+          .filter((event) => event.type === 'content_delta')
+          .map((event) => event.delta)
+          .join('');
+        const complete = events[events.length - 1] as any;
+
+        expect(liveContent).toBe(' yes');
+        expect(complete.response.choices[0].message.content).toBe(' yes');
+        expect(complete.response.choices[0].rawContent).toBe(raw);
+      }
+    });
+
+    it('flushes every buffered character when a possible prefill diverges', async () => {
+      basicRequest.messages = [
+        { role: 'user', content: 'Continue.' },
+        { role: 'assistant', content: 'abcdef' },
+      ];
+      mockCreate.mockResolvedValueOnce(streamFrom([
+        chunk('abc'),
+        {
+          ...chunk('X rest'),
+          choices: [{ index: 0, delta: { content: 'X rest' }, finish_reason: 'stop' }],
+        },
+      ]));
+
+      const events = await collectEvents();
+      const liveContent = events
+        .filter((event) => event.type === 'content_delta')
+        .map((event) => event.delta)
+        .join('');
+      const complete = events[events.length - 1] as any;
+
+      expect(liveContent).toBe('abcX rest');
+      expect(complete.response.choices[0].message.content).toBe('abcX rest');
+    });
+
+    it('reconsiders a failed no-thinking candidate as the assistant prefill', async () => {
+      mockGetModels.mockResolvedValue({ data: [{ id: 'Qwen3.5-4B-Q4_K_M.gguf' }] });
+      basicRequest.messages = [
+        { role: 'user', content: 'Continue.' },
+        { role: 'assistant', content: '<thinking prefill>' },
+      ];
+      mockCreate.mockResolvedValueOnce(streamFrom([
+        chunk('<thi'),
+        {
+          ...chunk('nking prefill> continuation'),
+          choices: [{
+            index: 0,
+            delta: { content: 'nking prefill> continuation' },
+            finish_reason: 'stop',
+          }],
+        },
+      ]));
+
+      const events = await collectEvents();
+      const liveContent = events
+        .filter((event) => event.type === 'content_delta')
+        .map((event) => event.delta)
+        .join('');
+      const complete = events[events.length - 1] as any;
+
+      expect(liveContent).toBe(' continuation');
+      expect(complete.response.choices[0].message.content).toBe(' continuation');
+    });
+
+    it('composes chunked no-thinking and assistant-prefill cleanup', async () => {
+      const nothinkPrefix = '<think>\n\n</think>\n\n';
+      mockGetModels.mockResolvedValue({ data: [{ id: 'Qwen3.5-4B-Q4_K_M.gguf' }] });
+      basicRequest.messages = [
+        { role: 'user', content: 'Choose.' },
+        { role: 'assistant', content: '1:' },
+      ];
+      mockCreate.mockResolvedValueOnce(streamFrom([
+        chunk('<think>\n'),
+        chunk('\n</think>\n\n1'),
+        {
+          ...chunk(': yes'),
+          choices: [{ index: 0, delta: { content: ': yes' }, finish_reason: 'stop' }],
+        },
+      ]));
+
+      const events = await collectEvents();
+      const liveContent = events
+        .filter((event) => event.type === 'content_delta')
+        .map((event) => event.delta)
+        .join('');
+      const complete = events[events.length - 1] as any;
+
+      expect(liveContent).toBe(' yes');
+      expect(complete.response.choices[0].message.content).toBe(' yes');
+      expect(complete.response.choices[0].rawContent).toBe(`${nothinkPrefix}1: yes`);
+    });
+
+    it('fails open for an unresolved partial prefill at normal stream end', async () => {
+      basicRequest.messages = [
+        { role: 'user', content: 'Continue.' },
+        { role: 'assistant', content: 'abcdef' },
+      ];
+      mockCreate.mockResolvedValueOnce(streamFrom([chunk('abc')]));
+
+      const events = await collectEvents();
+      const liveContent = events
+        .filter((event) => event.type === 'content_delta')
+        .map((event) => event.delta)
+        .join('');
+      const complete = events[events.length - 1] as any;
+
+      expect(liveContent).toBe('abc');
+      expect(complete.response.choices[0].message.content).toBe('abc');
+      expect(complete.response.choices[0].rawContent).toBe('abc');
+    });
+
+    it('fails open for an unresolved partial prefill before a stream error', async () => {
+      basicRequest.messages = [
+        { role: 'user', content: 'Continue.' },
+        { role: 'assistant', content: 'abcdef' },
+      ];
+      mockCreate.mockResolvedValueOnce(streamFrom([
+        chunk('abc'),
+        new Error('stream broke'),
+      ]));
+
+      const events = await collectEvents();
+      const liveContent = events
+        .filter((event) => event.type === 'content_delta')
+        .map((event) => event.delta)
+        .join('');
+      const error = events[events.length - 1] as any;
+
+      expect(liveContent).toBe('abc');
+      expect(error.type).toBe('error');
+      expect(error.error.partialResponse?.choices[0]).toMatchObject({
+        message: { content: 'abc' },
+        rawContent: 'abc',
+        rawContentParts: [{ type: 'text', text: 'abc' }],
+      });
+    });
+
+    it('keeps normalized deltas and partial response aligned after a stripped echo', async () => {
+      basicRequest.messages = [
+        { role: 'user', content: 'Continue.' },
+        { role: 'assistant', content: '1:' },
+      ];
+      mockCreate.mockResolvedValueOnce(streamFrom([
+        chunk('1:'),
+        chunk(' partial'),
+        new Error('stream broke'),
+      ]));
+
+      const events = await collectEvents();
+      const liveContent = events
+        .filter((event) => event.type === 'content_delta')
+        .map((event) => event.delta)
+        .join('');
+      const error = events[events.length - 1] as any;
+
+      expect(liveContent).toBe(' partial');
+      expect(error.error.partialResponse?.choices[0]).toMatchObject({
+        message: { content: ' partial' },
+        rawContent: '1: partial',
+        rawContentParts: [{ type: 'text', text: '1: partial' }],
+      });
     });
 
     it('returns health-check errors without starting a stream', async () => {

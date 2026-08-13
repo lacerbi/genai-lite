@@ -60,11 +60,13 @@ interface LlamaCppCompletionRequest {
   openai: OpenAI;
   completionParams: OpenAI.Chat.Completions.ChatCompletionCreateParams;
   detectedCaps: Partial<ModelInfo> | null;
+  assistantPrefill?: string;
 }
 
 interface LlamaCppSemanticRequest {
   completionParams: OpenAI.Chat.Completions.ChatCompletionCreateParams;
   detectedCaps: Partial<ModelInfo> | null;
+  assistantPrefill?: string;
 }
 
 interface LlamaCppPreparedProviderRequest extends LlamaCppSemanticRequest {
@@ -91,7 +93,7 @@ interface LlamaCppStreamChoiceState {
   finishReason: string | null;
   logprobs: any[];
   prefixBuffer: string;
-  prefixResolved: boolean;
+  prefixPhase: "nothink" | "assistant_prefill" | "passthrough";
 }
 
 function hasPositiveLlamaCppReasoningTokens(usage: unknown): boolean {
@@ -326,6 +328,9 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
         request,
         completionParams,
         detectedCaps: semantic.detectedCaps,
+        ...(semantic.assistantPrefill !== undefined && {
+          assistantPrefill: semantic.assistantPrefill,
+        }),
         ...(stateBinding && { stateBinding }),
       });
     return {
@@ -435,7 +440,8 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
       return this.createSuccessResponse(
         completion,
         request,
-        providerRequest.detectedCaps
+        providerRequest.detectedCaps,
+        providerRequest.assistantPrefill
       );
     } catch (error) {
       this.handleConnectionError(error);
@@ -456,6 +462,7 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
         providerRequest.completionParams
       ) as OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming,
       providerRequest.detectedCaps,
+      providerRequest.assistantPrefill,
       apiKey,
       options
     );
@@ -549,7 +556,12 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
         return prepared.error;
       }
 
-      const { openai, completionParams, detectedCaps } = prepared;
+      const {
+        openai,
+        completionParams,
+        detectedCaps,
+        assistantPrefill,
+      } = prepared;
 
       this.logger.debug(`llama.cpp API parameters:`, {
         baseURL: this.baseURL,
@@ -572,7 +584,8 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
         return this.createSuccessResponse(
           completion as OpenAI.Chat.Completions.ChatCompletion,
           request,
-          detectedCaps
+          detectedCaps,
+          assistantPrefill
         );
       } else {
         throw new Error('Unexpected streaming response from llama.cpp server');
@@ -614,6 +627,7 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
       request,
       streamParams,
       prepared.detectedCaps,
+      prepared.assistantPrefill,
       apiKey,
       options
     );
@@ -623,6 +637,7 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
     request: InternalLLMChatRequest,
     streamParams: OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming,
     initialDetectedCaps: Partial<ModelInfo> | null,
+    assistantPrefill: string | undefined,
     apiKey: string,
     options?: AdapterRequestOptions
   ): AsyncIterable<AdapterLLMStreamEvent> {
@@ -742,10 +757,11 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
                 },
               },
             });
-            const visibleDelta = this.filterLiveNothinkPrefixDelta(
+            const visibleDelta = this.filterLiveContentPrefixDelta(
               state,
               delta.content,
-              detectedCaps?.localReasoning?.nothinkPrefix
+              detectedCaps?.localReasoning?.nothinkPrefix,
+              assistantPrefill
             );
             if (visibleDelta) {
               publicEvents.push({
@@ -809,14 +825,17 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
       }
 
       for (const [index, state] of choiceStates) {
-        if (!state.prefixResolved && state.prefixBuffer) {
+        const visibleDelta = this.finalizeLiveContentPrefix(
+          state,
+          detectedCaps?.localReasoning?.nothinkPrefix,
+          assistantPrefill
+        );
+        if (visibleDelta) {
           yield {
             type: "content_delta",
-            delta: state.prefixBuffer,
+            delta: visibleDelta,
             index,
           };
-          state.prefixBuffer = "";
-          state.prefixResolved = true;
         }
       }
 
@@ -830,7 +849,8 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
           usage
         ),
         request,
-        detectedCaps
+        detectedCaps,
+        assistantPrefill
       );
 
       yield { type: "complete", response };
@@ -838,6 +858,21 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
       this.logger.error("llama.cpp streaming API error:", error);
 
       this.handleConnectionError(error);
+
+      for (const [index, state] of choiceStates) {
+        const visibleDelta = this.finalizeLiveContentPrefix(
+          state,
+          detectedCaps?.localReasoning?.nothinkPrefix,
+          assistantPrefill
+        );
+        if (visibleDelta) {
+          yield {
+            type: "content_delta",
+            delta: visibleDelta,
+            index,
+          };
+        }
+      }
 
       const errorResponse = this.createErrorResponse(error, request);
       if (choiceStates.size > 0) {
@@ -851,7 +886,8 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
             usage
           ),
           request,
-          detectedCaps
+          detectedCaps,
+          assistantPrefill
         );
         errorResponse.partialResponse = {
           id: partial.id,
@@ -927,6 +963,7 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
     detectedCapsSnapshot?: Partial<ModelInfo> | null
   ): Promise<LlamaCppSemanticRequest | { error: LLMFailureResponse }> {
     const messages = this.formatMessages(request);
+    const assistantPrefill = this.getTrailingAssistantPrefill(messages);
     const completionParams: OpenAI.Chat.Completions.ChatCompletionCreateParams = {
       model: request.modelId,
       messages,
@@ -1017,7 +1054,11 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
       }
     }
 
-    return { completionParams, detectedCaps };
+    return {
+      completionParams,
+      detectedCaps,
+      ...(assistantPrefill !== undefined && { assistantPrefill }),
+    };
   }
 
   private createClient(apiKey: string): OpenAI {
@@ -1059,41 +1100,118 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
         finishReason: null,
         logprobs: [],
         prefixBuffer: "",
-        prefixResolved: false,
+        prefixPhase: "nothink",
       };
       states.set(index, state);
     }
     return state;
   }
 
-  private filterLiveNothinkPrefixDelta(
+  private getTrailingAssistantPrefill(
+    messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[]
+  ): string | undefined {
+    const lastMessage = messages[messages.length - 1];
+    if (
+      lastMessage?.role !== "assistant" ||
+      typeof lastMessage.content !== "string" ||
+      lastMessage.content.length === 0
+    ) {
+      return undefined;
+    }
+    return lastMessage.content;
+  }
+
+  private stripEchoedAssistantPrefill(
+    content: string,
+    assistantPrefill?: string
+  ): string {
+    if (!assistantPrefill || !content.startsWith(assistantPrefill)) {
+      return content;
+    }
+    return content.slice(assistantPrefill.length);
+  }
+
+  private filterLiveContentPrefixDelta(
     state: LlamaCppStreamChoiceState,
     delta: string,
-    nothinkPrefix?: string
+    nothinkPrefix?: string,
+    assistantPrefill?: string
   ): string {
-    if (!nothinkPrefix || state.prefixResolved) {
+    if (state.prefixPhase === "passthrough") {
       return delta;
     }
 
     state.prefixBuffer += delta;
-    if (nothinkPrefix.startsWith(state.prefixBuffer)) {
-      if (state.prefixBuffer === nothinkPrefix) {
-        state.prefixBuffer = "";
-        state.prefixResolved = true;
-      }
-      return "";
-    }
+    return this.resolveLiveContentPrefix(
+      state,
+      nothinkPrefix,
+      assistantPrefill,
+      false
+    );
+  }
 
-    if (state.prefixBuffer.startsWith(nothinkPrefix)) {
-      const visible = state.prefixBuffer.slice(nothinkPrefix.length);
-      state.prefixBuffer = "";
-      state.prefixResolved = true;
-      return visible;
+  private finalizeLiveContentPrefix(
+    state: LlamaCppStreamChoiceState,
+    nothinkPrefix?: string,
+    assistantPrefill?: string
+  ): string {
+    return this.resolveLiveContentPrefix(
+      state,
+      nothinkPrefix,
+      assistantPrefill,
+      true
+    );
+  }
+
+  private resolveLiveContentPrefix(
+    state: LlamaCppStreamChoiceState,
+    nothinkPrefix: string | undefined,
+    assistantPrefill: string | undefined,
+    final: boolean
+  ): string {
+    while (state.prefixPhase !== "passthrough") {
+      const expectedPrefix =
+        state.prefixPhase === "nothink"
+          ? nothinkPrefix
+          : assistantPrefill;
+
+      if (!expectedPrefix) {
+        state.prefixPhase =
+          state.prefixPhase === "nothink"
+            ? "assistant_prefill"
+            : "passthrough";
+        continue;
+      }
+
+      if (state.prefixBuffer.length === 0) {
+        return "";
+      }
+
+      if (expectedPrefix.startsWith(state.prefixBuffer)) {
+        if (expectedPrefix === state.prefixBuffer) {
+          state.prefixBuffer = "";
+          state.prefixPhase =
+            state.prefixPhase === "nothink"
+              ? "assistant_prefill"
+              : "passthrough";
+          continue;
+        }
+        if (!final) {
+          return "";
+        }
+      }
+
+      if (state.prefixBuffer.startsWith(expectedPrefix)) {
+        state.prefixBuffer = state.prefixBuffer.slice(expectedPrefix.length);
+      }
+      state.prefixPhase =
+        state.prefixPhase === "nothink"
+          ? "assistant_prefill"
+          : "passthrough";
     }
 
     const visible = state.prefixBuffer;
     state.prefixBuffer = "";
-    state.prefixResolved = true;
     return visible;
   }
 
@@ -1250,7 +1368,8 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
   private createSuccessResponse(
     completion: OpenAI.Chat.Completions.ChatCompletion,
     request: InternalLLMChatRequest,
-    detectedCaps?: Partial<ModelInfo> | null
+    detectedCaps?: Partial<ModelInfo> | null,
+    assistantPrefill?: string
   ): LLMResponse {
     const choice = completion.choices[0];
 
@@ -1292,6 +1411,11 @@ export class LlamaCppClientAdapter implements ILLMClientAdapter {
         if (local?.nothinkPrefix && content.startsWith(local.nothinkPrefix)) {
           content = content.slice(local.nothinkPrefix.length);
         }
+
+        content = this.stripEchoedAssistantPrefill(
+          content,
+          assistantPrefill
+        );
 
         const mappedChoice: any = {
           message: {

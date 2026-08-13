@@ -100,6 +100,12 @@ const geminiApiKey = process.env.E2E_GEMINI_API_KEY;
 
 // --- llama.cpp Tests (FREE - Local Server) ---
 (LLAMACPP_AVAILABLE ? describe : describe.skip)('llama.cpp E2E (local, free)', () => {
+  const binaryAnswerGrammar = [
+    'root ::= " "? answer',
+    'answer ::= "yes" | "no"',
+    '',
+  ].join('\n');
+
   it('should receive a valid response from local llama-server', async () => {
     const response = await llmService.sendMessage({
       providerId: 'llamacpp',
@@ -132,6 +138,64 @@ const geminiApiKey = process.env.E2E_GEMINI_API_KEY;
       const content = response.choices[0].message.content;
       expect(content).toBeDefined();
       expect(content).toContain('56');
+    }
+  }, 60000);
+
+  it('normalizes a one-token assistant-prefill echo while preserving sampled evidence', async () => {
+    const prefill = '1:';
+    const response = await llmService.sendMessage({
+      providerId: 'llamacpp',
+      modelId: 'llamacpp',
+      messages: [
+        { role: 'user', content: 'Choose exactly yes or no.' },
+        { role: 'assistant', content: prefill },
+      ],
+      settings: {
+        maxTokens: 1,
+        temperature: 0,
+        reasoning: { enabled: false },
+        logprobs: true,
+        topLogprobs: 2,
+        llamacpp: { grammar: binaryAnswerGrammar },
+      },
+    });
+
+    expect(response.object).toBe('chat.completion');
+    if (response.object === 'chat.completion') {
+      const choice = response.choices[0];
+      expect(choice.rawContent?.startsWith(prefill)).toBe(true);
+      expect(choice.message.content).toBe(choice.rawContent?.slice(prefill.length));
+      expect(choice.logprobs?.[0]?.token).toBe(choice.message.content);
+      expect(response.usage?.completion_tokens).toBe(1);
+    }
+  }, 60000);
+
+  it('normalizes an accumulated multiline assistant-prefill echo', async () => {
+    const prefill = '1: yes\n2:';
+    const response = await llmService.sendMessage({
+      providerId: 'llamacpp',
+      modelId: 'llamacpp',
+      messages: [
+        { role: 'user', content: 'Choose exactly yes or no for item 2.' },
+        { role: 'assistant', content: prefill },
+      ],
+      settings: {
+        maxTokens: 1,
+        temperature: 0,
+        reasoning: { enabled: false },
+        logprobs: true,
+        topLogprobs: 2,
+        llamacpp: { grammar: binaryAnswerGrammar },
+      },
+    });
+
+    expect(response.object).toBe('chat.completion');
+    if (response.object === 'chat.completion') {
+      const choice = response.choices[0];
+      expect(choice.rawContent?.startsWith(prefill)).toBe(true);
+      expect(choice.message.content).toBe(choice.rawContent?.slice(prefill.length));
+      expect(choice.logprobs?.[0]?.token).toBe(choice.message.content);
+      expect(response.usage?.completion_tokens).toBe(1);
     }
   }, 60000);
 });
