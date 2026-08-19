@@ -128,6 +128,16 @@ export type {
   TokenProfileId,
   TokenProfileResolution,
 } from "./llm/tokenization";
+export {
+  extractSingleTokenLabelProbs,
+  generateAnswerTokenGrammar,
+} from "./llm/constrainedLabels";
+export type {
+  SingleTokenLabelProbExtraction,
+  SingleTokenLabelProbOptions,
+  SingleTokenLabelProbStatus,
+} from "./llm/constrainedLabels";
+export { mapOpenAIChatLogprobs } from "./shared/adapters/logprobsUtils";
 export { parseStructuredContent, parseRoleTags, extractInitialTaggedContent, extractMarkerDelimitedContent, parseTemplateWithMetadata } from "./prompting/parser";
 export type { TemplateMetadata } from "./prompting/parser";
 export { createFallbackModelInfo, detectGgufCapabilities, KNOWN_GGUF_MODELS } from "./llm/config";

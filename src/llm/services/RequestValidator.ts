@@ -1,4 +1,5 @@
 import type {
+  ApiProviderId,
   LLMChatRequest,
   LLMChatRequestWithPreset,
   LLMFailureResponse,
@@ -123,6 +124,36 @@ export class RequestValidator {
         object: "error",
       };
     }
+    return null;
+  }
+
+  /**
+   * Validates relationships that are meaningful only after every settings source is merged.
+   *
+   * @param settings - Fully merged effective settings
+   * @param providerId - The provider ID for error context
+   * @param modelId - The model ID for error context
+   * @returns LLMFailureResponse if validation fails, null if valid
+   */
+  validateFinalSettings(
+    settings: Readonly<LLMSettings>,
+    providerId: ApiProviderId,
+    modelId: string
+  ): LLMFailureResponse | null {
+    if (settings.topLogprobs !== undefined && settings.logprobs !== true) {
+      return {
+        provider: providerId,
+        model: modelId,
+        error: {
+          message: "Invalid settings: topLogprobs requires effective logprobs: true",
+          code: "INVALID_SETTINGS",
+          type: "validation_error",
+          param: "settings.topLogprobs",
+        },
+        object: "error",
+      };
+    }
+
     return null;
   }
 

@@ -367,6 +367,19 @@ const response = await service.sendMessage({
 });
 ```
 
+For a one-label answer position, generate the grammar instead of hand-writing it:
+
+```typescript
+import { generateAnswerTokenGrammar } from 'genai-lite';
+
+const labels = ['red', 'green', 'blue'] as const;
+const grammar = generateAnswerTokenGrammar(labels);
+```
+
+The generated grammar accepts one optional leading ASCII space and one complete label. It does
+not accept a trailing newline, which prevents a token such as `"red\n"` from satisfying the
+grammar but then losing its mass during extraction. Strict-prefix label sets are rejected.
+
 Notes:
 - **Mutually exclusive with `structuredOutput`.** llama-server rejects a request that carries both a raw grammar and a JSON schema (`"Either 'json_schema' or 'grammar' can be specified, but not both"`); genai-lite validates this up front and returns a `validation_error`.
 - **Grammar may not apply while thinking is active.** Current llama.cpp builds may not constrain output during the thinking phase — prefer grammar with reasoning disabled (`reasoning.enabled: false`).
@@ -395,7 +408,7 @@ if (response.object === 'chat.completion') {
 }
 ```
 
-See [LLM Service - Log Probabilities](llm-service.md#log-probabilities) for the shared `TokenLogprob` shape.
+See [Constrained Answer Labels](constrained-answer-labels.md) for the complete grammar-plus-extraction workflow and [LLM Service - Log Probabilities](llm-service.md#log-probabilities) for the shared `TokenLogprob` shape.
 
 ## Error Handling
 

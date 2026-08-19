@@ -75,7 +75,10 @@ try {
 import {
   LLMService,
   codePointBoundToTokenUpperBound,
+  extractSingleTokenLabelProbs,
+  generateAnswerTokenGrammar,
   getTokenProfileById,
+  mapOpenAIChatLogprobs,
   type AdapterLLMStreamEvent,
   type ILLMClientAdapter,
   type InternalLLMChatRequest,
@@ -85,7 +88,11 @@ import {
   type LLMResponse,
   type LLMServiceStreamEvent,
   type LLMStreamEvent,
+  type LogprobsSupport,
   type ProviderEndpointRevisionProvider,
+  type SingleTokenLabelProbExtraction,
+  type SingleTokenLabelProbOptions,
+  type SingleTokenLabelProbStatus,
 } from "genai-lite";
 import {
   GEMMA_4_IT_CONTENT_TOKENIZER_RECIPE,
@@ -193,6 +200,30 @@ void loadContentTokenizerProfile;
 void (null as unknown as ContentTokenizerPeer);
 void (null as unknown as ContentTokenizerRuntimeModule);
 void (null as unknown as LoadContentTokenizerProfileOptions);
+const labelOptions: SingleTokenLabelProbOptions = {
+  ambiguityLogprobGap: 5,
+};
+const labelExtraction: SingleTokenLabelProbExtraction =
+  extractSingleTokenLabelProbs(
+    ["yes", "no"],
+    {
+      token: "yes",
+      logprob: Math.log(0.8),
+      topLogprobs: [
+        { token: "yes", logprob: Math.log(0.8) },
+        { token: "no", logprob: Math.log(0.2) },
+      ],
+    },
+    labelOptions
+  );
+const labelStatus: SingleTokenLabelProbStatus = labelExtraction.status;
+const logprobsSupport = null as unknown as LogprobsSupport;
+void labelStatus;
+void logprobsSupport;
+void generateAnswerTokenGrammar(["yes", "no"]);
+void mapOpenAIChatLogprobs({
+  content: [{ token: "yes", logprob: -0.1, top_logprobs: [] }],
+});
 `
   );
 
@@ -235,6 +266,67 @@ void (null as unknown as LoadContentTokenizerProfileOptions);
       stdio: "inherit",
     }
   );
+
+  const constrainedCjs = path.join(consumer, "constrained-labels.cjs");
+  fs.writeFileSync(
+    constrainedCjs,
+    `
+const {
+  extractSingleTokenLabelProbs,
+  generateAnswerTokenGrammar,
+  mapOpenAIChatLogprobs,
+} = require("genai-lite");
+const grammar = generateAnswerTokenGrammar(["yes", "no"]);
+if (grammar !== 'root ::= " "? answer\\nanswer ::= "yes" | "no"\\n') {
+  throw new Error("CJS grammar export returned an unexpected value.");
+}
+const mapped = mapOpenAIChatLogprobs({
+  content: [{
+    token: "yes",
+    logprob: Math.log(0.8),
+    top_logprobs: [
+      { token: "yes", logprob: Math.log(0.8) },
+      { token: "no", logprob: Math.log(0.2) },
+    ],
+  }],
+});
+const result = extractSingleTokenLabelProbs(["yes", "no"], mapped[0]);
+if (result.status !== "ok" || Math.abs(result.absoluteLabelProbs.yes - 0.8) > 1e-9) {
+  throw new Error("CJS constrained-label exports failed at runtime.");
+}
+`
+  );
+  const constrainedEsm = path.join(consumer, "constrained-labels.mjs");
+  fs.writeFileSync(
+    constrainedEsm,
+    `
+import {
+  extractSingleTokenLabelProbs,
+  generateAnswerTokenGrammar,
+  mapOpenAIChatLogprobs,
+} from "genai-lite";
+const grammar = generateAnswerTokenGrammar(["yes", "no"]);
+if (grammar !== 'root ::= " "? answer\\nanswer ::= "yes" | "no"\\n') {
+  throw new Error("ESM grammar export returned an unexpected value.");
+}
+const mapped = mapOpenAIChatLogprobs({
+  content: [{
+    token: "no",
+    logprob: Math.log(0.75),
+    top_logprobs: [
+      { token: "yes", logprob: Math.log(0.25) },
+      { token: "no", logprob: Math.log(0.75) },
+    ],
+  }],
+});
+const result = extractSingleTokenLabelProbs(["yes", "no"], mapped[0]);
+if (result.status !== "ok" || Math.abs(result.absoluteLabelProbs.no - 0.75) > 1e-9) {
+  throw new Error("ESM constrained-label exports failed at runtime.");
+}
+`
+  );
+  runNode(constrainedCjs, consumer);
+  runNode(constrainedEsm, consumer);
 
   const importCacheCheck = path.join(consumer, "import-cache-check.cjs");
   fs.writeFileSync(

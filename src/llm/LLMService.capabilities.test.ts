@@ -123,6 +123,59 @@ describe("LLMService capability preflight", () => {
     expect(mockApiKeyProvider).not.toHaveBeenCalled();
   });
 
+  it("reports openai logprobs as unknown without a verified provider or model override", async () => {
+    const capabilities = await service.getModelCapabilities("openai", "o4-mini");
+
+    expect(capabilities).toMatchObject({
+      object: "model.capabilities",
+      provider: "openai",
+      model: "o4-mini",
+      capabilities: {
+        logprobs: {
+          status: "unknown",
+          source: "registry",
+        },
+      },
+    });
+    expect(mockApiKeyProvider).not.toHaveBeenCalled();
+  });
+
+  it("reports provider-level unsupported logprobs metadata for gemini models", async () => {
+    const capabilities = await service.getModelCapabilities("gemini", "gemini-2.5-flash");
+
+    expect(capabilities).toMatchObject({
+      object: "model.capabilities",
+      provider: "gemini",
+      model: "gemini-2.5-flash",
+      capabilities: {
+        logprobs: {
+          status: "unsupported",
+          source: "registry",
+          notes: "Gemini exposes logprobs in a provider-specific shape that is not mapped yet.",
+        },
+      },
+    });
+    expect(mockApiKeyProvider).not.toHaveBeenCalled();
+  });
+
+  it("reports provider-level supported logprobs metadata for fallback llama.cpp models", async () => {
+    const capabilities = await service.getModelCapabilities("llamacpp", "custom-local-model.gguf");
+
+    expect(capabilities).toMatchObject({
+      object: "model.capabilities",
+      provider: "llamacpp",
+      model: "custom-local-model.gguf",
+      capabilities: {
+        logprobs: {
+          status: "supported",
+          source: "registry",
+          notes: "llama.cpp surfaces per-token logprobs on choice.logprobs when requested.",
+        },
+      },
+    });
+    expect(mockApiKeyProvider).not.toHaveBeenCalled();
+  });
+
   it("reports anthropic:claude-sonnet-4-5-20250929 structured output as supported and valid", async () => {
     const result = await service.validateRequestCapabilities({
       providerId: "anthropic",
@@ -254,6 +307,30 @@ describe("LLMService capability preflight", () => {
       source: "registry",
       strictMode: true,
     });
+    expect(mockApiKeyProvider).not.toHaveBeenCalled();
+  });
+
+  it("surfaces provider logprobs registry metadata from getProviders without credentials", async () => {
+    const providers = await service.getProviders();
+
+    expect(providers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "anthropic",
+          logprobs: {
+            supported: false,
+            notes: "Anthropic responses are not mapped to OpenAI-style choice.logprobs.",
+          },
+        }),
+        expect.objectContaining({
+          id: "llamacpp",
+          logprobs: {
+            supported: true,
+            notes: "llama.cpp surfaces per-token logprobs on choice.logprobs when requested.",
+          },
+        }),
+      ])
+    );
     expect(mockApiKeyProvider).not.toHaveBeenCalled();
   });
 });

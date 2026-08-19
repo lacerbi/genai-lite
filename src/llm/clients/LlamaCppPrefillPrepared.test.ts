@@ -153,7 +153,14 @@ describe("llama.cpp assistant prefill through public prepared flows", () => {
 
   it("captures and propagates the formatted prefill through streaming dispatch", async () => {
     const { service } = createHarness();
-    const prepared = await service.prepareMessage(request, {
+    const prepared = await service.prepareMessage({
+      ...request,
+      settings: {
+        ...request.settings,
+        logprobs: true,
+        topLogprobs: 2,
+      },
+    }, {
       mode: "stream",
     });
     if ("object" in prepared) {
@@ -181,6 +188,16 @@ describe("llama.cpp assistant prefill through public prepared flows", () => {
           index: 0,
           delta: { content: ": no" },
           finish_reason: "length",
+          logprobs: {
+            content: [{
+              token: " no",
+              logprob: -0.8,
+              top_logprobs: [
+                { token: " unlikely", logprob: -0.4 },
+                { token: " no", logprob: -0.8 },
+              ],
+            }],
+          },
         }],
       },
       {
@@ -216,6 +233,14 @@ describe("llama.cpp assistant prefill through public prepared flows", () => {
           message: { content: " no" },
           rawContent: "1: no",
           rawContentParts: [{ type: "text", text: "1: no" }],
+          logprobs: [{
+            token: " no",
+            logprob: -0.8,
+            topLogprobs: [
+              { token: " unlikely", logprob: -0.4 },
+              { token: " no", logprob: -0.8 },
+            ],
+          }],
           answerAccounting: {
             providerOutput: { tokens: 1 },
           },

@@ -62,6 +62,43 @@ describe('MockClientAdapter', () => {
       expect(successResponse.choices[0].message.content).toContain('Hello');
       expect(successResponse.usage).toBeDefined();
       expect(successResponse.usage?.total_tokens).toBeGreaterThan(0);
+      expect(successResponse.choices[0].logprobs).toBeUndefined();
+    });
+
+    it("emits deterministic sampled logprobs whenever requested", async () => {
+      basicRequest.settings.logprobs = true;
+
+      const response = await adapter.sendMessage(basicRequest, "test-key") as LLMResponse;
+      const choice = response.choices[0];
+
+      expect(choice.logprobs).toEqual([{
+        token: choice.message.content,
+        logprob: Math.log(0.7),
+      }]);
+    });
+
+    it("honors topLogprobs including zero", async () => {
+      basicRequest.settings.logprobs = true;
+      basicRequest.settings.topLogprobs = 2;
+
+      const withAlternatives = await adapter.sendMessage(
+        basicRequest,
+        "test-key"
+      ) as LLMResponse;
+      expect(withAlternatives.choices[0].logprobs?.[0].topLogprobs).toEqual([
+        {
+          token: withAlternatives.choices[0].message.content,
+          logprob: Math.log(0.7),
+        },
+        { token: "<mock-alternative-1>", logprob: Math.log(0.2) },
+      ]);
+
+      basicRequest.settings.topLogprobs = 0;
+      const withoutAlternatives = await adapter.sendMessage(
+        basicRequest,
+        "test-key"
+      ) as LLMResponse;
+      expect(withoutAlternatives.choices[0].logprobs?.[0].topLogprobs).toBeUndefined();
     });
 
     describe('error simulations', () => {
@@ -305,6 +342,21 @@ describe('MockClientAdapter', () => {
         .join('');
       const complete = events[events.length - 1] as any;
       expect(complete.response.choices[0].message.content).toBe(streamedContent);
+    });
+
+    it("preserves requested logprobs on the terminal streaming response", async () => {
+      basicRequest.settings.logprobs = true;
+      basicRequest.settings.topLogprobs = 2;
+      const events = [];
+
+      for await (const event of adapter.streamMessage(basicRequest, "test-key")) {
+        events.push(event);
+      }
+
+      const complete = events[events.length - 1] as any;
+      expect(complete.type).toBe("complete");
+      expect(complete.response.choices[0].logprobs).toHaveLength(1);
+      expect(complete.response.choices[0].logprobs[0].topLogprobs).toHaveLength(2);
     });
 
     it('should emit error events for simulated failures', async () => {

@@ -35,12 +35,18 @@ Complete reference of all supported AI providers and models in genai-lite.
 
 `LLMService.getModelCapabilities()` and `LLMService.validateRequestCapabilities()` provide static, no-network capability checks for provider/model selections.
 
-Structured-output capability status is interpreted as:
-- `supported`: the model registry explicitly marks structured output as supported.
-- `unsupported`: the model registry explicitly marks structured output as unsupported.
-- `unknown`: no explicit structured-output metadata is available. This is not automatically rejected by genai-lite; callers decide whether to allow it, reject it, or use a fallback.
+Capability status is interpreted as:
+- `supported`: explicit provider/model registry metadata marks the capability supported.
+- `unsupported`: explicit provider/model registry metadata marks the capability unsupported.
+- `unknown`: no explicit metadata is available. This is not automatically rejected by genai-lite; callers decide whether to allow it, reject it, or use a fallback.
 
-Unknown/unregistered models follow the same fallback model policy used by request preparation, but optional capabilities such as structured output are reported as `unknown`.
+For logprobs, model metadata wins over provider metadata. Anthropic, Gemini, and Mistral are
+explicitly unsupported for the normalized `choice.logprobs` contract; llama.cpp and mock are
+explicitly supported; OpenAI and OpenRouter remain unknown because support is model/route-dependent.
+Capability status does not establish probability calibration or whether returned top alternatives
+retain full-distribution normalization.
+
+Unknown/unregistered models follow the same fallback model policy used by request preparation, but optional capabilities without provider metadata are reported as `unknown`.
 
 For llama.cpp, capability preflight does not query the running local server. Runtime requests can still use detected GGUF capabilities, but static preflight reports only registry/fallback information so it remains free of adapter calls and network I/O.
 
@@ -103,6 +109,7 @@ For llama.cpp, capability preflight does not query the running local server. Run
 - Specific tool/function calling format
 - Supports `LLMService.streamMessage()` for content deltas, usage events, final normalized responses, and reasoning deltas if the API emits them
 - Sampling parameters: supports `seed` (beta; ignored by reasoning models such as GPT-5 and o4-mini) and `logprobs`/`topLogprobs`. Does not support `topK`, `minP`, `repeatPenalty`, or `frequencyPenalty` (silently stripped)
+- Static logprobs capability is `unknown`, not unsupported: transport exists, but support is model-dependent and no model override is currently asserted by the registry
 
 ---
 
@@ -199,6 +206,7 @@ Detected models also receive vendor-recommended sampling defaults automatically.
 - Supports `LLMService.streamMessage()` for content deltas, usage events, and final normalized responses
 - Reasoning on/off for hybrid models is driven by `settings.reasoning.enabled` (requires llama-server `--jinja`); see [Reasoning on/off for Hybrid Models](llamacpp-integration.md#reasoning-onoff-for-hybrid-models)
 - Sampling parameters: supports `topK`, `minP`, `repeatPenalty`, `seed`, and `logprobs`/`topLogprobs`; plus llama.cpp-only `grammar` and `chatTemplateKwargs` via the `llamacpp` namespace
+- Static logprobs capability is `supported`, including fallback GGUF model IDs; this does not by itself guarantee probability calibration
 - Capability preflight is static and does not query `/v1/models`; runtime requests may still apply detected GGUF capabilities
 - Default base URL is `http://127.0.0.1:8080` (not `localhost`) to avoid a Windows IPv6-fallback stall
 - See [llama.cpp Integration](llamacpp-integration.md) for setup
@@ -268,6 +276,7 @@ The reasoning trace is returned on `choice.reasoning`, with any structured detai
 - Free tier models have rate limits
 - **Structured output supported** - Both free tier models support JSON mode/structured output
 - Sampling parameters: supports `topK`, `minP`, `repeatPenalty`, `seed`, and `logprobs`/`topLogprobs` (pass-through; `repeatPenalty` maps to `repetition_penalty`). OpenRouter ignores any parameter the underlying model doesn't support
+- Static logprobs capability is `unknown`: support and probability semantics depend on the selected model, route, and upstream provider
 - See [openrouter.ai/docs](https://openrouter.ai/docs) for full model list
 
 ---

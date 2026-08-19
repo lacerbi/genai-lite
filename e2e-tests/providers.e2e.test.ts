@@ -1,4 +1,10 @@
-import { LLMService, fromEnvironment } from '../src/index';
+import {
+  LLMService,
+  LlamaCppServerClient,
+  extractSingleTokenLabelProbs,
+  fromEnvironment,
+  generateAnswerTokenGrammar,
+} from '../src/index';
 import type { ApiKeyProvider } from '../src/types';
 import type { LLMResponse } from '../src/llm/types';
 
@@ -100,6 +106,9 @@ const geminiApiKey = process.env.E2E_GEMINI_API_KEY;
 
 // --- llama.cpp Tests (FREE - Local Server) ---
 (LLAMACPP_AVAILABLE ? describe : describe.skip)('llama.cpp E2E (local, free)', () => {
+  const llamaServerClient = new LlamaCppServerClient(
+    process.env.LLAMACPP_API_BASE_URL || 'http://127.0.0.1:8080'
+  );
   const binaryAnswerGrammar = [
     'root ::= " "? answer',
     'answer ::= "yes" | "no"',
@@ -138,6 +147,43 @@ const geminiApiKey = process.env.E2E_GEMINI_API_KEY;
       const content = response.choices[0].message.content;
       expect(content).toBeDefined();
       expect(content).toContain('56');
+    }
+  }, 60000);
+
+  it('extracts probabilities from a generated constrained-label grammar', async () => {
+    const candidates = ['yes', 'no', 'true', 'false', 'A', 'B', '0', '1'];
+    const tokenizable = await Promise.all(candidates.map(async (label) => {
+      const [bare, spacePrefixed] = await Promise.all([
+        llamaServerClient.tokenize(label),
+        llamaServerClient.tokenize(` ${label}`),
+      ]);
+      return bare.tokens.length === 1 && spacePrefixed.tokens.length === 1
+        ? label
+        : undefined;
+    }));
+    const labels = tokenizable.filter((label): label is string => label !== undefined).slice(0, 2);
+    expect(labels).toHaveLength(2);
+    const response = await llmService.sendMessage({
+      providerId: 'llamacpp',
+      modelId: 'llamacpp',
+      messages: [{ role: 'user', content: `Choose exactly ${labels[0]} or ${labels[1]}.` }],
+      settings: {
+        maxTokens: 1,
+        temperature: 0,
+        reasoning: { enabled: false },
+        logprobs: true,
+        topLogprobs: 2,
+        llamacpp: { grammar: generateAnswerTokenGrammar(labels) },
+      },
+    });
+
+    expect(response.object).toBe('chat.completion');
+    if (response.object === 'chat.completion') {
+      const choice = response.choices[0];
+      const extraction = extractSingleTokenLabelProbs(labels, choice.logprobs?.[0]);
+      expect(labels).toContain(choice.message.content.trim());
+      expect(extraction.status).toBe('ok');
+      expect(extraction.conditionalLabelProbs[choice.message.content.trim()]).toBeGreaterThan(0);
     }
   }, 60000);
 

@@ -217,6 +217,7 @@ Comprehensive documentation is available in the **[`genai-lite-docs`](./genai-li
 
 ### Utilities & Advanced
 - **[Prompting Utilities](./genai-lite-docs/prompting-utilities.md)** - Template engine, token counting, content parsing
+- **[Constrained Answer Labels](./genai-lite-docs/constrained-answer-labels.md)** - Single-position label grammars and probability evidence
 - **[Logging](./genai-lite-docs/logging.md)** - Configure logging and debugging
 - **[TypeScript Reference](./genai-lite-docs/typescript-reference.md)** - Type definitions
 
