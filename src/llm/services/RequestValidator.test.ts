@@ -171,6 +171,42 @@ describe('RequestValidator', () => {
     });
   });
 
+  describe("validateFinalSettings", () => {
+    it("allows topLogprobs when effective logprobs is true", () => {
+      expect(validator.validateFinalSettings(
+        { logprobs: true, topLogprobs: 5 },
+        "openai",
+        "gpt-4.1"
+      )).toBeNull();
+    });
+
+    it.each([undefined, false])(
+      "rejects topLogprobs when effective logprobs is %s",
+      (logprobs) => {
+        const result = validator.validateFinalSettings(
+          { logprobs, topLogprobs: 5 },
+          "openai",
+          "gpt-4.1"
+        );
+
+        expect(result?.error).toMatchObject({
+          code: "INVALID_SETTINGS",
+          type: "validation_error",
+          param: "settings.topLogprobs",
+        });
+        expect(result?.error.message).toContain("requires effective logprobs: true");
+      }
+    );
+
+    it("allows settings without topLogprobs", () => {
+      expect(validator.validateFinalSettings(
+        { logprobs: false },
+        "openai",
+        "gpt-4.1"
+      )).toBeNull();
+    });
+  });
+
   describe('validateReasoningSettings', () => {
     const mockModelWithReasoning: ModelInfo = {
       id: 'gpt-4.1',

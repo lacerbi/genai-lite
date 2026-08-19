@@ -1217,11 +1217,29 @@ describe('LlamaCppClientAdapter', () => {
     });
 
     it('streams content deltas and a final normalized response', async () => {
+      basicRequest.settings.logprobs = true;
+      basicRequest.settings.topLogprobs = 2;
       mockCreate.mockResolvedValueOnce(streamFrom([
         chunk('Hello '),
         {
           ...chunk('world'),
-          choices: [{ index: 0, delta: { content: 'world' }, finish_reason: 'stop' }],
+          choices: [{
+            index: 0,
+            delta: { content: 'world' },
+            finish_reason: 'stop',
+            logprobs: {
+              content: [
+                {
+                  token: 'world',
+                  logprob: -0.15,
+                  top_logprobs: [
+                    { token: 'world', logprob: -0.15 },
+                    { token: 'there', logprob: -1.9 },
+                  ],
+                },
+              ],
+            },
+          }],
         },
         {
           id: 'chatcmpl-stream',
@@ -1238,6 +1256,8 @@ describe('LlamaCppClientAdapter', () => {
       expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({
         stream: true,
         stream_options: { include_usage: true },
+        logprobs: true,
+        top_logprobs: 2,
       }));
       expect(events.find((event) => event.type === "start")).toMatchObject({
         type: 'start',
@@ -1250,7 +1270,18 @@ describe('LlamaCppClientAdapter', () => {
       expect(events.some((event) => event.type === 'usage')).toBe(true);
       const complete = events[events.length - 1] as any;
       expect(complete.type).toBe('complete');
+      expect(events.some((event: any) => event.type === 'logprob_delta')).toBe(false);
       expect(complete.response.choices[0].message.content).toBe('Hello world');
+      expect(complete.response.choices[0].logprobs).toEqual([
+        {
+          token: 'world',
+          logprob: -0.15,
+          topLogprobs: [
+            { token: 'world', logprob: -0.15 },
+            { token: 'there', logprob: -1.9 },
+          ],
+        },
+      ]);
       expect(
         complete.response.choices[0].answerAccounting?.providerOutput
       ).toMatchObject({

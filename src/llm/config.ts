@@ -155,21 +155,37 @@ export const SUPPORTED_PROVIDERS: ProviderInfo[] = [
     id: "anthropic",
     name: "Anthropic",
     unsupportedParameters: ["seed", "minP", "repeatPenalty", "logprobs", "topLogprobs"],
+    logprobs: {
+      supported: false,
+      notes: "Anthropic responses are not mapped to OpenAI-style choice.logprobs.",
+    },
   },
   {
     id: "gemini",
     name: "Google Gemini",
     // Gemini has its own logprobs mechanism with a different shape; not mapped yet
     unsupportedParameters: ["minP", "repeatPenalty", "logprobs", "topLogprobs"],
+    logprobs: {
+      supported: false,
+      notes: "Gemini exposes logprobs in a provider-specific shape that is not mapped yet.",
+    },
   },
   {
     id: "mistral",
     name: "Mistral AI",
     unsupportedParameters: ["topK", "minP", "repeatPenalty", "logprobs", "topLogprobs"],
+    logprobs: {
+      supported: false,
+      notes: "Mistral responses are not mapped to OpenAI-style choice.logprobs.",
+    },
   },
   {
     id: "llamacpp",
     name: "llama.cpp",
+    logprobs: {
+      supported: true,
+      notes: "llama.cpp surfaces per-token logprobs on choice.logprobs when requested.",
+    },
     allowUnknownModels: true,  // Users load arbitrary GGUF models with custom names
   },
   {
@@ -180,6 +196,10 @@ export const SUPPORTED_PROVIDERS: ProviderInfo[] = [
   {
     id: "mock",
     name: "Mock Provider",
+    logprobs: {
+      supported: true,
+      notes: "The mock provider can synthesize choice.logprobs for tests.",
+    },
     allowUnknownModels: true,  // Test provider accepts any model
   },
 ];

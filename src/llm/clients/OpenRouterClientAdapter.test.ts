@@ -583,11 +583,29 @@ describe('OpenRouterClientAdapter', () => {
     };
 
     it('streams content deltas and a final normalized response', async () => {
+      basicRequest.settings.logprobs = true;
+      basicRequest.settings.topLogprobs = 2;
       mockCreate.mockResolvedValueOnce(streamFrom([
         chunk('Hi '),
         {
           ...chunk('there'),
-          choices: [{ index: 0, delta: { content: 'there' }, finish_reason: 'stop' }]
+          choices: [{
+            index: 0,
+            delta: { content: 'there' },
+            finish_reason: 'stop',
+            logprobs: {
+              content: [
+                {
+                  token: 'there',
+                  logprob: -0.3,
+                  top_logprobs: [
+                    { token: 'there', logprob: -0.3 },
+                    { token: 'here', logprob: -1.4 }
+                  ]
+                }
+              ]
+            }
+          }]
         },
         {
           id: 'gen-stream',
@@ -604,7 +622,9 @@ describe('OpenRouterClientAdapter', () => {
       expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({
         stream: true,
         stream_options: { include_usage: true },
-        model: 'google/gemma-3-27b-it:free'
+        model: 'google/gemma-3-27b-it:free',
+        logprobs: true,
+        top_logprobs: 2
       }));
       expect(events.find((event) => event.type === "start")).toMatchObject({
         type: 'start',
@@ -616,7 +636,18 @@ describe('OpenRouterClientAdapter', () => {
       expect(events.some((event) => event.type === 'usage')).toBe(true);
       const complete = events[events.length - 1] as any;
       expect(complete.type).toBe('complete');
+      expect(events.some((event: any) => event.type === 'logprob_delta')).toBe(false);
       expect(complete.response.choices[0].message.content).toBe('Hi there');
+      expect(complete.response.choices[0].logprobs).toEqual([
+        {
+          token: 'there',
+          logprob: -0.3,
+          topLogprobs: [
+            { token: 'there', logprob: -0.3 },
+            { token: 'here', logprob: -1.4 }
+          ]
+        }
+      ]);
       expect(
         complete.response.choices[0].answerAccounting?.providerOutput
       ).toMatchObject({

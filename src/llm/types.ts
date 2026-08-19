@@ -162,18 +162,39 @@ export type CapabilityStatus = "supported" | "unsupported" | "unknown";
 export type CapabilitySource = "registry" | "detected" | "fallback";
 
 /**
- * Structured-output support status for a provider/model pair.
+ * Static registry metadata for a provider/model capability.
  */
-export interface StructuredOutputSupport {
-  /** Whether structured output is known supported, known unsupported, or unknown */
+export interface CapabilityRegistryMetadata {
+  /** Whether the capability is known supported or unsupported */
+  supported: boolean;
+  /** Additional notes about the capability metadata */
+  notes?: string;
+}
+
+/**
+ * Capability support status for a provider/model pair.
+ */
+export interface CapabilitySupport {
+  /** Whether the capability is known supported, known unsupported, or unknown */
   status: CapabilityStatus;
-  /** Whether strict provider-side schema enforcement is supported, when known */
-  strictMode?: boolean;
   /** Additional notes from model metadata */
   notes?: string;
   /** Where the capability decision came from */
   source: CapabilitySource;
 }
+
+/**
+ * Structured-output support status for a provider/model pair.
+ */
+export interface StructuredOutputSupport extends CapabilitySupport {
+  /** Whether strict provider-side schema enforcement is supported, when known */
+  strictMode?: boolean;
+}
+
+/**
+ * Logprobs support status for a provider/model pair.
+ */
+export interface LogprobsSupport extends CapabilitySupport {}
 
 /** Availability of a token-counting capability. */
 export type TokenCountingAvailability =
@@ -195,6 +216,8 @@ export interface ContextWindowCapability {
 export interface ModelCapabilities {
   /** Structured-output support status */
   structuredOutput: StructuredOutputSupport;
+  /** Per-token logprobs support status */
+  logprobs?: LogprobsSupport;
   /** Known context window and provenance, when available. */
   contextWindow?: ContextWindowCapability;
   /** Synchronous content-counting availability. */
@@ -1016,6 +1039,8 @@ export interface ProviderInfo {
   id: ApiProviderId;
   name: string;
   unsupportedParameters?: (keyof LLMSettings)[];
+  /** Provider-wide logprobs support metadata, when verified. */
+  logprobs?: CapabilityRegistryMetadata;
   /**
    * If true, allows using unknown/unregistered model IDs with this provider.
    * Useful for providers like llamacpp where users load arbitrary models.
@@ -1090,6 +1115,8 @@ export interface ModelInfo {
   unsupportedParameters?: (keyof LLMSettings)[];
   /** Structured output capabilities */
   structuredOutput?: ModelStructuredOutputCapabilities;
+  /** Model-specific logprobs support metadata, when verified. */
+  logprobs?: CapabilityRegistryMetadata;
   /**
    * Model-specific default settings (e.g. vendor-recommended sampling parameters).
    * Merged below request settings: DEFAULT < provider < MODEL_DEFAULT_SETTINGS <

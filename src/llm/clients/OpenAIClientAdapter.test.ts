@@ -436,6 +436,8 @@ describe('OpenAIClientAdapter', () => {
 
     it('should stream content deltas and emit a final normalized response', async () => {
       const controller = new AbortController();
+      basicRequest.settings.logprobs = true;
+      basicRequest.settings.topLogprobs = 2;
       mockCreate.mockResolvedValueOnce(streamFrom([
         {
           id: 'chatcmpl-stream',
@@ -456,7 +458,23 @@ describe('OpenAIClientAdapter', () => {
           object: 'chat.completion.chunk',
           created: 1234567890,
           model: 'gpt-4.1',
-          choices: [{ index: 0, delta: { content: 'world' }, finish_reason: 'stop' }]
+          choices: [{
+            index: 0,
+            delta: { content: 'world' },
+            finish_reason: 'stop',
+            logprobs: {
+              content: [
+                {
+                  token: 'world',
+                  logprob: -0.2,
+                  top_logprobs: [
+                    { token: 'world', logprob: -0.2 },
+                    { token: 'there', logprob: -1.7 }
+                  ]
+                }
+              ]
+            }
+          }]
         },
         {
           id: 'chatcmpl-stream',
@@ -479,7 +497,9 @@ describe('OpenAIClientAdapter', () => {
         stream: true,
         stream_options: { include_usage: true },
         max_completion_tokens: 100,
-        user: 'test-user'
+        user: 'test-user',
+        logprobs: true,
+        top_logprobs: 2
       }), {
         signal: controller.signal,
         timeout: 5000,
@@ -508,10 +528,21 @@ describe('OpenAIClientAdapter', () => {
 
       const complete = events.find((event) => event.type === 'complete');
       expect(complete).toBeDefined();
+      expect(events.some((event: any) => event.type === 'logprob_delta')).toBe(false);
       if (complete?.type === 'complete') {
         expect(complete.response.id).toBe('chatcmpl-stream');
         expect(complete.response.choices[0].message.content).toBe('Hello world');
         expect(complete.response.choices[0].finish_reason).toBe('stop');
+        expect(complete.response.choices[0].logprobs).toEqual([
+          {
+            token: 'world',
+            logprob: -0.2,
+            topLogprobs: [
+              { token: 'world', logprob: -0.2 },
+              { token: 'there', logprob: -1.7 }
+            ]
+          }
+        ]);
         expect(
           complete.response.choices[0].answerAccounting?.providerOutput
         ).toMatchObject({

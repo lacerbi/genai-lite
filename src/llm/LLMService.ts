@@ -388,9 +388,10 @@ export class LLMService {
 
     const resolvedProviderId = resolved.providerId! as ApiProviderId;
     const resolvedModelId = resolved.modelId!;
+    const providerInfo = getProviderById(resolvedProviderId)!;
     const modelInfo = resolved.modelInfo!;
     const source = this.getCapabilitySource(resolvedProviderId, resolvedModelId);
-    const capabilities = this.buildModelCapabilities(modelInfo, source);
+    const capabilities = this.buildModelCapabilities(providerInfo, modelInfo, source);
 
     return {
       object: "model.capabilities",
@@ -891,9 +892,10 @@ export class LLMService {
 
     const providerId = resolved.providerId! as ApiProviderId;
     const modelId = resolved.modelId!;
+    const providerInfo = getProviderById(providerId)!;
     const modelInfo = resolved.modelInfo!;
     const source = this.getCapabilitySource(providerId, modelId);
-    const capabilities = this.buildModelCapabilities(modelInfo, source);
+    const capabilities = this.buildModelCapabilities(providerInfo, modelInfo, source);
 
     const resolvedRequest: LLMChatRequest = {
       ...(request as Partial<LLMChatRequest>),
@@ -932,6 +934,15 @@ export class LLMService {
       modelInfo
     );
 
+    const finalSettingsValidation = this.requestValidator.validateFinalSettings(
+      finalSettings,
+      providerId,
+      modelId
+    );
+    if (finalSettingsValidation) {
+      return { error: finalSettingsValidation, capabilities };
+    }
+
     const reasoningValidation = this.requestValidator.validateReasoningSettings(
       modelInfo,
       finalSettings.reasoning,
@@ -966,10 +977,12 @@ export class LLMService {
   }
 
   private buildModelCapabilities(
+    providerInfo: ProviderInfo,
     modelInfo: ModelInfo,
     source: CapabilitySource
   ): ModelCapabilities {
     const structuredOutput = this.getStructuredOutputSupport(modelInfo, source);
+    const logprobs = this.getLogprobsSupport(providerInfo, modelInfo, source);
     const tokenProfile = resolveContentTokenProfile(
       modelInfo.providerId,
       modelInfo.id
@@ -983,6 +996,7 @@ export class LLMService {
       modelInfo.providerId === "llamacpp";
     return {
       structuredOutput,
+      logprobs,
       ...(modelInfo.contextWindow !== undefined && {
         contextWindow: {
           tokens: modelInfo.contextWindow,
@@ -1032,6 +1046,37 @@ export class LLMService {
       ...(modelInfo.structuredOutput.notes && {
         notes: modelInfo.structuredOutput.notes,
       }),
+      source,
+    };
+  }
+
+  private getLogprobsSupport(
+    providerInfo: ProviderInfo,
+    modelInfo: ModelInfo,
+    source: CapabilitySource
+  ): ModelCapabilities["logprobs"] {
+    if (modelInfo.logprobs !== undefined) {
+      return {
+        status: modelInfo.logprobs.supported ? "supported" : "unsupported",
+        ...(modelInfo.logprobs.notes && {
+          notes: modelInfo.logprobs.notes,
+        }),
+        source: source === "registry" ? "registry" : "detected",
+      };
+    }
+
+    if (providerInfo.logprobs !== undefined) {
+      return {
+        status: providerInfo.logprobs.supported ? "supported" : "unsupported",
+        ...(providerInfo.logprobs.notes && {
+          notes: providerInfo.logprobs.notes,
+        }),
+        source: "registry",
+      };
+    }
+
+    return {
+      status: "unknown",
       source,
     };
   }

@@ -56,6 +56,13 @@ import {
   retokenizationUpperBound
 } from 'genai-lite';
 
+// Constrained single-position labels and OpenAI-shape normalization
+import {
+  extractSingleTokenLabelProbs,
+  generateAnswerTokenGrammar,
+  mapOpenAIChatLogprobs
+} from 'genai-lite';
+
 // Optional local tokenizer initialization (peer loaded only on function call)
 import {
   ContentTokenizerLoaderError,
@@ -136,7 +143,10 @@ import type {
   ModelStructuredOutputCapabilities,
   CapabilityStatus,
   CapabilitySource,
+  CapabilityRegistryMetadata,
+  CapabilitySupport,
   StructuredOutputSupport,
+  LogprobsSupport,
   ModelCapabilities,
   ModelCapabilitiesResult,
   LLMRequestCapabilityPreflight,
@@ -147,7 +157,10 @@ import type {
   StreamMessageOptions,
   ModelContext,
   CreateMessagesResult,
-  TemplateMetadata
+  TemplateMetadata,
+  SingleTokenLabelProbStatus,
+  SingleTokenLabelProbOptions,
+  SingleTokenLabelProbExtraction
 } from 'genai-lite';
 
 import type {
@@ -303,6 +316,38 @@ interface TokenLogprob {
   topLogprobs?: Array<{ token: string; logprob: number }>;
 }
 
+type SingleTokenLabelProbStatus =
+  | 'ok'
+  | 'ambiguous_prefix'
+  | 'missing_alternatives'
+  | 'no_matching_tokens'
+  | 'invalid_evidence';
+
+interface SingleTokenLabelProbOptions {
+  ambiguityLogprobGap?: number;
+}
+
+interface SingleTokenLabelProbExtraction {
+  status: SingleTokenLabelProbStatus;
+  absoluteLabelProbs: Record<string, number>;
+  conditionalLabelProbs: Record<string, number>;
+  residualMass: number;
+  ambiguousMass: number;
+  rawTokenLogprob?: TokenLogprob;
+}
+
+function generateAnswerTokenGrammar(labels: readonly string[]): string;
+
+function extractSingleTokenLabelProbs(
+  labels: readonly string[],
+  tokenLogprob: TokenLogprob | undefined,
+  options?: SingleTokenLabelProbOptions
+): SingleTokenLabelProbExtraction;
+
+function mapOpenAIChatLogprobs(
+  logprobs: unknown
+): TokenLogprob[] | undefined;
+
 interface LLMError {
   message: string;
   code?: string | number;
@@ -342,6 +387,12 @@ type LLMStreamEvent =
 
 type LLMServiceStreamEvent = LLMStreamEvent & { attemptId: string };
 ```
+
+### Constrained Answer Label Types
+
+`absoluteLabelProbs` and `residualMass` require provider evidence normalized over the complete
+effective candidate distribution before top-N truncation. `conditionalLabelProbs` is separately
+normalized over recognized labels. See [Constrained Answer Labels](constrained-answer-labels.md).
 
 Custom adapters emit the legacy-compatible `LLMStreamEvent` shape without an
 attempt ID. Every `LLMService` public stream event is an
@@ -425,15 +476,26 @@ full evidence contract.
 type CapabilityStatus = 'supported' | 'unsupported' | 'unknown';
 type CapabilitySource = 'registry' | 'detected' | 'fallback';
 
-interface StructuredOutputSupport {
+interface CapabilityRegistryMetadata {
+  supported: boolean;
+  notes?: string;
+}
+
+interface CapabilitySupport {
   status: CapabilityStatus;
-  strictMode?: boolean;
   notes?: string;
   source: CapabilitySource;
 }
 
+interface StructuredOutputSupport extends CapabilitySupport {
+  strictMode?: boolean;
+}
+
+interface LogprobsSupport extends CapabilitySupport {}
+
 interface ModelCapabilities {
   structuredOutput: StructuredOutputSupport;
+  logprobs?: LogprobsSupport;
   contentTokenCounting?:
     | 'exact'
     | 'model'
@@ -456,6 +518,7 @@ interface ModelCapabilitiesResult {
   model: string;
   modelInfo: ModelInfo;
   structuredOutput: StructuredOutputSupport;
+  capabilities: ModelCapabilities;
 }
 
 interface LLMRequestCapabilityPreflight {
@@ -480,6 +543,10 @@ type LLMRequestCapabilityValidationResult =
 ```
 
 `unknown` means genai-lite has no explicit metadata for that capability. It is not automatically rejected by `validateRequestCapabilities()`; callers decide policy.
+
+`ProviderInfo.logprobs?` and `ModelInfo.logprobs?` carry `CapabilityRegistryMetadata`.
+Model metadata wins over provider metadata; absent metadata produces `unknown`. OpenAI and
+OpenRouter intentionally remain unknown at provider level because support is model/route-dependent.
 
 `tokenProfileMappingRevision` identifies the complete content-profile registry
 snapshot used for that capability result. Capability results are point-in-time

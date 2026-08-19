@@ -25,7 +25,7 @@ import {
   freezeProviderRequest,
 } from "./preparedAdapterUtils";
 
-const MOCK_ADAPTER_REVISION = "mock-adapter-v1";
+const MOCK_ADAPTER_REVISION = "mock-adapter-v2";
 const MOCK_REQUEST_SHAPE_REVISION = "mock-chat-v1";
 const MOCK_HEURISTIC_ID = "mock:utf16-code-units-per-4";
 const MOCK_HEURISTIC_REVISION = "mock-token-estimator-v1";
@@ -524,6 +524,22 @@ export class MockClientAdapter implements ILLMClientAdapter {
     // Add reasoning field for test_reasoning pattern
     if (isReasoningTest) {
       choice.reasoning = "Initial model reasoning from native capabilities.";
+    }
+
+    if (request.settings.logprobs === true) {
+      const alternatives = [
+        { token: responseContent, logprob: Math.log(0.7) },
+        { token: "<mock-alternative-1>", logprob: Math.log(0.2) },
+        { token: "<mock-alternative-2>", logprob: Math.log(0.05) },
+      ];
+      const topLogprobs = request.settings.topLogprobs === undefined
+        ? undefined
+        : alternatives.slice(0, request.settings.topLogprobs);
+      choice.logprobs = [{
+        token: responseContent,
+        logprob: Math.log(0.7),
+        ...(topLogprobs && topLogprobs.length > 0 && { topLogprobs }),
+      }];
     }
 
     return {

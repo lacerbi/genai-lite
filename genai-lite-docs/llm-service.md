@@ -953,7 +953,7 @@ This is handled automatically for models with `supportsSystemMessage: false` in 
 
 ### Log Probabilities
 
-Set `logprobs: true` to receive per-token log probabilities on `choice.logprobs`. Add `topLogprobs` (0-20) to also get the most likely alternatives at each position. Supported by **llama.cpp**, **OpenAI**, and **OpenRouter** (pass-through, model-dependent); silently stripped for Anthropic, Gemini, and Mistral.
+Set `logprobs: true` to receive per-token log probabilities on `choice.logprobs`. Add `topLogprobs` (0-20) to also get the most likely alternatives at each position. llama.cpp has explicit supported capability metadata; OpenAI and OpenRouter transport these fields but remain statically `unknown` because support is model/route-dependent. The fields are silently stripped for Anthropic, Gemini, and Mistral.
 
 ```typescript
 const response = await llmService.sendMessage({
@@ -974,7 +974,11 @@ if (response.object === 'chat.completion') {
 }
 ```
 
-Each entry is a `TokenLogprob` (`{ token, logprob, topLogprobs? }`). See [TypeScript Reference](typescript-reference.md#settings-types).
+Each entry is a `TokenLogprob` (`{ token, logprob, topLogprobs? }`). In streams, logprobs are attached to the terminal `complete` response rather than emitted as deltas.
+
+For single-position classification, combine `generateAnswerTokenGrammar()` with `extractSingleTokenLabelProbs()`. The grammar constrains character sequences, so a `maxTokens: 1` request requires labels known to tokenize as one output token for the selected model. The extractor separates absolute visible mass from probabilities conditional on recognized labels and reports ambiguous/residual mass explicitly. Its absolute fields require full-distribution-normalized provider evidence before top-N truncation. See [Constrained Answer Labels](constrained-answer-labels.md) and [TypeScript Reference](typescript-reference.md#constrained-answer-label-types).
+
+Starting in `v0.18.0`, `topLogprobs` without effective `logprobs: true` returns a validation error after all settings sources are merged.
 
 ---
 
