@@ -57,7 +57,7 @@
     "test:packed-api": "npm run build && node scripts/verify-packed-prepared-api.js"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.115.0",
+    "@anthropic-ai/sdk": "^0.117.1",
     "@google/genai": "^2.10.0",
     "@mistralai/mistralai": "^1.15.1",
     "js-tiktoken": "1.0.21",
