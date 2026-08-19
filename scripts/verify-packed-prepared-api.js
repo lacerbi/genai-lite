@@ -77,11 +77,16 @@ import {
   codePointBoundToTokenUpperBound,
   extractSingleTokenLabelProbs,
   generateAnswerTokenGrammar,
+  generateSuffixGrammar,
   getTokenProfileById,
   mapOpenAIChatLogprobs,
+  resolveLabelProbsWithSuffixWalk,
+  resolveLabelProbsWithSuffixWalkAsync,
   type AdapterLLMStreamEvent,
+  type AsyncSuffixTokenLogprobFetcher,
   type ILLMClientAdapter,
   type InternalLLMChatRequest,
+  type LabelProbResolution,
   type LLMAnswerAccountingByScope,
   type LLMChoice,
   type LLMFailureResponse,
@@ -93,6 +98,11 @@ import {
   type SingleTokenLabelProbExtraction,
   type SingleTokenLabelProbOptions,
   type SingleTokenLabelProbStatus,
+  type SuffixTokenLogprobFetcher,
+  type SuffixWalkFetchRequest,
+  type SuffixWalkLabelProbExtraction,
+  type SuffixWalkLabelProbOptions,
+  type SuffixWalkTermination,
 } from "genai-lite";
 import {
   GEMMA_4_IT_CONTENT_TOKENIZER_RECIPE,
@@ -221,6 +231,38 @@ const logprobsSupport = null as unknown as LogprobsSupport;
 void labelStatus;
 void logprobsSupport;
 void generateAnswerTokenGrammar(["yes", "no"]);
+const suffixWalkOptions: SuffixWalkLabelProbOptions = {
+  ambiguityLogprobGap: 5,
+  maxFetches: 4,
+};
+const suffixFetcher: SuffixTokenLogprobFetcher = (
+  request: SuffixWalkFetchRequest
+) => ({
+  token: request.suffixes[0],
+  logprob: Math.log(0.9),
+  topLogprobs: [{ token: request.suffixes[0], logprob: Math.log(0.9) }],
+});
+const asyncSuffixFetcher: AsyncSuffixTokenLogprobFetcher = async (request) =>
+  suffixFetcher(request);
+const walked: SuffixWalkLabelProbExtraction = resolveLabelProbsWithSuffixWalk(
+  ["answer_one", "answer_two"],
+  labelExtraction,
+  suffixFetcher,
+  suffixWalkOptions
+);
+const walkResolution: LabelProbResolution = walked.resolution;
+const walkTermination: SuffixWalkTermination = walked.termination;
+const walkFetchCount: number = walked.fetchCount;
+void walkResolution;
+void walkTermination;
+void walkFetchCount;
+void resolveLabelProbsWithSuffixWalkAsync(
+  ["answer_one", "answer_two"],
+  labelExtraction,
+  asyncSuffixFetcher,
+  suffixWalkOptions
+);
+void generateSuffixGrammar(["_one", "_two"]);
 void mapOpenAIChatLogprobs({
   content: [{ token: "yes", logprob: -0.1, top_logprobs: [] }],
 });
@@ -274,7 +316,9 @@ void mapOpenAIChatLogprobs({
 const {
   extractSingleTokenLabelProbs,
   generateAnswerTokenGrammar,
+  generateSuffixGrammar,
   mapOpenAIChatLogprobs,
+  resolveLabelProbsWithSuffixWalk,
 } = require("genai-lite");
 const grammar = generateAnswerTokenGrammar(["yes", "no"]);
 if (grammar !== 'root ::= " "? answer\\nanswer ::= "yes" | "no"\\n') {
@@ -294,6 +338,82 @@ const result = extractSingleTokenLabelProbs(["yes", "no"], mapped[0]);
 if (result.status !== "ok" || Math.abs(result.absoluteLabelProbs.yes - 0.8) > 1e-9) {
   throw new Error("CJS constrained-label exports failed at runtime.");
 }
+const suffixGrammar = generateSuffixGrammar(["_one", "_two"]);
+if (suffixGrammar !== 'root ::= suffix\\nsuffix ::= "_one" | "_two"\\n') {
+  throw new Error("CJS suffix grammar export returned an unexpected value.");
+}
+const labels = ["answer_one", "answer_two"];
+const ambiguous = extractSingleTokenLabelProbs(labels, {
+  token: " answer",
+  logprob: Math.log(0.5),
+  topLogprobs: [
+    { token: " answer", logprob: Math.log(0.5) },
+    { token: "answer_one", logprob: Math.log(0.3) },
+    { token: "other", logprob: Math.log(0.1) },
+  ],
+});
+if (ambiguous.status !== "ambiguous_prefix") {
+  throw new Error("CJS ambiguous fixture lost its shared-prefix mass.");
+}
+const suffixRequests = [];
+const suffixEvidence = {
+  token: "_one",
+  logprob: Math.log(0.6),
+  topLogprobs: [
+    { token: "_one", logprob: Math.log(0.6) },
+    { token: "_two", logprob: Math.log(0.3) },
+  ],
+};
+const walked = resolveLabelProbsWithSuffixWalk(labels, ambiguous, (request) => {
+  suffixRequests.push(request);
+  return suffixEvidence;
+});
+if (suffixRequests.length !== 1) {
+  throw new Error("CJS suffix walk issued an unexpected number of requests.");
+}
+if (suffixRequests[0].prefix !== " answer") {
+  throw new Error("CJS suffix request carried an unexpected decoded prefix.");
+}
+if (JSON.stringify(suffixRequests[0].suffixes) !== JSON.stringify(["_one", "_two"])) {
+  throw new Error("CJS suffix request carried unexpected reachable suffixes.");
+}
+if (suffixRequests[0].grammar !== suffixGrammar) {
+  throw new Error("CJS suffix request grammar did not match generateSuffixGrammar.");
+}
+if (
+  walked.resolution !== "suffix_walk" ||
+  walked.termination !== "complete" ||
+  walked.fetchCount !== 1 ||
+  walked.status !== "ok"
+) {
+  throw new Error("CJS suffix walk reported unexpected provenance.");
+}
+if (
+  Math.abs(walked.absoluteLabelProbs.answer_one - 0.6) > 1e-9 ||
+  Math.abs(walked.absoluteLabelProbs.answer_two - 0.15) > 1e-9 ||
+  Math.abs(walked.residualMass - 0.25) > 1e-9 ||
+  walked.ambiguousMass !== 0
+) {
+  throw new Error("CJS suffix walk produced unexpected probability mass.");
+}
+const passedThrough = resolveLabelProbsWithSuffixWalk(
+  labels,
+  extractSingleTokenLabelProbs(labels, {
+    token: "answer_one",
+    logprob: Math.log(0.8),
+    topLogprobs: [{ token: "answer_one", logprob: Math.log(0.8) }],
+  }),
+  () => {
+    throw new Error("CJS pass-through must not fetch.");
+  }
+);
+if (
+  passedThrough.resolution !== "single_position" ||
+  passedThrough.termination !== "not_started" ||
+  passedThrough.fetchCount !== 0
+) {
+  throw new Error("CJS non-ambiguous pass-through fetched or mislabelled itself.");
+}
 `
   );
   const constrainedEsm = path.join(consumer, "constrained-labels.mjs");
@@ -303,7 +423,9 @@ if (result.status !== "ok" || Math.abs(result.absoluteLabelProbs.yes - 0.8) > 1e
 import {
   extractSingleTokenLabelProbs,
   generateAnswerTokenGrammar,
+  generateSuffixGrammar,
   mapOpenAIChatLogprobs,
+  resolveLabelProbsWithSuffixWalkAsync,
 } from "genai-lite";
 const grammar = generateAnswerTokenGrammar(["yes", "no"]);
 if (grammar !== 'root ::= " "? answer\\nanswer ::= "yes" | "no"\\n') {
@@ -322,6 +444,86 @@ const mapped = mapOpenAIChatLogprobs({
 const result = extractSingleTokenLabelProbs(["yes", "no"], mapped[0]);
 if (result.status !== "ok" || Math.abs(result.absoluteLabelProbs.no - 0.75) > 1e-9) {
   throw new Error("ESM constrained-label exports failed at runtime.");
+}
+const suffixGrammar = generateSuffixGrammar(["_one", "_two"]);
+if (suffixGrammar !== 'root ::= suffix\\nsuffix ::= "_one" | "_two"\\n') {
+  throw new Error("ESM suffix grammar export returned an unexpected value.");
+}
+const labels = ["answer_one", "answer_two"];
+const ambiguous = extractSingleTokenLabelProbs(labels, {
+  token: " answer",
+  logprob: Math.log(0.5),
+  topLogprobs: [
+    { token: " answer", logprob: Math.log(0.5) },
+    { token: "answer_one", logprob: Math.log(0.3) },
+    { token: "other", logprob: Math.log(0.1) },
+  ],
+});
+if (ambiguous.status !== "ambiguous_prefix") {
+  throw new Error("ESM ambiguous fixture lost its shared-prefix mass.");
+}
+const suffixRequests = [];
+const suffixEvidence = {
+  token: "_one",
+  logprob: Math.log(0.6),
+  topLogprobs: [
+    { token: "_one", logprob: Math.log(0.6) },
+    { token: "_two", logprob: Math.log(0.3) },
+  ],
+};
+const walked = await resolveLabelProbsWithSuffixWalkAsync(
+  labels,
+  ambiguous,
+  async (request) => {
+    suffixRequests.push(request);
+    return suffixEvidence;
+  }
+);
+if (suffixRequests.length !== 1) {
+  throw new Error("ESM suffix walk issued an unexpected number of requests.");
+}
+if (suffixRequests[0].prefix !== " answer") {
+  throw new Error("ESM suffix request carried an unexpected decoded prefix.");
+}
+if (JSON.stringify(suffixRequests[0].suffixes) !== JSON.stringify(["_one", "_two"])) {
+  throw new Error("ESM suffix request carried unexpected reachable suffixes.");
+}
+if (suffixRequests[0].grammar !== suffixGrammar) {
+  throw new Error("ESM suffix request grammar did not match generateSuffixGrammar.");
+}
+if (
+  walked.resolution !== "suffix_walk" ||
+  walked.termination !== "complete" ||
+  walked.fetchCount !== 1 ||
+  walked.status !== "ok"
+) {
+  throw new Error("ESM suffix walk reported unexpected provenance.");
+}
+if (
+  Math.abs(walked.absoluteLabelProbs.answer_one - 0.6) > 1e-9 ||
+  Math.abs(walked.absoluteLabelProbs.answer_two - 0.15) > 1e-9 ||
+  Math.abs(walked.residualMass - 0.25) > 1e-9 ||
+  walked.ambiguousMass !== 0
+) {
+  throw new Error("ESM suffix walk produced unexpected probability mass.");
+}
+const passedThrough = await resolveLabelProbsWithSuffixWalkAsync(
+  labels,
+  extractSingleTokenLabelProbs(labels, {
+    token: "answer_one",
+    logprob: Math.log(0.8),
+    topLogprobs: [{ token: "answer_one", logprob: Math.log(0.8) }],
+  }),
+  async () => {
+    throw new Error("ESM pass-through must not fetch.");
+  }
+);
+if (
+  passedThrough.resolution !== "single_position" ||
+  passedThrough.termination !== "not_started" ||
+  passedThrough.fetchCount !== 0
+) {
+  throw new Error("ESM non-ambiguous pass-through fetched or mislabelled itself.");
 }
 `
   );

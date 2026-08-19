@@ -26,7 +26,7 @@ Complete documentation for genai-lite - A lightweight, portable TypeScript libra
 
 ### Utilities & Advanced
 - **[Prompting Utilities](prompting-utilities.md)** - Template engine, token counting, content parsing
-- **[Constrained Answer Labels](constrained-answer-labels.md)** - Single-position label grammars and probability evidence
+- **[Constrained Answer Labels](constrained-answer-labels.md)** - Label grammars, probability evidence, and optional shared-prefix resolution
 - **[Logging](logging.md)** - Configure logging and debugging
 - **[TypeScript Reference](typescript-reference.md)** - Type definitions
 
