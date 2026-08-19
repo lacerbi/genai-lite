@@ -56,11 +56,14 @@ import {
   retokenizationUpperBound
 } from 'genai-lite';
 
-// Constrained single-position labels and OpenAI-shape normalization
+// Constrained answer labels, suffix-walk resolution, and OpenAI-shape normalization
 import {
   extractSingleTokenLabelProbs,
   generateAnswerTokenGrammar,
-  mapOpenAIChatLogprobs
+  generateSuffixGrammar,
+  mapOpenAIChatLogprobs,
+  resolveLabelProbsWithSuffixWalk,
+  resolveLabelProbsWithSuffixWalkAsync
 } from 'genai-lite';
 
 // Optional local tokenizer initialization (peer loaded only on function call)
@@ -160,7 +163,14 @@ import type {
   TemplateMetadata,
   SingleTokenLabelProbStatus,
   SingleTokenLabelProbOptions,
-  SingleTokenLabelProbExtraction
+  SingleTokenLabelProbExtraction,
+  SuffixWalkFetchRequest,
+  SuffixTokenLogprobFetcher,
+  AsyncSuffixTokenLogprobFetcher,
+  SuffixWalkLabelProbOptions,
+  SuffixWalkLabelProbExtraction,
+  LabelProbResolution,
+  SuffixWalkTermination
 } from 'genai-lite';
 
 import type {
@@ -344,6 +354,56 @@ function extractSingleTokenLabelProbs(
   options?: SingleTokenLabelProbOptions
 ): SingleTokenLabelProbExtraction;
 
+// Optional suffix-walk resolution of shared-prefix label mass (an approximation)
+
+interface SuffixWalkFetchRequest {
+  prefix: string;                    // exact decoded text to reissue as prefill
+  suffixes: readonly string[];       // label fragments still reachable
+  grammar: string;                   // GBNF accepting exactly one suffix
+}
+
+type SuffixTokenLogprobFetcher = (
+  request: SuffixWalkFetchRequest
+) => TokenLogprob | undefined;
+
+type AsyncSuffixTokenLogprobFetcher = (
+  request: SuffixWalkFetchRequest
+) => Promise<TokenLogprob | undefined>;
+
+interface SuffixWalkLabelProbOptions extends SingleTokenLabelProbOptions {
+  maxFetches?: number;               // finite positive integer; defaults to 8
+}
+
+type LabelProbResolution = 'single_position' | 'suffix_walk';
+
+type SuffixWalkTermination =
+  | 'not_started'
+  | 'complete'
+  | 'budget_exhausted'
+  | 'fetch_rejected';
+
+interface SuffixWalkLabelProbExtraction extends SingleTokenLabelProbExtraction {
+  resolution: LabelProbResolution;
+  termination: SuffixWalkTermination;
+  fetchCount: number;                // completed fetcher invocations
+}
+
+function generateSuffixGrammar(suffixes: readonly string[]): string;
+
+function resolveLabelProbsWithSuffixWalk(
+  labels: readonly string[],
+  initial: SingleTokenLabelProbExtraction,
+  fetcher: SuffixTokenLogprobFetcher,
+  options?: SuffixWalkLabelProbOptions
+): SuffixWalkLabelProbExtraction;
+
+function resolveLabelProbsWithSuffixWalkAsync(
+  labels: readonly string[],
+  initial: SingleTokenLabelProbExtraction,
+  fetcher: AsyncSuffixTokenLogprobFetcher,
+  options?: SuffixWalkLabelProbOptions
+): Promise<SuffixWalkLabelProbExtraction>;
+
 function mapOpenAIChatLogprobs(
   logprobs: unknown
 ): TokenLogprob[] | undefined;
@@ -393,6 +453,28 @@ type LLMServiceStreamEvent = LLMStreamEvent & { attemptId: string };
 `absoluteLabelProbs` and `residualMass` require provider evidence normalized over the complete
 effective candidate distribution before top-N truncation. `conditionalLabelProbs` is separately
 normalized over recognized labels. See [Constrained Answer Labels](constrained-answer-labels.md).
+
+The suffix-walk resolvers are optional and only act on an `ambiguous_prefix` extraction, which must
+carry `rawTokenLogprob` or they throw `TypeError`. Any other status is trusted typed pass-through:
+copied defensively, never reconciled against `labels` or `options`, and never fetched. `labels` must
+match the label set that produced the extraction; strict-prefix sets still throw.
+
+The fetcher is caller-owned and the library never dispatches. Each `SuffixWalkFetchRequest` carries
+the exact decoded `prefix` to reissue as assistant prefill, the still-reachable `suffixes`, and the
+`grammar` generated from them. Returning `undefined` (or unusable evidence) ends the walk with
+`termination: 'fetch_rejected'` while keeping already-resolved mass; a thrown error or rejected
+promise propagates unchanged. `maxFetches` is a global budget across all branches, defaulting to 8,
+and `fetchCount` reports the invocations actually spent.
+
+Results are approximations: reissued decoded text may retokenize differently from the original
+generated path, so `resolution: 'suffix_walk'` products carry no numerical error bound. `status`,
+`resolution`, and `termination` are independent axes, and `resolution` records that fetching
+occurred rather than that it succeeded.
+
+`SuffixWalkLabelProbExtraction` extends `SingleTokenLabelProbExtraction`, so a walk result is itself
+accepted as `initial`. Do not use that to resume an incomplete walk: no suffix transcript is
+retained, so the walk would restart from the position-0 snapshot and drop what it had already
+resolved. Raise `maxFetches` instead.
 
 Custom adapters emit the legacy-compatible `LLMStreamEvent` shape without an
 attempt ID. Every `LLMService` public stream event is an

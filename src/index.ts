@@ -131,11 +131,21 @@ export type {
 export {
   extractSingleTokenLabelProbs,
   generateAnswerTokenGrammar,
+  generateSuffixGrammar,
+  resolveLabelProbsWithSuffixWalk,
+  resolveLabelProbsWithSuffixWalkAsync,
 } from "./llm/constrainedLabels";
 export type {
+  AsyncSuffixTokenLogprobFetcher,
+  LabelProbResolution,
   SingleTokenLabelProbExtraction,
   SingleTokenLabelProbOptions,
   SingleTokenLabelProbStatus,
+  SuffixTokenLogprobFetcher,
+  SuffixWalkFetchRequest,
+  SuffixWalkLabelProbExtraction,
+  SuffixWalkLabelProbOptions,
+  SuffixWalkTermination,
 } from "./llm/constrainedLabels";
 export { mapOpenAIChatLogprobs } from "./shared/adapters/logprobsUtils";
 export { parseStructuredContent, parseRoleTags, extractInitialTaggedContent, extractMarkerDelimitedContent, parseTemplateWithMetadata } from "./prompting/parser";

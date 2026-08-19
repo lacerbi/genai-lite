@@ -978,6 +978,8 @@ Each entry is a `TokenLogprob` (`{ token, logprob, topLogprobs? }`). In streams,
 
 For single-position classification, combine `generateAnswerTokenGrammar()` with `extractSingleTokenLabelProbs()`. The grammar constrains character sequences, so a `maxTokens: 1` request requires labels known to tokenize as one output token for the selected model. The extractor separates absolute visible mass from probabilities conditional on recognized labels and reports ambiguous/residual mass explicitly. Its absolute fields require full-distribution-normalized provider evidence before top-N truncation. See [Constrained Answer Labels](constrained-answer-labels.md) and [TypeScript Reference](typescript-reference.md#constrained-answer-label-types).
 
+When labels share a prefix, `resolveLabelProbsWithSuffixWalk()` / `resolveLabelProbsWithSuffixWalkAsync()` can resolve the position from follow-up evidence. They are approximations, and `LLMService` does not automate them: the resolver builds each continuation request, but your injected fetcher is what calls `sendMessage()` for it and returns the resulting `TokenLogprob`. See [Resolving Shared Prefixes](constrained-answer-labels.md#resolving-shared-prefixes-suffix-walk).
+
 Starting in `v0.18.0`, `topLogprobs` without effective `logprobs: true` returns a validation error after all settings sources are merged.
 
 ---

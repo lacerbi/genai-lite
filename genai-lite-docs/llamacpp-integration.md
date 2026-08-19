@@ -380,6 +380,14 @@ The generated grammar accepts one optional leading ASCII space and one complete 
 not accept a trailing newline, which prevents a token such as `"red\n"` from satisfying the
 grammar but then losing its mass during extraction. Strict-prefix label sets are rejected.
 
+When labels share a leading substring, a returned token can stop on the shared part. That position
+can optionally be resolved with follow-up requests you dispatch yourself:
+`generateSuffixGrammar(suffixes)` builds the grammar for such a continuation, and the walk supplies
+the exact decoded text to reissue as **assistant prefill** so the model continues the same answer
+rather than restarting it. The result is an approximation, because reissued text may retokenize
+differently. See [Constrained Answer Labels](constrained-answer-labels.md#resolving-shared-prefixes-suffix-walk)
+for the complete workflow.
+
 Notes:
 - **Mutually exclusive with `structuredOutput`.** llama-server rejects a request that carries both a raw grammar and a JSON schema (`"Either 'json_schema' or 'grammar' can be specified, but not both"`); genai-lite validates this up front and returns a `validation_error`.
 - **Grammar may not apply while thinking is active.** Current llama.cpp builds may not constrain output during the thinking phase — prefer grammar with reasoning disabled (`reasoning.enabled: false`).

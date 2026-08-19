@@ -178,8 +178,8 @@ describe("extractSingleTokenLabelProbs", () => {
     );
 
     expect(result.status).toBe("ok");
-    expect(result.ambiguousMass).toBeCloseTo(0.001);
-    expect(result.absoluteLabelProbs.answer_one).toBeCloseTo(0.9);
+    expect(result.ambiguousMass).toBeCloseTo(0.001, 10);
+    expect(result.absoluteLabelProbs.answer_one).toBeCloseTo(0.9, 10);
   });
 
   it("returns ambiguous_prefix for significant shared-prefix mass", () => {
@@ -209,7 +209,7 @@ describe("extractSingleTokenLabelProbs", () => {
       ])
     );
 
-    expect(result.ambiguousMass).toBeCloseTo(0.006);
+    expect(result.ambiguousMass).toBeCloseTo(0.006, 10);
     expect(result.status).toBe("ambiguous_prefix");
   });
 
